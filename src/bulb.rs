@@ -126,6 +126,24 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Minimal valid sysinfo JSON for a KL135 bulb.
+    fn bulb_json(on_off: u8, brightness: u8, color_temp: u16, hue: u16, sat: u8) -> serde_json::Value {
+        json!({
+            "system": { "get_sysinfo": {
+                "alias": "Test Bulb", "model": "KL135(US)",
+                "hw_ver": "1.0", "sw_ver": "1.0.0",
+                "rssi": -55, "dev_state": "normal",
+                "light_state": {
+                    "on_off": on_off,
+                    "brightness": brightness,
+                    "color_temp": color_temp,
+                    "hue": hue,
+                    "saturation": sat
+                }
+            }}
+        })
+    }
+
     #[test]
     fn parse_reads_inline_light_state_when_on() {
         let json = json!({
@@ -193,5 +211,41 @@ mod tests {
         assert_eq!(bulb.light_state.color_temp(), 0);
         assert_eq!(bulb.light_state.hue(), 275);
         assert_eq!(bulb.light_state.saturation(), 50);
+    }
+
+    #[test]
+    fn parse_rejects_plug_sysinfo_missing_light_state() {
+        // Plug sysinfo has no light_state — deserialization must fail cleanly.
+        let json = json!({
+            "system": { "get_sysinfo": {
+                "mic_type": "IOT.SMARTPLUGSWITCH",
+                "alias": "Desk Plug", "model": "KP115(US)",
+                "hw_ver": "1.0", "sw_ver": "1.0.0",
+                "rssi": -50, "relay_state": 1
+            }}
+        });
+        assert!(parse(&json).is_none());
+    }
+
+    #[test]
+    fn parse_returns_none_for_empty_json() {
+        assert!(parse(&json!({})).is_none());
+    }
+
+    #[test]
+    fn fixture_helper_produces_parseable_bulb() {
+        let bulb = parse(&bulb_json(1, 75, 4000, 0, 0)).expect("fixture should parse");
+        assert!(bulb.light_state.is_on());
+        assert_eq!(bulb.light_state.brightness(), 75);
+        assert_eq!(bulb.light_state.color_temp(), 4000);
+    }
+
+    #[test]
+    fn color_mode_active_when_color_temp_is_zero() {
+        // sat > 0 + color_temp = 0 → HSV/color mode
+        let bulb = parse(&bulb_json(1, 80, 0, 120, 100)).expect("should parse");
+        assert_eq!(bulb.light_state.color_temp(), 0);
+        assert_eq!(bulb.light_state.hue(), 120);
+        assert_eq!(bulb.light_state.saturation(), 100);
     }
 }

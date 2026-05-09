@@ -137,56 +137,44 @@ pub fn path_display() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use rstest::rstest;
+    use tempfile::TempDir;
 
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    /// Each test gets a unique temp path so parallel tests don't interfere.
-    fn temp_path() -> PathBuf {
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir()
-            .join(format!("denki-hosts-{}-{}.json", std::process::id(), n))
+    /// Returns a TempDir (kept alive by caller) and a path inside it.
+    /// TempDir deletes itself on drop — tests must hold it for the full scope.
+    fn temp_hosts() -> (TempDir, PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("hosts.json");
+        (dir, path)
     }
 
-    #[test]
-    fn normalize_lowercases_and_collapses_whitespace() {
-        assert_eq!(normalize("Office Bulb"), "office bulb");
-        assert_eq!(normalize("Coat-Rack Lights"), "coat rack lights");
-        assert_eq!(normalize("  MULTIPLE   SPACES  "), "multiple spaces");
-        assert_eq!(normalize("123Abc!@#"), "123abc");
+    fn entry(ip: &str, protocol: Protocol) -> HostEntry {
+        HostEntry { ip: ip.to_string(), protocol }
     }
 
-    #[test]
-    fn load_returns_empty_map_when_file_missing() {
-        let path = temp_path(); // does not exist
-        let map = load_map(&path).unwrap();
-        assert!(map.is_empty());
+    // ── normalize ─────────────────────────────────────────────────────────────
+
+    #[rstest]
+    #[case("Office Bulb",        "office bulb")]
+    #[case("Coat-Rack Lights",   "coat rack lights")]
+    #[case("  MULTIPLE   SPACES  ", "multiple spaces")]
+    #[case("123Abc!@#",          "123abc")]
+    #[case("",                   "")]
+    fn normalize_cases(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(normalize(input), expected);
     }
 
-    #[test]
-    fn save_and_load_round_trips_v2_format() {
-        let path = temp_path();
-        let mut map = BTreeMap::new();
-        map.insert(
-            "floor lamp".to_string(),
-            HostEntry { ip: "192.168.1.10".to_string(), protocol: Protocol::Kasa },
-        );
-        map.insert(
-            "tapo plug".to_string(),
-            HostEntry { ip: "192.168.7.254".to_string(), protocol: Protocol::Klap },
-        );
-        save_map(&path, &map).unwrap();
+    // ── load_map ──────────────────────────────────────────────────────────────
 
-        let loaded = load_map(&path).unwrap();
-        assert_eq!(loaded["floor lamp"].ip, "192.168.1.10");
-        assert_eq!(loaded["floor lamp"].protocol, Protocol::Kasa);
-        assert_eq!(loaded["tapo plug"].ip, "192.168.7.254");
-        assert_eq!(loaded["tapo plug"].protocol, Protocol::Klap);
+    #[test]
+    fn load_returns_empty_when_file_missing() {
+        let (_dir, path) = temp_hosts();
+        assert!(load_map(&path).unwrap().is_empty());
     }
 
     #[test]
     fn load_v1_plain_strings_as_kasa() {
-        let path = temp_path();
+        let (_dir, path) = temp_hosts();
         std::fs::write(&path, r#"{"office bulb": "192.168.4.65"}"#).unwrap();
 
         let map = load_map(&path).unwrap();
@@ -194,17 +182,76 @@ mod tests {
         assert_eq!(map["office bulb"].protocol, Protocol::Kasa);
     }
 
+    // ── save_map + load_map round-trip ────────────────────────────────────────
+
     #[test]
-    fn saved_file_is_valid_json() {
-        let path = temp_path();
+    fn save_and_load_preserves_kasa_and_klap_entries() {
+        let (_dir, path) = temp_hosts();
         let mut map = BTreeMap::new();
-        map.insert(
-            "desk lamp".to_string(),
-            HostEntry { ip: "10.0.0.5".to_string(), protocol: Protocol::Kasa },
-        );
+        map.insert("floor lamp".to_string(), entry("192.168.1.10", Protocol::Kasa));
+        map.insert("tapo plug".to_string(),  entry("192.168.7.254", Protocol::Klap));
+        save_map(&path, &map).unwrap();
+
+        let loaded = load_map(&path).unwrap();
+        assert_eq!(loaded["floor lamp"].protocol, Protocol::Kasa);
+        assert_eq!(loaded["tapo plug"].protocol,  Protocol::Klap);
+        assert_eq!(loaded["tapo plug"].ip, "192.168.7.254");
+    }
+
+    #[test]
+    fn saved_file_is_pretty_printed_json() {
+        let (_dir, path) = temp_hosts();
+        let mut map = BTreeMap::new();
+        map.insert("desk lamp".to_string(), entry("10.0.0.5", Protocol::Kasa));
         save_map(&path, &map).unwrap();
 
         let raw = std::fs::read_to_string(&path).unwrap();
+        // Pretty-printed JSON has newlines
+        assert!(raw.contains('\n'));
         assert!(serde_json::from_str::<serde_json::Value>(&raw).is_ok());
+    }
+
+    // ── lookup (via load_map directly, no real config dir involved) ───────────
+
+    #[test]
+    fn exact_match_returns_entry() {
+        let (_dir, path) = temp_hosts();
+        let mut map = BTreeMap::new();
+        map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
+        save_map(&path, &map).unwrap();
+
+        let loaded = load_map(&path).unwrap();
+        let needle = normalize("floor lamp");
+        let found = loaded.iter().find(|(k, _)| normalize(k) == needle);
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn substring_match_is_unambiguous_when_only_one_entry_matches() {
+        let (_dir, path) = temp_hosts();
+        let mut map = BTreeMap::new();
+        map.insert("floor lamp".to_string(),  entry("10.0.0.1", Protocol::Kasa));
+        map.insert("ceiling fan".to_string(), entry("10.0.0.2", Protocol::Kasa));
+        save_map(&path, &map).unwrap();
+
+        let loaded = load_map(&path).unwrap();
+        let needle = normalize("floor");
+        let hits: Vec<_> = loaded.keys().filter(|k| normalize(k).contains(&needle)).collect();
+        assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
+    fn ambiguous_substring_matches_multiple_entries() {
+        let (_dir, path) = temp_hosts();
+        let mut map = BTreeMap::new();
+        map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
+        map.insert("desk lamp".to_string(),  entry("10.0.0.2", Protocol::Kasa));
+        save_map(&path, &map).unwrap();
+
+        let loaded = load_map(&path).unwrap();
+        let needle = normalize("lamp");
+        let hits: Vec<_> = loaded.keys().filter(|k| normalize(k).contains(&needle)).collect();
+        // Both match "lamp" — lookup should return None in this case
+        assert_eq!(hits.len(), 2);
     }
 }

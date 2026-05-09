@@ -97,69 +97,113 @@ pub fn parse(json: &serde_json::Value) -> Option<Plug> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use serde_json::json;
 
-    #[test]
-    fn parse_accepts_newer_plug_mic_type() {
-        let json = json!({
-            "system": {
-                "get_sysinfo": {
+    /// Minimal valid Plug for logic-only tests, avoiding JSON parsing overhead.
+    fn make_plug(on_time: u64, feature: Option<&str>) -> Plug {
+        Plug {
+            alias: "Test Plug".to_string(),
+            model: "KP115(US)".to_string(),
+            hw_ver: "1.0".to_string(),
+            sw_ver: "1.0.0".to_string(),
+            rssi: -50,
+            relay_state: u8::from(on_time > 0),
+            on_time,
+            led_off: 0,
+            feature: feature.map(str::to_string),
+        }
+    }
+
+    mod parse {
+        use super::*;
+
+        #[test]
+        fn accepts_newer_mic_type() {
+            let json = json!({
+                "system": { "get_sysinfo": {
                     "mic_type": "IOT.SMARTPLUGSWITCH",
-                    "alias": "Desk Plug",
-                    "model": "KP115(US)",
-                    "hw_ver": "1.0",
-                    "sw_ver": "1.1.1 Build 250908 Rel.112945",
-                    "rssi": -48,
-                    "relay_state": 1,
-                    "on_time": 3661,
-                    "led_off": 0,
-                    "feature": "TIM:ENE"
-                }
-            }
-        });
+                    "alias": "Desk Plug", "model": "KP115(US)",
+                    "hw_ver": "1.0", "sw_ver": "1.1.1",
+                    "rssi": -48, "relay_state": 1,
+                    "on_time": 3661, "led_off": 0, "feature": "TIM:ENE"
+                }}
+            });
+            let plug = parse(&json).expect("plug should parse");
+            assert!(plug.is_on());
+            assert!(plug.has_energy_monitoring());
+            assert_eq!(plug.on_time_fmt(), "1h 1m");
+        }
 
-        let plug = parse(&json).expect("plug should parse");
-
-        assert!(plug.is_on());
-        assert!(plug.has_energy_monitoring());
-        assert_eq!(plug.on_time_fmt(), "1h 1m");
-    }
-
-    #[test]
-    fn parse_accepts_older_type_field() {
-        let json = json!({
-            "system": {
-                "get_sysinfo": {
+        #[test]
+        fn accepts_older_type_field() {
+            let json = json!({
+                "system": { "get_sysinfo": {
                     "type": "IOT.SMARTPLUGSWITCH",
-                    "alias": "Old Plug",
-                    "model": "HS105(US)",
-                    "hw_ver": "5.0",
-                    "sw_ver": "1.0.0",
-                    "rssi": -70,
-                    "relay_state": 0,
-                    "feature": "TIM"
-                }
-            }
-        });
+                    "alias": "Old Plug", "model": "HS105(US)",
+                    "hw_ver": "5.0", "sw_ver": "1.0.0",
+                    "rssi": -70, "relay_state": 0, "feature": "TIM"
+                }}
+            });
+            let plug = parse(&json).expect("older plug should parse");
+            assert!(!plug.is_on());
+            assert!(!plug.has_energy_monitoring());
+        }
 
-        let plug = parse(&json).expect("older plug should parse");
+        #[test]
+        fn rejects_bulb_sysinfo() {
+            let json = json!({
+                "system": { "get_sysinfo": {
+                    "mic_type": "IOT.SMARTBULB", "alias": "Bulb"
+                }}
+            });
+            assert!(parse(&json).is_none());
+        }
 
-        assert!(!plug.is_on());
-        assert!(!plug.has_energy_monitoring());
-        assert_eq!(plug.on_time_fmt(), "off");
+        #[test]
+        fn rejects_missing_sysinfo_wrapper() {
+            assert!(parse(&json!({})).is_none());
+        }
     }
 
-    #[test]
-    fn parse_rejects_non_plug_device() {
-        let json = json!({
-            "system": {
-                "get_sysinfo": {
-                    "mic_type": "IOT.SMARTBULB",
-                    "alias": "Bulb"
-                }
-            }
-        });
+    mod on_time_display {
+        use super::*;
 
-        assert!(parse(&json).is_none());
+        #[rstest]
+        #[case(0,    "off")]
+        #[case(1,    "1s")]
+        #[case(30,   "30s")]
+        #[case(59,   "59s")]
+        #[case(60,   "1m 0s")]
+        #[case(90,   "1m 30s")]
+        #[case(3599, "59m 59s")]
+        #[case(3600, "1h 0m")]
+        #[case(3661, "1h 1m")]
+        #[case(7322, "2h 2m")]
+        fn formats_duration(#[case] secs: u64, #[case] expected: &str) {
+            assert_eq!(
+                make_plug(secs, None).on_time_fmt(),
+                expected,
+                "on_time={secs}s"
+            );
+        }
+    }
+
+    mod energy_monitoring {
+        use super::*;
+
+        #[rstest]
+        #[case(Some("TIM:ENE"), true)]
+        #[case(Some("ENE"),     true)]
+        #[case(Some("TIM"),     false)]
+        #[case(Some(""),        false)]
+        #[case(None,            false)]
+        fn detected_from_feature_string(#[case] feature: Option<&str>, #[case] expected: bool) {
+            assert_eq!(
+                make_plug(0, feature).has_energy_monitoring(),
+                expected,
+                "feature={feature:?}"
+            );
+        }
     }
 }

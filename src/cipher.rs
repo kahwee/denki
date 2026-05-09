@@ -54,62 +54,82 @@ pub fn decode(ciphertext: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    use rstest::rstest;
+
+    // ── Round-trip correctness ─────────────────────────────────────────────────
 
     #[test]
     fn encode_raw_round_trips_with_decode() {
         let plaintext = br#"{"system":{"get_sysinfo":{}}}"#;
-
-        let encoded = encode_raw(plaintext);
-        let decoded = decode(&encoded);
-
-        assert_eq!(decoded, plaintext);
+        assert_eq!(decode(&encode_raw(plaintext)), plaintext);
     }
 
     #[test]
-    fn encode_adds_big_endian_length_prefix_for_tcp() {
+    fn encode_strips_prefix_before_decode() {
         let plaintext = b"hello kasa";
-
-        let encoded = encode(plaintext);
-        let len = u32::from_be_bytes(encoded[..4].try_into().unwrap());
-        let decoded = decode(&encoded[4..]);
-
-        assert_eq!(len as usize, plaintext.len());
-        assert_eq!(decoded, plaintext);
-    }
-
-    #[test]
-    fn udp_encoding_has_no_length_prefix() {
-        let plaintext = b"ping";
-
-        let raw = encode_raw(plaintext);
         let framed = encode(plaintext);
+        let len = u32::from_be_bytes(framed[..4].try_into().unwrap()) as usize;
+        assert_eq!(len, plaintext.len());
+        assert_eq!(decode(&framed[4..]), plaintext);
+    }
 
-        assert_eq!(raw.len(), plaintext.len());
-        assert_eq!(framed.len(), plaintext.len() + 4);
-        assert_ne!(&framed[..4], &raw[..]);
+    // ── TCP vs UDP framing ─────────────────────────────────────────────────────
+
+    #[test]
+    fn tcp_frame_is_four_bytes_longer_than_raw() {
+        let plain = b"ping";
+        assert_eq!(encode(plain).len(), encode_raw(plain).len() + 4);
+    }
+
+    // ── Known-plaintext table (manually derived, key=0xAB) ────────────────────
+    //
+    //  Input byte b, running key k:
+    //    cipher = b ^ k;  next_k = cipher
+    //
+    //  ""    → []
+    //  "1"   → [0x31^0xAB]                  = [0x9A]
+    //  "12"  → [0x9A, 0x32^0x9A]            = [0x9A, 0xA8]
+    //  "{"   → [0x7B^0xAB]                  = [0xD0]  ← first byte of every sysinfo probe
+    //  "\x00"→ [0x00^0xAB]                  = [0xAB]
+
+    #[rstest]
+    #[case(&[][..],        &[][..])]
+    #[case(b"1",           &[0x9A])]
+    #[case(b"12",          &[0x9A, 0xA8])]
+    #[case(b"{",           &[0xD0])]
+    #[case(&[0x00],        &[0xAB])]
+    fn encode_raw_known_output(#[case] input: &[u8], #[case] expected: &[u8]) {
+        assert_eq!(encode_raw(input), expected);
     }
 
     #[test]
-    fn known_plaintext_produces_correct_cipher_bytes() {
-        // Manually derived: key=0xAB
-        //   '1' (0x31) ^ 0xAB = 0x9A, key = 0x9A
-        //   '2' (0x32) ^ 0x9A = 0xA8
-        assert_eq!(encode_raw(b"12"), vec![0x9A, 0xA8]);
+    fn tcp_frame_for_known_input_has_correct_prefix_and_body() {
+        let framed = encode(b"12");
+        assert_eq!(&framed[..4], &[0x00, 0x00, 0x00, 0x02]); // big-endian len = 2
+        assert_eq!(&framed[4..], &[0x9A, 0xA8]);
     }
 
-    #[test]
-    fn tcp_frame_has_correct_length_prefix_and_body() {
-        let encoded = encode(b"12");
-        assert_eq!(&encoded[..4], &[0x00, 0x00, 0x00, 0x02]); // big-endian length = 2
-        assert_eq!(&encoded[4..], &[0x9A, 0xA8]);              // same body as encode_raw
-    }
+    // ── Property-based tests ───────────────────────────────────────────────────
 
-    #[test]
-    fn sysinfo_probe_first_byte_matches_protocol() {
-        // '{' = 0x7B; 0x7B ^ 0xAB (key) = 0xD0
-        // This is the first byte of any get_sysinfo broadcast — a regression anchor.
-        let probe = br#"{"system":{"get_sysinfo":{}}}"#;
-        let encoded = encode_raw(probe);
-        assert_eq!(encoded[0], 0xD0);
+    proptest! {
+        #[test]
+        fn encode_raw_decode_round_trips_for_any_input(data in proptest::collection::vec(any::<u8>(), 0..=512)) {
+            prop_assert_eq!(decode(&encode_raw(&data)), data);
+        }
+
+        #[test]
+        fn tcp_length_prefix_always_matches_plaintext_len(data in proptest::collection::vec(any::<u8>(), 0..=512)) {
+            let framed = encode(&data);
+            let prefix_len = u32::from_be_bytes(framed[..4].try_into().unwrap()) as usize;
+            prop_assert_eq!(prefix_len, data.len());
+        }
+
+        #[test]
+        fn decode_is_inverse_of_encode_raw(data in proptest::collection::vec(any::<u8>(), 0..=512)) {
+            // encode then decode is identity; also decode then encode is identity
+            let ciphertext = encode_raw(&data);
+            prop_assert_eq!(encode_raw(&decode(&ciphertext)), ciphertext);
+        }
     }
 }
