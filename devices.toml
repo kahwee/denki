@@ -26,7 +26,7 @@ port        = 80
 transport   = ["tcp"]
 cipher      = "aes-cbc"
 auth        = "sha256-handshake"
-notes       = "Newer Tapo devices (P125, L530). Not implemented in denki."
+notes       = "Newer Tapo devices (P125, L530). Implemented in denki via raw TCP HTTP."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Devices
@@ -709,6 +709,6 @@ model       = "P125"
 name        = "Smart Wi-Fi Plug Mini"
 mic_type    = "IOT.SMARTPLUGSWITCH"
 protocol    = "klap"
-verified    = false  # KLAP protocol not yet implemented
+verified    = true   # personally owned and live-tested (two units: Living Room Left Lamp + Pantry Shelves)
 port        = 80
-notes       = "Uses KLAP protocol on port 80. Responds to UDP discovery but sysinfo JSON is in a different format. Not yet supported in denki."
+notes       = "Uses KLAP protocol (KlapTransportV2). HTTP on port 80, AES-128-CBC encrypted sessions. Supports get_device_info, set_device_info (device_on). Nickname in API response is base64-encoded."

@@ -37,22 +37,22 @@ use aes::Aes128;
 use anyhow::{bail, Result};
 use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use rand::RngCore;
-use reqwest::Client;
 use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 type Aes128CbcEnc = cbc::Encryptor<Aes128>;
 type Aes128CbcDec = cbc::Decryptor<Aes128>;
 
-/// An active KLAP session. Holds the derived keys and HTTP client.
+/// An active KLAP session. Holds the derived keys and connection info.
 pub struct KlapSession {
     key: [u8; 16],
     iv_base: [u8; 12],
     sig: [u8; 28],
     seq: i32,
     cookie: String,
-    client: Client,
-    request_url: String,
+    host: String,
 }
 
 fn sha1_of(data: &[u8]) -> [u8; 20] {
@@ -83,78 +83,113 @@ pub fn auth_hash(username: &str, password: &str) -> [u8; 32] {
     sha256_of(&[un.as_slice(), pw.as_slice()].concat())
 }
 
+/// Read bytes from stream until the pattern `\r\n\r\n` is found.
+/// Returns all bytes read (including the separator).
+async fn read_headers(stream: &mut TcpStream) -> Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(512);
+    loop {
+        let b = stream.read_u8().await?;
+        buf.push(b);
+        if buf.ends_with(b"\r\n\r\n") {
+            return Ok(buf);
+        }
+        if buf.len() > 8192 {
+            bail!("HTTP response headers too large");
+        }
+    }
+}
+
+/// Send a raw HTTP POST over a fresh TCP connection, returns (status, headers, body).
+async fn http_post(
+    host: &str,
+    path: &str,
+    extra_headers: &[(&str, &str)],
+    body: &[u8],
+) -> Result<(u16, String, Vec<u8>)> {
+    let mut stream = TcpStream::connect(format!("{host}:80")).await?;
+    stream.set_nodelay(true)?;
+
+    let mut req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    for (k, v) in extra_headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+
+    stream.write_all(req.as_bytes()).await?;
+    stream.write_all(body).await?;
+
+    // Read headers byte by byte until \r\n\r\n
+    let header_bytes = read_headers(&mut stream).await?;
+    let headers_str = String::from_utf8_lossy(&header_bytes).into_owned();
+
+    // Parse status code from first line: "HTTP/1.1 200 OK"
+    let status: u16 = headers_str
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| anyhow::anyhow!("Could not parse HTTP status"))?;
+
+    // Parse Content-Length to read exactly that many body bytes
+    let content_length: usize = headers_str
+        .lines()
+        .find_map(|l| {
+            let lower = l.to_lowercase();
+            if lower.starts_with("content-length:") {
+                l[15..].trim().parse().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+
+    let mut resp_body = vec![0u8; content_length];
+    if content_length > 0 {
+        stream.read_exact(&mut resp_body).await?;
+    }
+
+    Ok((status, headers_str, resp_body))
+}
+
 /// Perform the KLAP handshake and return a ready-to-use session.
 pub async fn handshake(host: &str, username: &str, password: &str) -> Result<KlapSession> {
     let ah = auth_hash(username, password);
-    let base = format!("http://{host}:80/app");
 
     let mut local_seed = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut local_seed);
 
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .http1_only()
-        .build()?;
-
     // ── Handshake 1 ──────────────────────────────────────────────────────────
-    // ── Raw TCP test ─────────────────────────────────────────────────────────
-    {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::TcpStream;
-        let mut stream = TcpStream::connect(format!("{host}:80")).await?;
-        let request = format!(
-            "POST /app/handshake1 HTTP/1.1\r\nHost: {host}:80\r\nContent-Type: application/octet-stream\r\nContent-Length: 16\r\nConnection: close\r\n\r\n"
-        );
-        stream.write_all(request.as_bytes()).await?;
-        stream.write_all(&local_seed).await?;
-        let mut buf = vec![0u8; 4096];
-        let n = stream.read(&mut buf).await?;
-        let resp_str = String::from_utf8_lossy(&buf[..n]);
-        let status_line = resp_str.lines().next().unwrap_or("???");
-        eprintln!("DEBUG raw TCP handshake1: {}", status_line);
+    let (status1, headers1, body1) = http_post(host, "/app/handshake1", &[], &local_seed).await?;
+    if status1 != 200 {
+        bail!("Handshake 1 failed: HTTP {status1}");
     }
 
-    let body1 = local_seed.to_vec();
-    eprintln!(
-        "DEBUG hs1: body len={}, seed={:?}",
-        body1.len(),
-        &body1[..4]
-    );
-    let test_url = std::env::var("KLAP_TEST_URL").unwrap_or_else(|_| format!("{base}/handshake1"));
-    let req1 = client
-        .post(&test_url)
-        .header("Content-Type", "application/octet-stream")
-        .body(body1)
-        .build()?;
-    eprintln!("DEBUG hs1 request headers: {:?}", req1.headers());
-    let resp = client.execute(req1).await?;
-    eprintln!("DEBUG hs1 status: {}", resp.status());
-
-    if !resp.status().is_success() {
-        bail!("Handshake 1 failed: HTTP {}", resp.status());
-    }
-
-    // Grab TP_SESSIONID from Set-Cookie header (cookie_store not required)
-    let cookie = resp
-        .headers()
-        .get_all("set-cookie")
-        .iter()
-        .find_map(|v| {
-            let s = v.to_str().ok()?;
-            s.split(';')
+    // Grab TP_SESSIONID from Set-Cookie header
+    let cookie = headers1
+        .lines()
+        .find_map(|line| {
+            let lower = line.to_lowercase();
+            if !lower.starts_with("set-cookie:") {
+                return None;
+            }
+            let value = line[11..].trim();
+            value
+                .split(';')
                 .next()
-                .filter(|p| p.trim_start().starts_with("TP_SESSIONID="))
+                .filter(|p| p.trim_start().to_lowercase().starts_with("tp_sessionid="))
                 .map(|p| p.trim().to_string())
         })
         .ok_or_else(|| anyhow::anyhow!("No TP_SESSIONID cookie from {host}"))?;
 
-    let body = resp.bytes().await?;
-    if body.len() < 48 {
-        bail!("Handshake 1 response too short ({} bytes)", body.len());
+    if body1.len() < 48 {
+        bail!("Handshake 1 response too short ({} bytes)", body1.len());
     }
 
-    let remote_seed: [u8; 16] = body[..16].try_into()?;
-    let server_hash = &body[16..48];
+    let remote_seed: [u8; 16] = body1[..16].try_into()?;
+    let server_hash = &body1[16..48];
 
     // Verify server proved it knows auth_hash
     let expected = sha256_multi(&[&local_seed, &remote_seed, &ah]);
@@ -164,26 +199,27 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
 
     // ── Handshake 2 ──────────────────────────────────────────────────────────
     let client_proof = sha256_multi(&[&remote_seed, &local_seed, &ah]);
-    let resp2 = client
-        .post(format!("{base}/handshake2"))
-        .header("Content-Type", "application/octet-stream")
-        .header("Cookie", &cookie)
-        .body(client_proof.to_vec())
-        .send()
-        .await?;
-
-    if !resp2.status().is_success() {
-        bail!("Handshake 2 failed: HTTP {}", resp2.status());
+    let (status2, _, _) = http_post(
+        host,
+        "/app/handshake2",
+        &[("Cookie", &cookie)],
+        &client_proof,
+    )
+    .await?;
+    if status2 != 200 {
+        bail!("Handshake 2 failed: HTTP {status2}");
     }
 
     // ── Key derivation ────────────────────────────────────────────────────────
-    let key: [u8; 16] = sha256_multi(&[b"lsk", &local_seed, &remote_seed, &ah])[..16].try_into()?;
+    let key: [u8; 16] = sha256_multi(&[b"lsk", &local_seed, &remote_seed, &ah])[..16]
+        .try_into()?;
 
     let iv_full = sha256_multi(&[b"iv", &local_seed, &remote_seed, &ah]);
     let iv_base: [u8; 12] = iv_full[..12].try_into()?;
     let seq = i32::from_be_bytes(iv_full[28..32].try_into()?);
 
-    let sig: [u8; 28] = sha256_multi(&[b"ldk", &local_seed, &remote_seed, &ah])[..28].try_into()?;
+    let sig: [u8; 28] = sha256_multi(&[b"ldk", &local_seed, &remote_seed, &ah])[..28]
+        .try_into()?;
 
     Ok(KlapSession {
         key,
@@ -191,8 +227,7 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
         sig,
         seq,
         cookie,
-        client,
-        request_url: format!("{base}/request"),
+        host: host.to_string(),
     })
 }
 
@@ -200,23 +235,18 @@ impl KlapSession {
     /// Encrypt a JSON string, POST it to the device, decrypt and return the response.
     pub async fn send(&mut self, json: &str) -> Result<serde_json::Value> {
         let (payload, seq) = self.encrypt(json.as_bytes())?;
+        let path = format!("/app/request?seq={seq}");
+        let cookie = self.cookie.clone();
+        let host = self.host.clone();
 
-        let resp = self
-            .client
-            .post(&self.request_url)
-            .query(&[("seq", seq)])
-            .header("Content-Type", "application/octet-stream")
-            .header("Cookie", &self.cookie)
-            .body(payload)
-            .send()
-            .await?;
+        let (status, _, resp_body) =
+            http_post(&host, &path, &[("Cookie", &cookie)], &payload).await?;
 
-        if !resp.status().is_success() {
-            bail!("Request failed: HTTP {}", resp.status());
+        if status != 200 {
+            bail!("Request failed: HTTP {status}");
         }
 
-        let bytes = resp.bytes().await?;
-        let plaintext = self.decrypt(&bytes)?;
+        let plaintext = self.decrypt(&resp_body)?;
         Ok(serde_json::from_str(&plaintext)?)
     }
 
