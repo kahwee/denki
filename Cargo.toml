@@ -10,6 +10,14 @@ readme = "README.md"
 keywords = ["tplink", "kasa", "tapo", "smarthome", "cli"]
 categories = ["command-line-utilities", "network-programming"]
 
+[lib]
+name = "denki"
+path = "src/lib.rs"
+
+[[bin]]
+name = "denki"
+path = "src/main.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }

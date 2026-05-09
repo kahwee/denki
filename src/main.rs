@@ -1,14 +1,4 @@
-mod bulb;
-mod cipher;
-mod hosts;
-mod dimmer;
-mod display;
-mod klap;
-mod ops;
-mod plug;
-mod strip;
-mod tapo;
-mod transport;
+use denki::{bulb, cipher, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
