@@ -1,86 +1,87 @@
 # CLAUDE.md — denki
 
-Rust CLI for controlling TP-Link smart bulbs and plugs over the local network.
+Rust CLI for controlling TP-Link Kasa and Tapo smart devices over the local network.
 
 ## Build & Run
 
 ```bash
-cargo build
-./target/debug/denki --help
+export PATH="/opt/homebrew/bin:$PATH"  # Homebrew Rust on macOS
+cargo build --release
+./target/release/denki --help
 ```
 
 ## Project Structure
 
 | File | Purpose |
 |------|---------|
-| `src/main.rs` | CLI (clap) + command dispatch + device-type detection |
-| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, has length prefix) / `encode_raw` (UDP, no prefix) |
-| `src/transport.rs` | TCP `send()` + UDP `broadcast()` for discovery |
-| `src/bulb.rs` | KL135 sysinfo struct — handles on/off state difference (dft_on_state vs inline) |
-| `src/plug.rs` | Plug sysinfo struct + feature detection (supports KP115, HS110, HS105) |
-| `src/tapo.rs` | Tapo device info parsing |
-| `src/klap.rs` | Experimental KLAP transport for newer Tapo devices |
-| `src/ops.rs` | All device operations, split into bulb/plug/shared namespaces |
-| `src/display.rs` | Colored terminal output for both device types |
+| `src/main.rs` | CLI (clap) — subcommand definitions, device-type detection, command dispatch |
+| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, length-prefixed) / `encode_raw` (UDP) |
+| `src/transport.rs` | TCP `send()` + UDP `broadcast()` for Kasa device communication |
+| `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
+| `src/hosts.rs` | Alias registry — maps friendly names → IP + protocol, stored as JSON |
+| `src/bulb.rs` | KL135/KL430 sysinfo parsing |
+| `src/plug.rs` | Plug sysinfo parsing + feature detection (KP115, HS110, HS105) |
+| `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
+| `src/strip.rs` | HS300/KP303 power strip sysinfo + per-outlet state |
+| `src/tapo.rs` | Tapo `get_device_info` response parsing |
+| `src/ops.rs` | All API calls — `bulb_*`, `plug_*`, `tapo_*`, shared |
+| `src/display.rs` | Colored terminal output for all device types |
+| `src/lib.rs` | Re-exports all modules as pub for library use |
+| `devices.toml` | Machine-readable device capability map — commands, verified hardware |
 
-## Protocol
+## Protocols
 
-All legacy Kasa devices use **XOR autokey cipher on TCP port 9999**:
-- Encrypt: key starts at 171, each output byte = input XOR previous output; TCP adds 4-byte big-endian length prefix
-- UDP broadcast (discovery): same cipher but NO length prefix — `encode_raw()` for send, `decode()` for receive
-- Newer Tapo devices (P125, L530) use KLAP on port 80. Basic info/power support is experimental and uses `TAPO_USER` / `TAPO_PASS`.
+### Kasa (legacy) — port 9999
+XOR autokey cipher. Key starts at 171; each output byte = input XOR previous output byte.
+- TCP: 4-byte big-endian length prefix before ciphertext
+- UDP: no length prefix — `encode_raw()` for send, `decode()` for receive
 
-## Supported Devices
+### KLAP (Tapo) — port 80
+AES-128-CBC over plain HTTP on port 80. Two-phase handshake:
+1. POST `/app/handshake1` — send 16 random bytes, receive `remote_seed | server_hash`, verify auth
+2. POST `/app/handshake2` — send client proof
+3. POST `/app/request?seq=N` — encrypted requests with sequence-numbered IVs
 
-### KL135 Smart Bulb (IOT.SMARTBULB)
-- Power: `smartlife.iot.smartbulb.lightingservice/transition_light_state`
-- Color: HSV or color temp (mutually exclusive — sat > 0 disables CCT mode)
-- Energy: `smartlife.iot.common.emeter` (NOT the standard `emeter` module)
-- NO schedule/countdown/time support
-- HW 2.6 adds: `fade_on_off`, `get_default_behavior`, `re_power_type`
-- Specs: `get_light_details` — lumens (800), wattage (10W), CRI (90), beam (220°)
-- Presets: `get_preferred_state` — 4 saved slots
+`auth_hash = SHA256(SHA1(username) + SHA1(password))`
 
-### KP115 Smart Plug (IOT.SMARTPLUGSWITCH)
-- Power: `system/set_relay_state`
-- Energy: standard `emeter` module — realtime, daily, monthly (full V/A/W data)
-- LED indicator: `system/set_led_off`
-- Schedule: `schedule/get_rules`
-- Time: `time/get_time` and `time/get_timezone`
-- NO countdown support (returns -1)
+Implemented via raw `tokio::net::TcpStream` (not reqwest) because some Tapo firmware returns 400 for standard HTTP clients.
 
-### HS110 Smart Plug with Energy Monitoring
-- Energy: `emeter` module — real units (W/V/A/kWh), NOT milli-units like KP115
-- Day/month stat field: `energy` (kWh), NOT `energy_wh` like KP115
+## Device Resolution
 
-### HS105 Smart Plug Mini (no energy chip)
-- Feature string: `TIM` only (no `ENE`) — energy commands will fail gracefully
-- Supports: countdown timer, away mode (`anti_theft`), schedule, time, LED, cloud info
-- GPS coordinates stored in sysinfo (`longitude_i`, `latitude_i` × 0.0001 = degrees)
+`resolve()` in `main.rs` resolves a name or IP to `(ip, protocol)`:
+1. Looks like an IP or contains `.` → Kasa (default)
+2. Saved alias in `hosts.json` → uses stored protocol
+3. Falls back to UDP scan → Kasa
 
-### Tapo P125/P125M Smart Plug (experimental KLAP)
-- Info: `get_device_info`
-- Power: `set_device_info` with `device_on`
-- Requires `TAPO_USER` and `TAPO_PASS`
+For Tapo devices, save the alias with `--klap`:
+```bash
+denki alias "tapo plug" 192.168.1.50 --klap
+```
 
-## Device Detection
+## Tapo Credentials
 
-`detect_kind()` in `main.rs` reads `mic_type` (newer devices) or `type` (older devices like HS105/HS110):
+Set `TAPO_USER` and `TAPO_PASS` for all commands that resolve to a KLAP device:
+```bash
+export TAPO_USER="you@example.com"
+export TAPO_PASS="your-tapo-password"
+```
+
+## Device Detection (Kasa)
+
+`detect_kind()` reads `mic_type` (newer devices) or `type` (older devices):
+- `IOT.SMARTBULB` + `length` field → LightStrip
 - `IOT.SMARTBULB` → Bulb
-- `IOT.SMARTPLUGSWITCH` or `IOT.SMARTPLUG` → Plug
-
-Most legacy commands accept either an IP address or a device name from `denki scan`.
-Name matching is case-insensitive and partial, so `denki info "living room"` can
-resolve `Living Room Right Lamp` when that is the only match. IP addresses still
-bypass discovery and connect directly.
+- `IOT.SMARTPLUGSWITCH` + "Dimmer" in `dev_name` → Dimmer
+- `IOT.SMARTPLUGSWITCH` + `children` array → Strip
+- `IOT.SMARTPLUGSWITCH` → Plug
 
 ## Commands
 
 ```
-denki scan [--timeout N]              Discover all devices on the network
-denki info <device>                   Detailed device info
-denki power <device> on|off|toggle    Power control (auto-detects bulb vs plug)
-denki dim <device> <0-100>            Brightness (bulbs only)
+denki scan [--timeout N]              Discover all Kasa devices on the network
+denki info <device>                   Detailed device info (Kasa + Tapo)
+denki power <device> on|off|toggle    Power control (Kasa + Tapo, auto-detects type)
+denki dim <device> <0-100>            Brightness (bulbs/dimmers only)
 denki warmth <device> <2500-9000>     Color temperature in Kelvin (bulbs only)
 denki color <device> <H> <S> <V>      HSV color (bulbs only)
 denki energy <device>                 Real-time power usage
@@ -91,17 +92,19 @@ denki presets <device>                Saved light presets (bulbs only)
 denki schedules <device>              Schedule rules (plugs only)
 denki led <device> on|off             LED indicator (plugs only)
 denki clock <device>                  Device clock (plugs only)
+denki outlets <device>                Per-outlet state (strips only)
 denki rename <device> <name>          Rename device
 denki restart <device>                Reboot device
-denki tapo <host>                     Tapo info via KLAP
-denki tapo-power <host> on|off|toggle Tapo power via KLAP
+denki alias <name> <ip> [--klap]      Save a friendly name for a device
+denki unalias <name>                  Remove a saved alias
+denki aliases                         List all saved aliases
 ```
 
 ## Not Implemented
 
-- Full Tapo feature coverage beyond basic info and power
+- Energy monitoring for Tapo devices (P125 does not expose emeter locally)
 - Away mode (`anti_theft`) rule creation
 - Countdown timer creation
 - Schedule creation/deletion
 - Firmware updates (intentionally excluded)
-- Effect animations (not available via local API on KL135)
+- Effect animations on KL135 (not available via local API; KL430 supports them)

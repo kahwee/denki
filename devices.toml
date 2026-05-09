@@ -166,8 +166,8 @@ name        = "Smart Wi-Fi Plug Mini with Energy Monitoring"
 mic_type    = "IOT.SMARTPLUGSWITCH"
 protocol    = "legacy"
 feature_str = "TIM:ENE"  # timer + energy monitoring
-verified    = true   # personally owned and live-tested (unit: "Hummer" @ 192.168.4.36)
-# Energy monitoring confirmed live: voltage_mv + current_ma + power_mw + total_wh all returned
+verified    = true   # personally owned and live-tested; energy monitoring confirmed live
+# Returns all four fields: voltage_mv + current_ma + power_mw + total_wh
 
   [[devices.features]]
   id          = "power"
@@ -710,6 +710,6 @@ model       = "P125"
 name        = "Smart Wi-Fi Plug Mini"
 mic_type    = "IOT.SMARTPLUGSWITCH"
 protocol    = "klap"
-verified    = true   # personally owned and live-tested (two units: Living Room Left Lamp + Pantry Shelves)
+verified    = true   # personally owned and live-tested (multiple units)
 port        = 80
 notes       = "Uses KLAP protocol (KlapTransportV2). HTTP on port 80, AES-128-CBC encrypted sessions. Supports get_device_info, set_device_info (device_on). Nickname in API response is base64-encoded."

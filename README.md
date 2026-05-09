@@ -1,187 +1,224 @@
 # denki (電気)
 
-Command-line tool for controlling TP-Link smart bulbs and plugs over your local network. No cloud required.
+Command-line tool for controlling TP-Link Kasa and Tapo smart devices over your local network. No cloud required.
 
 *denki* means electricity in Japanese.
 
 ## Supported Devices
 
-| Device | Type | Energy | Color |
-|--------|------|--------|-------|
-| KL135 | Smart bulb | Yes | Yes (HSV + color temp) |
-| KP115 | Smart plug | Yes (V/A/W) | — |
-| HS110 | Smart plug | Yes (V/A/W) | — |
-| HS105 | Smart plug mini | No | — |
-| P125/P125M | Tapo smart plug | Not yet exposed | — |
+| Model | Type | Protocol | Energy | Color/Dim |
+|-------|------|----------|--------|-----------|
+| KL135 | Smart bulb | Kasa (XOR) | Yes (W only) | Yes — HSV + color temp |
+| KL430 | LED light strip | Kasa (XOR) | Yes (W only) | Yes — HSV + color temp + effects |
+| KP115 | Smart plug mini | Kasa (XOR) | Yes (V/A/W/Wh) | — |
+| HS110 | Smart plug | Kasa (XOR) | Yes (V/A/W/kWh) | — |
+| HS105 | Smart plug mini | Kasa (XOR) | No | — |
+| HS220 | Dimmer switch | Kasa (XOR) | No | Brightness only |
+| HS300/KP303 | Power strip | Kasa (XOR) | Yes (aggregate) | — |
+| P125/P125M | Tapo plug mini | KLAP (HTTP) | Not yet | — |
 
-> Tapo/KLAP support is experimental. Set `TAPO_USER` and `TAPO_PASS` before using Tapo commands.
+> **Note on energy units:** KP115 returns milli-units (`voltage_mv`, `current_ma`, `power_mw`). HS110 returns real units (`voltage`, `current`, `power` in V/A/W). Both share the same command.
+
+Devices marked `verified = true` in `devices.toml` have been live-tested on real hardware.
 
 ## Install
 
-### Prerequisites
-
-You need Rust. If you don't have it:
+**Prerequisites:** Rust. If you don't have it:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### Build from source
+**Build from source:**
 
 ```bash
 git clone https://github.com/kahwee/denki.git
 cd denki
 cargo build --release
+./target/release/denki --help
 ```
 
-The binary will be at `./target/release/denki`.
-
-### Install with cargo
+**Install to PATH:**
 
 ```bash
 cargo install --path .
+# binary lands in ~/.cargo/bin/denki (already on PATH if you used rustup)
 ```
 
-This places the binary in `~/.cargo/bin/denki`, which is already on your PATH if you installed Rust with rustup.
-
-### Or copy manually
+Or copy manually:
 
 ```bash
 cp target/release/denki /usr/local/bin/
 ```
 
-On macOS with Homebrew's prefix:
-
-```bash
-cp target/release/denki /opt/homebrew/bin/
-```
-
-## Project Structure
-
-| File | Purpose |
-|------|---------|
-| `src/main.rs` | CLI (clap) + command dispatch + device-type detection |
-| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, has length prefix) / `encode_raw` (UDP, no prefix) |
-| `src/transport.rs` | TCP `send()` + UDP `broadcast()` for discovery |
-| `src/bulb.rs` | KL135 sysinfo struct — handles on/off state difference (dft_on_state vs inline) |
-| `src/plug.rs` | Plug sysinfo struct + feature detection (supports KP115, HS110, HS105) |
-| `src/ops.rs` | All device operations, split into bulb/plug/shared namespaces |
-| `src/display.rs` | Colored terminal output for both device types |
-
 ## Usage
 
-### Find your devices
+### Discover devices
 
 ```bash
 denki scan
-denki scan --timeout 5    # custom timeout in seconds
+denki scan --timeout 5
 ```
 
-This broadcasts a UDP discovery packet and lists everything it finds. Devices must be on the same network as your computer.
+Broadcasts a UDP discovery packet on port 9999. Devices must be on the same subnet.
 
 ```
+Found 3 device(s)
+
 == Office Bulb == [192.168.1.42] on  good signal
    KL135 HW:2.6  FW:1.0.9  2700K  80%
+
+[192.168.1.55] on  good signal
+   KP115  relay: on  feature: TIM:ENE
 ```
+
+### Save device aliases
+
+Instead of typing IP addresses, save a friendly name:
+
+```bash
+denki alias "desk lamp" 192.168.1.42
+denki alias "tapo plug" 192.168.1.50 --klap   # Tapo devices need --klap
+denki aliases                                   # list all saved aliases
+denki unalias "desk lamp"                       # remove an alias
+```
+
+Aliases are stored in `~/Library/Application Support/denki/hosts.json` (macOS) or `~/.config/denki/hosts.json` (Linux).
 
 ### Control power
 
 ```bash
-denki power "Office Bulb" on
-denki power "Office Bulb" off
-denki power "Office Bulb" toggle
+denki power "desk lamp" on
+denki power "desk lamp" off
+denki power "desk lamp" toggle
+denki power 192.168.1.42 on        # raw IP also works
 ```
 
-You can use the device name shown by `denki scan`, or pass an IP address if you
-prefer. Name matching is case-insensitive and partial, so
-`denki info "office"` can resolve `Office Bulb` when it is the only match.
+Name matching is case-insensitive and partial — `"desk"` resolves `"Desk Lamp"` if it's the only match. For Tapo devices saved with `--klap`, `TAPO_USER` and `TAPO_PASS` must be set.
 
-### Bulb: brightness, color temperature, color
+### Bulb controls
 
 ```bash
-denki dim "Office Bulb" 50          # 0–100%
-denki warmth "Office Bulb" 2700     # 2500–9000 Kelvin (warm to cool white)
-denki color "Office Bulb" 275 50 80 # hue (0–360), saturation (0–100), value (0–100)
+denki dim "desk lamp" 50           # brightness 0–100%
+denki warmth "desk lamp" 2700      # color temperature 2500–9000 K
+denki color "desk lamp" 275 50 80  # hue (0–360) saturation (0–100) value (0–100)
 ```
+
+Setting saturation > 0 activates color mode and disables color temperature mode (they are mutually exclusive on the device).
 
 ### Device info
 
 ```bash
-denki info "Office Bulb"
+denki info "desk lamp"
 ```
 
-### Energy usage
+### Energy monitoring
 
 ```bash
-denki energy "Office Bulb"                   # real-time watts
-denki energy-daily "Office Bulb" 2025-03     # daily breakdown for a month
-denki energy-monthly "Office Bulb" 2025      # monthly totals for a year
+denki energy "desk plug"                  # real-time watts (and V/A for plugs)
+denki energy-daily "desk plug" 2025-03    # daily usage for a month
+denki energy-monthly "desk plug" 2025     # monthly totals for a year
 ```
+
+`denki energy` checks the device's feature string at runtime and reports an error if the device has no energy chip (e.g. HS105 with `feature: TIM`).
 
 ### Other commands
 
 ```bash
-denki specs "Office Bulb"          # hardware specs — lumens, CRI, wattage (bulbs)
-denki presets "Office Bulb"        # saved light presets (bulbs)
-denki schedules "Desk Plug"        # scheduled on/off rules (plugs)
-denki led "Desk Plug" off          # turn off the status LED (plugs)
-denki clock "Desk Plug"            # show device clock (plugs)
-denki rename "Desk Plug" "Desk Lamp"
-denki restart "Desk Lamp"
+denki specs "desk lamp"            # hardware specs: lumens, CRI, wattage (bulbs)
+denki presets "desk lamp"          # saved light presets (bulbs)
+denki schedules "desk plug"        # scheduled on/off rules (plugs)
+denki led "desk plug" off          # turn off the status LED (plugs)
+denki clock "desk plug"            # show device clock (plugs)
+denki outlets "power strip"        # list outlets and their state (strips)
+denki rename "desk plug" "new name"
+denki restart "desk lamp"
 ```
 
-### Tapo devices
+## Tapo devices (KLAP protocol)
+
+P125 and other Tapo devices use the KLAP protocol — an AES-128-CBC encrypted session over plain HTTP on port 80.
 
 ```bash
 export TAPO_USER="you@example.com"
-export TAPO_PASS="your-password"
-denki tapo 192.168.1.50
-denki tapo-power 192.168.1.50 on
+export TAPO_PASS="your-tapo-password"
+
+denki alias "tapo plug" 192.168.1.50 --klap
+denki info "tapo plug"
+denki power "tapo plug" on
 ```
+
+The `--klap` flag tells denki to use KLAP instead of the legacy XOR protocol. Without it, power and info commands fall back to Kasa/XOR, which will time out on Tapo devices.
 
 ## How it works
 
-All legacy Kasa devices communicate over TCP port 9999 using a simple XOR autokey cipher. denki implements this cipher directly — no cloud, no account, no app required.
+### Kasa (legacy) protocol
 
-Discovery uses UDP broadcast to the same port. The device responds with its full sysinfo JSON.
+All classic Kasa devices communicate over **TCP port 9999** with an XOR autokey cipher:
 
-### Protocol details
+- **Cipher:** key starts at 171; each output byte = input XOR previous output byte
+- **TCP:** 4-byte big-endian length prefix before the ciphertext
+- **UDP discovery:** same cipher, no length prefix — sends to broadcast address, collects replies
 
-- **Encrypt:** key starts at 171; each output byte = input XOR previous output
-- **TCP:** adds a 4-byte big-endian length prefix (`encode`)
-- **UDP:** no length prefix (`encode_raw` for send, `decode` for receive)
-- **Newer Tapo devices** (P125, L530) use KLAP on port 80 — experimental support is available through `denki tapo` and `denki tapo-power`
+### KLAP protocol (Tapo)
 
-### Device capabilities
+Newer Tapo devices (P125, L530, etc.) use a two-phase handshake over plain HTTP on port 80:
 
-**KL135 Smart Bulb (`IOT.SMARTBULB`)**
-- Power: `smartlife.iot.smartbulb.lightingservice/transition_light_state`
-- Color: HSV or color temp (mutually exclusive — sat > 0 disables CCT mode)
-- Energy: `smartlife.iot.common.emeter` (not the standard `emeter` module)
-- No schedule/countdown/time support
-- HW 2.6 adds: `fade_on_off`, `get_default_behavior`, `re_power_type`
+1. **Handshake 1** — POST `/app/handshake1` with 16 random bytes; device responds with `remote_seed | server_hash`; verify `SHA256(local + remote + auth_hash) == server_hash`
+2. **Handshake 2** — POST `/app/handshake2` with `SHA256(remote + local + auth_hash)`
+3. **Requests** — POST `/app/request?seq=N` with AES-128-CBC ciphertext; IV derived from seed material + sequence number
 
-**KP115 Smart Plug (`IOT.SMARTPLUGSWITCH`)**
-- Power: `system/set_relay_state`
-- Energy: standard `emeter` module — realtime, daily, monthly (full V/A/W data)
-- Supports: LED indicator, schedule, time
+`auth_hash = SHA256(SHA1(username) + SHA1(password))`
 
-**HS110 Smart Plug with Energy Monitoring**
-- Energy values in real units (W/V/A/kWh), not milli-units like KP115
-- Day/month stat field: `energy` (kWh), not `energy_wh`
+denki implements this over raw `tokio::net::TcpStream` rather than an HTTP client library, because some Tapo firmware returns HTTP 400 for requests from standard HTTP clients (reqwest/hyper).
 
-**HS105 Smart Plug Mini (no energy chip)**
-- Feature string: `TIM` only (no `ENE`) — energy commands will fail gracefully
-- Supports: countdown timer, away mode, schedule, time, LED, cloud info
+## Project structure
 
-## Not Implemented
+| File | Purpose |
+|------|---------|
+| `src/main.rs` | CLI (clap) — subcommand definitions, device-type detection, command dispatch |
+| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, length-prefixed) / `encode_raw` (UDP) |
+| `src/transport.rs` | TCP `send()` + UDP `broadcast()` for Kasa device communication |
+| `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
+| `src/hosts.rs` | Alias registry — maps friendly names to IP + protocol, stored as JSON |
+| `src/bulb.rs` | KL135/KL430 sysinfo parsing |
+| `src/plug.rs` | Plug sysinfo parsing + feature detection (KP115, HS110, HS105) |
+| `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
+| `src/strip.rs` | HS300/KP303 power strip sysinfo + per-outlet state |
+| `src/tapo.rs` | Tapo device info parsing (P125 `get_device_info` response) |
+| `src/ops.rs` | All API calls, namespaced by device type: `bulb_*`, `plug_*`, `tapo_*`, shared |
+| `src/display.rs` | Colored terminal output for all device types |
+| `devices.toml` | Machine-readable device capability map — supported commands, verified hardware |
 
-- Full Tapo feature coverage beyond basic info and power
-- Away mode rule creation
+## Library usage
+
+denki exposes a library crate alongside the binary. You can use it from other Rust projects:
+
+```toml
+[dependencies]
+denki = { git = "https://github.com/kahwee/denki" }
+```
+
+```rust
+use denki::{klap, ops, transport};
+
+// Kasa device
+let json = ops::sysinfo("192.168.1.42").await?;
+
+// Tapo device (KLAP)
+let mut session = klap::handshake("192.168.1.50", "user@example.com", "pass").await?;
+let info = ops::tapo_device_info(&mut session).await?;
+ops::tapo_on(&mut session).await?;
+```
+
+## Not implemented
+
+- Energy monitoring for Tapo devices (P125 does not expose emeter via KLAP locally)
+- Away mode (`anti_theft`) rule creation
 - Countdown timer creation
-- Schedule creation/deletion
+- Schedule creation and deletion
 - Firmware updates (intentionally excluded)
-- Effect animations (not available via local API on KL135)
+- Effect animations (not available via local API on KL135; KL430 supports them)
 
 ## License
 
