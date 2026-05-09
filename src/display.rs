@@ -40,15 +40,40 @@ fn wh_from(entry: &serde_json::Value) -> u64 {
         .unwrap_or(0)
 }
 
+/// Convert HSV (h: 0–360, s: 0–100, v: 0–100) to (r, g, b) each 0–255.
+fn hsv_to_rgb(h: u16, s: u8, v: u8) -> (u8, u8, u8) {
+    let s = s as f32 / 100.0;
+    let v = v as f32 / 100.0;
+    let h = h as f32;
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = v - c;
+    let (r1, g1, b1) = match (h as u16) / 60 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    (
+        ((r1 + m) * 255.0) as u8,
+        ((g1 + m) * 255.0) as u8,
+        ((b1 + m) * 255.0) as u8,
+    )
+}
+
 /// Print the color/warmth line for a light state.
 fn print_light_color(ls: &LightState, indent: &str) {
     if ls.color_temp() > 0 {
         println!("{indent}Brightness: {}%  Warmth: {}K", ls.brightness(), ls.color_temp());
     } else {
-        // val == brightness in HSV — skip the redundant field, format hue with degree symbol
+        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
+        let swatch = "██".truecolor(r, g, b);
         println!(
-            "{indent}Brightness: {}%  Color: {}° hue  {} sat",
+            "{indent}Brightness: {}%  Color: {} {}° hue  {} sat",
             ls.brightness(),
+            swatch,
             ls.hue(),
             ls.saturation(),
         );
@@ -63,7 +88,7 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
         header(&bulb.alias),
         format!("[{ip}]").dimmed(),
         on_state(bulb.light_state.is_on()),
-        signal_label(bulb.rssi),
+        signal_summary(bulb.rssi),
     );
     println!(
         "   {} {}  HW:{}  FW:{}",
@@ -99,7 +124,8 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
-        println!("  Color:      {}° hue  {} sat", ls.hue(), ls.saturation());
+        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
+        println!("  Color:      {} {}° hue  {} sat", "██".truecolor(r, g, b), ls.hue(), ls.saturation());
     }
     println!("  Features:   {}", caps_label(bulb));
     println!("  {}", "Energy:     use `denki energy <host>`".dimmed());
@@ -177,7 +203,7 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
         header(&plug.alias),
         format!("[{ip}]").dimmed(),
         on_state(plug.is_on()),
-        signal_label(plug.rssi),
+        signal_summary(plug.rssi),
         energy_tag,
     );
     println!("   {} HW:{}  FW:{}", plug.model, plug.hw_ver, short_fw(&plug.sw_ver));
@@ -338,6 +364,11 @@ fn signal_label(rssi: i32) -> colored::ColoredString {
     }
 }
 
+/// For scan summary lines: "signal:excellent" with the quality word colored.
+fn signal_summary(rssi: i32) -> String {
+    format!("signal:{}", signal_label(rssi))
+}
+
 fn caps_label(bulb: &Bulb) -> String {
     let mut caps = vec![];
     if bulb.is_color == 1 {
@@ -363,7 +394,7 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
         "[light strip]".dimmed(),
         format!("[{ip}]").dimmed(),
         on_state(bulb.light_state.is_on()),
-        signal_label(bulb.rssi),
+        signal_summary(bulb.rssi),
     );
     println!("   {} HW:{}  FW:{}", bulb.model, bulb.hw_ver, short_fw(&bulb.sw_ver));
     print_light_color(&bulb.light_state, "   ");
@@ -384,7 +415,8 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
-        println!("  Color:      {}° hue  {} sat", ls.hue(), ls.saturation());
+        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
+        println!("  Color:      {} {}° hue  {} sat", "██".truecolor(r, g, b), ls.hue(), ls.saturation());
     }
     println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
@@ -398,7 +430,7 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
         "[dimmer]".dimmed(),
         format!("[{ip}]").dimmed(),
         on_state(d.is_on()),
-        signal_label(d.rssi),
+        signal_summary(d.rssi),
     );
     println!("   {} HW:{}  FW:{}  {}%", d.model, d.hw_ver, short_fw(&d.sw_ver), d.brightness);
     let a = &d.alias;
@@ -439,6 +471,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
         format!("[{ip}]").dimmed(),
         state,
     );
+    // strip has no rssi in sysinfo root — signal not shown
     println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
     let a = &s.alias;
     println!(
@@ -475,7 +508,7 @@ pub fn print_tapo_summary(ip: IpAddr, d: &TapoDevice) {
         header(&d.nickname),
         format!("[{ip}]").dimmed(),
         on_state(d.is_on()),
-        tapo_signal_label(d.signal_level),
+        format!("signal:{}", tapo_signal_label(d.signal_level)).as_str(),
     );
     println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, short_fw(&d.fw_ver));
     let a = &d.nickname;
