@@ -413,6 +413,289 @@ feature_str = "TIM:ENE"
 
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Detection rules for legacy IOT devices (mic_type or type field)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Given sysinfo, device class is determined as follows (in order):
+#   1. mic_type/type contains "SMARTBULB" and sysinfo has "length" → LightStrip
+#   2. mic_type/type contains "SMARTBULB"                          → Bulb
+#   3. mic_type/type contains "SMARTPLUG"/"SWITCH" and dev_name contains "Dimmer" → Dimmer
+#   4. mic_type/type contains "SMARTPLUG"/"SWITCH" and sysinfo has "children"     → Strip
+#   5. mic_type/type contains "SMARTPLUG"/"SWITCH" and dev_name contains "light"  → WallSwitch
+#   6. mic_type/type contains "SMARTPLUG"/"SWITCH"                                → Plug
+#
+# Source: kasa.iot.iotdevice.IotDevice._get_device_type_from_sys_info
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "HS220"
+name        = "Smart Wi-Fi Light Switch with Dimmer"
+type_field  = "type"
+type_value  = "IOT.SMARTPLUGSWITCH"
+dev_name    = "Smart Wi-Fi Dimmer"   # "Dimmer" in dev_name triggers DeviceType.Dimmer
+protocol    = "legacy"
+notes       = "Wall dimmer switch. Brightness via smartlife.iot.dimmer, NOT lightingservice. May include PIR motion and ambient light sensors."
+
+  [[devices.features]]
+  id          = "power"
+  supported   = true
+  command     = "system/set_relay_state"
+  fields      = ["state"]
+
+  [[devices.features]]
+  id          = "brightness"
+  supported   = true
+  command     = "smartlife.iot.dimmer/set_brightness"
+  fields      = ["brightness"]
+  range       = [1, 100]
+  notes       = "Dimmers do not accept brightness=0; use set_relay_state to turn off. set_dimmer_transition supports fade."
+
+  [[devices.features]]
+  id          = "dimmer_transition"
+  supported   = true
+  command     = "smartlife.iot.dimmer/set_dimmer_transition"
+  fields      = ["brightness", "duration"]
+  notes       = "Fade to brightness over duration milliseconds. brightness=0 turns off."
+
+  [[devices.features]]
+  id          = "dimmer_behavior"
+  supported   = true
+  command     = "smartlife.iot.dimmer/get_default_behavior"
+  returns     = ["double_click_action", "long_press_action"]
+  notes       = "Configure button double-click and long-press actions (none/instant/gentle/preset)."
+
+  [[devices.features]]
+  id          = "motion_sensor"
+  supported   = "hardware_dependent"
+  command     = "smartlife.iot.PIR/get_config"
+  notes       = "PIR motion sensor. Only present on hardware variants that include the sensor."
+
+  [[devices.features]]
+  id          = "ambient_light"
+  supported   = "hardware_dependent"
+  command     = "smartlife.iot.LAS/get_config"
+  notes       = "Ambient light sensor. Only present on hardware variants that include the sensor."
+
+  [[devices.features]]
+  id          = "schedule"
+  supported   = true
+  command     = "schedule/get_rules"
+
+  [[devices.features]]
+  id          = "countdown"
+  supported   = true
+  command     = "count_down/get_rules"
+
+  [[devices.features]]
+  id          = "anti_theft"
+  supported   = true
+  command     = "anti_theft/get_rules"
+
+  [[devices.features]]
+  id          = "time"
+  supported   = true
+  command     = "time/get_time"
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "HS300"
+name        = "Smart Wi-Fi Power Strip"
+aliases     = ["KP303", "KP400"]
+type_field  = "type"
+type_value  = "IOT.SMARTPLUGSWITCH"
+protocol    = "legacy"
+feature_str = "TIM:ENE"
+notes       = "Multi-outlet power strip. sysinfo includes 'children' array (one entry per outlet). HS300 has 6 outlets + 3 USB, KP303 has 3, KP400 has 2 outdoor outlets. Each child outlet is controlled independently."
+
+  [[devices.features]]
+  id          = "power_parent"
+  supported   = true
+  command     = "system/set_relay_state"
+  notes       = "Controls all outlets at once."
+
+  [[devices.features]]
+  id          = "power_child"
+  supported   = true
+  command     = "system/set_relay_state"
+  fields      = ["state", "children[].id"]
+  notes       = "Send children array to target individual outlets by child id."
+
+  [[devices.features]]
+  id          = "energy_realtime"
+  supported   = true
+  command     = "emeter/get_realtime"
+  returns     = ["current_ma", "voltage_mv", "power_mw", "total_wh"]
+  notes       = "HS300 reports aggregate energy for all outlets. KP303/KP400 may not have energy monitoring (feature: TIM only)."
+
+  [[devices.features]]
+  id          = "energy_daily"
+  supported   = true
+  command     = "emeter/get_daystat"
+  params      = ["month", "year"]
+
+  [[devices.features]]
+  id          = "energy_monthly"
+  supported   = true
+  command     = "emeter/get_monthstat"
+  params      = ["year"]
+
+  [[devices.features]]
+  id          = "schedule"
+  supported   = true
+  command     = "schedule/get_rules"
+
+  [[devices.features]]
+  id          = "anti_theft"
+  supported   = true
+  command     = "anti_theft/get_rules"
+
+  [[devices.features]]
+  id          = "time"
+  supported   = true
+  command     = "time/get_time"
+
+  [[devices.features]]
+  id          = "led_indicator"
+  supported   = true
+  command     = "system/set_led_off"
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "KL430"
+name        = "Smart Wi-Fi LED Light Strip"
+mic_type    = "IOT.SMARTBULB"
+protocol    = "legacy"
+notes       = "Light strip. Detected by 'length' field in sysinfo (KL135 bulbs have no length). Uses smartlife.iot.lightStrip namespace (NOT smartlife.iot.smartbulb.lightingservice). Supports animated effects via the Kasa app — unlike KL135, some effects may be available locally."
+
+  [[devices.features]]
+  id          = "power"
+  supported   = true
+  command     = "smartlife.iot.lightStrip/set_light_state"
+  fields      = ["on_off"]
+
+  [[devices.features]]
+  id          = "brightness"
+  supported   = true
+  command     = "smartlife.iot.lightStrip/set_light_state"
+  fields      = ["brightness"]
+  range       = [0, 100]
+
+  [[devices.features]]
+  id          = "color_temp"
+  supported   = true
+  command     = "smartlife.iot.lightStrip/set_light_state"
+  fields      = ["color_temp", "hue", "saturation"]
+  range       = [2500, 6500]
+
+  [[devices.features]]
+  id          = "color_hsv"
+  supported   = true
+  command     = "smartlife.iot.lightStrip/set_light_state"
+  fields      = ["hue", "saturation", "brightness", "color_temp"]
+
+  [[devices.features]]
+  id          = "effects"
+  supported   = true
+  command     = "smartlife.iot.lightStrip/set_light_state"
+  fields      = ["lighting_effect"]
+  notes       = "Animated effects (Flicker, Aurora, etc.) stored as JSON in lighting_effect field. Unlike KL135, KL430 supports effects via local API."
+
+  [[devices.features]]
+  id          = "energy_realtime"
+  supported   = true
+  command     = "smartlife.iot.common.emeter/get_realtime"
+  returns     = ["power_mw", "total_wh"]
+  notes       = "Uses smartlife namespace like KL135, not bare emeter."
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "LB130"
+name        = "Smart Wi-Fi LED Bulb with Color Changing (legacy)"
+aliases     = ["LB120", "LB110", "KL130", "KL125", "KL120", "KL110"]
+type_field  = "type"
+type_value  = "IOT.SMARTBULB"
+protocol    = "legacy"
+notes       = "Older-generation smart bulbs using 'type' field instead of 'mic_type'. Use same smartlife.iot.smartbulb.lightingservice commands as KL135. LB130/KL130 support color; LB120/KL125/KL120 are white-only (color_temp only); LB110/KL110 are dimmable white only."
+
+  [[devices.features]]
+  id          = "power"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["on_off"]
+
+  [[devices.features]]
+  id          = "brightness"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["brightness"]
+
+  [[devices.features]]
+  id          = "color_temp"
+  supported   = "model_dependent"
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["color_temp", "hue", "saturation"]
+  notes       = "LB110/KL110 do not support color temp. Check sysinfo is_variable_color_temp."
+
+  [[devices.features]]
+  id          = "color_hsv"
+  supported   = "model_dependent"
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["hue", "saturation", "brightness", "color_temp"]
+  notes       = "LB130/KL130 only. Check sysinfo is_color."
+
+  [[devices.features]]
+  id          = "energy_realtime"
+  supported   = true
+  command     = "smartlife.iot.common.emeter/get_realtime"
+  returns     = ["power_mw", "total_wh"]
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 [[devices]]
 model       = "P125"
 name        = "Smart Wi-Fi Plug Mini"
