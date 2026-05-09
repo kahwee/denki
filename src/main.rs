@@ -279,6 +279,90 @@ async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
     klap::handshake(ip, &user, &pass).await
 }
 
+// ── Command compatibility guards ──────────────────────────────────────────────
+// Pure synchronous functions: take a DeviceKind, return Ok or a clear error.
+// Handlers call these before issuing any network request so the user always
+// gets a command-level message ("dim is not supported on plug") rather than
+// a raw protocol error from the device.
+
+fn can_dim(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Bulb | DeviceKind::Dimmer => Ok(()),
+        DeviceKind::LightStrip => anyhow::bail!(
+            "`dim` is not yet supported on light strips \
+             (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)"
+        ),
+        other => anyhow::bail!(
+            "`dim` is only supported on KL135-style bulbs and HS220 dimmers, not {other}"
+        ),
+    }
+}
+
+fn can_set_warmth(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Bulb => Ok(()),
+        other => anyhow::bail!(
+            "`warmth` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
+        ),
+    }
+}
+
+fn can_set_color(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Bulb => Ok(()),
+        other => anyhow::bail!(
+            "`color` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
+        ),
+    }
+}
+
+fn can_get_specs(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Bulb => Ok(()),
+        other => anyhow::bail!(
+            "`specs` is only supported on KL135-style bulbs, not {other}"
+        ),
+    }
+}
+
+fn can_get_presets(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Bulb => Ok(()),
+        other => anyhow::bail!(
+            "`presets` is only supported on KL135-style bulbs, not {other}"
+        ),
+    }
+}
+
+fn can_get_schedules(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
+        other => anyhow::bail!(
+            "`schedules` is only supported on plugs, dimmers, and strips \
+             (e.g. KP115, HS220, HS300), not {other}"
+        ),
+    }
+}
+
+fn can_control_led(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Plug | DeviceKind::Dimmer => Ok(()),
+        other => anyhow::bail!(
+            "`led` is only supported on plugs and dimmers (e.g. KP115, HS220), not {other}"
+        ),
+    }
+}
+
+fn can_get_clock(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
+        other => anyhow::bail!(
+            "`clock` is only supported on plugs, dimmers, and strips \
+             (e.g. KP115, HS220, HS300), not {other}"
+        ),
+    }
+}
+
 /// Check that a device supports energy monitoring given its sysinfo and kind.
 ///
 /// - Bulb / LightStrip: always supported (smartlife.iot.common.emeter)
@@ -480,7 +564,12 @@ async fn main() -> Result<()> {
                 hosts::Protocol::Kasa => {
                     let json = ops::sysinfo(&r.ip).await?;
                     let kind = detect_kind(&json);
-                    let use_bulb_ns = matches!(kind, DeviceKind::Bulb | DeviceKind::LightStrip);
+                    // LightStrip (KL430) uses smartlife.iot.lightStrip, not smartbulb.lightingservice.
+                    // Until that namespace is implemented, power control is unsupported.
+                    if matches!(kind, DeviceKind::LightStrip) {
+                        bail!("light strip power control is not yet implemented (KL430 uses smartlife.iot.lightStrip)");
+                    }
+                    let use_bulb_ns = matches!(kind, DeviceKind::Bulb);
                     match state {
                         PowerAction::On => {
                             if use_bulb_ns { ops::bulb_on(&r.ip).await? } else { ops::plug_on(&r.ip).await? }
@@ -493,7 +582,7 @@ async fn main() -> Result<()> {
                         PowerAction::Toggle => {
                             let now_on = if use_bulb_ns { ops::bulb_toggle(&r.ip).await? } else { ops::plug_toggle(&r.ip).await? };
                             let label = if now_on { "on".green().bold() } else { "off".dimmed() };
-                            println!("{} toggled -> {}", r.ip, label);
+                            println!("{} toggled -> {label}", r.ip);
                         }
                     }
                 }
@@ -503,12 +592,12 @@ async fn main() -> Result<()> {
         Command::Dim { host, level } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Bulb | DeviceKind::LightStrip => {
-                    ops::set_brightness(&r.ip, level).await?
-                }
+            let kind = detect_kind(&json);
+            can_dim(&kind)?;
+            match kind {
+                DeviceKind::Bulb => ops::set_brightness(&r.ip, level).await?,
                 DeviceKind::Dimmer => ops::dimmer_set_brightness(&r.ip, level).await?,
-                kind => bail!("{kind} does not support brightness control"),
+                _ => unreachable!(),
             }
             println!("Brightness -> {level}%");
         }
@@ -516,10 +605,8 @@ async fn main() -> Result<()> {
         Command::Warmth { host, kelvin } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Bulb => ops::set_warmth(&r.ip, kelvin).await?,
-                kind => bail!("{kind} does not support color temperature (bulbs only)"),
-            }
+            can_set_warmth(&detect_kind(&json))?;
+            ops::set_warmth(&r.ip, kelvin).await?;
             println!("Color temperature -> {kelvin}K");
         }
 
@@ -531,10 +618,8 @@ async fn main() -> Result<()> {
         } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Bulb => ops::set_color(&r.ip, hue, saturation, value).await?,
-                kind => bail!("{kind} does not support HSV color (bulbs only)"),
-            }
+            can_set_color(&detect_kind(&json))?;
+            ops::set_color(&r.ip, hue, saturation, value).await?;
             println!("Color -> hue:{hue} sat:{saturation} val:{value}");
         }
 
@@ -596,74 +681,51 @@ async fn main() -> Result<()> {
         Command::Specs { host } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Bulb => {
-                    let resp = ops::bulb_specs(&r.ip).await?;
-                    display::print_bulb_specs(&resp);
-                }
-                kind => bail!("{kind} does not support specs (bulbs only)"),
-            }
+            can_get_specs(&detect_kind(&json))?;
+            let resp = ops::bulb_specs(&r.ip).await?;
+            display::print_bulb_specs(&resp);
         }
 
         Command::Presets { host } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Bulb => {
-                    let resp = ops::bulb_presets(&r.ip).await?;
-                    display::print_bulb_presets(&resp);
-                }
-                kind => bail!("{kind} does not support presets (bulbs only)"),
-            }
+            can_get_presets(&detect_kind(&json))?;
+            let resp = ops::bulb_presets(&r.ip).await?;
+            display::print_bulb_presets(&resp);
         }
 
         Command::Schedules { host } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => {
-                    let resp = ops::plug_schedules(&r.ip).await?;
-                    display::print_schedules(&resp);
-                }
-                kind => bail!("{kind} does not support schedules (plugs, dimmers, and strips only)"),
-            }
+            can_get_schedules(&detect_kind(&json))?;
+            let resp = ops::plug_schedules(&r.ip).await?;
+            display::print_schedules(&resp);
         }
 
         Command::Led { host, state } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Plug | DeviceKind::Dimmer => {
-                    let on = matches!(state, LedAction::On);
-                    ops::plug_led(&r.ip, on).await?;
-                    println!(
-                        "LED indicator {}",
-                        if on { "on".green() } else { "off".dimmed() }
-                    );
-                }
-                kind => bail!("{kind} does not support LED control (plugs and dimmers only)"),
-            }
+            can_control_led(&detect_kind(&json))?;
+            let on = matches!(state, LedAction::On);
+            ops::plug_led(&r.ip, on).await?;
+            println!("LED indicator {}", if on { "on".green() } else { "off".dimmed() });
         }
 
         Command::Clock { host } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            match detect_kind(&json) {
-                DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => {
-                    let resp = ops::plug_time(&r.ip).await?;
-                    if let Some(t) = resp.pointer("/time/get_time") {
-                        println!(
-                            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-                            t["year"].as_u64().unwrap_or(0),
-                            t["month"].as_u64().unwrap_or(0),
-                            t["mday"].as_u64().unwrap_or(0),
-                            t["hour"].as_u64().unwrap_or(0),
-                            t["min"].as_u64().unwrap_or(0),
-                            t["sec"].as_u64().unwrap_or(0),
-                        );
-                    }
-                }
-                kind => bail!("{kind} does not support clock (plugs, dimmers, and strips only)"),
+            can_get_clock(&detect_kind(&json))?;
+            let resp = ops::plug_time(&r.ip).await?;
+            if let Some(t) = resp.pointer("/time/get_time") {
+                println!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                    t["year"].as_u64().unwrap_or(0),
+                    t["month"].as_u64().unwrap_or(0),
+                    t["mday"].as_u64().unwrap_or(0),
+                    t["hour"].as_u64().unwrap_or(0),
+                    t["min"].as_u64().unwrap_or(0),
+                    t["sec"].as_u64().unwrap_or(0),
+                );
             }
         }
 
@@ -864,5 +926,105 @@ mod tests {
         });
 
         assert_eq!(device_alias(&json), Some("Coat Rack Lights"));
+    }
+
+    // ── Command guard tests ───────────────────────────────────────────────────
+    //
+    // Each guard function is pure (no I/O), so we test it exhaustively here.
+    // The handlers call these before any network request, so these tests cover
+    // the routing decisions without needing a live device.
+
+    #[test]
+    fn can_dim_accepts_bulb_and_dimmer_only() {
+        assert!(can_dim(&DeviceKind::Bulb).is_ok());
+        assert!(can_dim(&DeviceKind::Dimmer).is_ok());
+        assert!(can_dim(&DeviceKind::LightStrip).is_err());
+        assert!(can_dim(&DeviceKind::Plug).is_err());
+        assert!(can_dim(&DeviceKind::Strip).is_err());
+        assert!(can_dim(&DeviceKind::Unknown("IOT.SOMETHING".into())).is_err());
+    }
+
+    #[test]
+    fn can_dim_error_names_the_command() {
+        let err = can_dim(&DeviceKind::Plug).unwrap_err();
+        assert!(err.to_string().contains("`dim`"), "error should name the command: {err}");
+    }
+
+    #[test]
+    fn can_dim_lightstrip_error_explains_namespace() {
+        let err = can_dim(&DeviceKind::LightStrip).unwrap_err();
+        assert!(err.to_string().contains("not yet supported"), "{err}");
+        assert!(err.to_string().contains("lightStrip"), "{err}");
+    }
+
+    #[test]
+    fn can_set_warmth_accepts_bulb_only() {
+        assert!(can_set_warmth(&DeviceKind::Bulb).is_ok());
+        assert!(can_set_warmth(&DeviceKind::Dimmer).is_err());
+        assert!(can_set_warmth(&DeviceKind::Plug).is_err());
+        assert!(can_set_warmth(&DeviceKind::LightStrip).is_err());
+        assert!(can_set_warmth(&DeviceKind::Strip).is_err());
+    }
+
+    #[test]
+    fn can_set_warmth_error_mentions_kl135() {
+        let err = can_set_warmth(&DeviceKind::Plug).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("`warmth`"), "{msg}");
+        assert!(msg.contains("KL135"), "{msg}");
+    }
+
+    #[test]
+    fn can_set_color_accepts_bulb_only() {
+        assert!(can_set_color(&DeviceKind::Bulb).is_ok());
+        assert!(can_set_color(&DeviceKind::Dimmer).is_err());
+        assert!(can_set_color(&DeviceKind::Plug).is_err());
+        assert!(can_set_color(&DeviceKind::LightStrip).is_err());
+        assert!(can_set_color(&DeviceKind::Strip).is_err());
+    }
+
+    #[test]
+    fn can_get_specs_and_presets_accept_bulb_only() {
+        for kind in [DeviceKind::Dimmer, DeviceKind::Plug, DeviceKind::Strip, DeviceKind::LightStrip] {
+            assert!(can_get_specs(&kind).is_err(), "specs should reject {kind}");
+            assert!(can_get_presets(&kind).is_err(), "presets should reject {kind}");
+        }
+        assert!(can_get_specs(&DeviceKind::Bulb).is_ok());
+        assert!(can_get_presets(&DeviceKind::Bulb).is_ok());
+    }
+
+    #[test]
+    fn can_get_schedules_accepts_plug_dimmer_strip() {
+        assert!(can_get_schedules(&DeviceKind::Plug).is_ok());
+        assert!(can_get_schedules(&DeviceKind::Dimmer).is_ok());
+        assert!(can_get_schedules(&DeviceKind::Strip).is_ok());
+        assert!(can_get_schedules(&DeviceKind::Bulb).is_err());
+        assert!(can_get_schedules(&DeviceKind::LightStrip).is_err());
+    }
+
+    #[test]
+    fn can_get_schedules_error_names_supported_devices() {
+        let err = can_get_schedules(&DeviceKind::Bulb).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("`schedules`"), "{msg}");
+        assert!(msg.contains("KP115") || msg.contains("HS220") || msg.contains("HS300"), "{msg}");
+    }
+
+    #[test]
+    fn can_control_led_accepts_plug_and_dimmer() {
+        assert!(can_control_led(&DeviceKind::Plug).is_ok());
+        assert!(can_control_led(&DeviceKind::Dimmer).is_ok());
+        assert!(can_control_led(&DeviceKind::Bulb).is_err());
+        assert!(can_control_led(&DeviceKind::Strip).is_err());
+        assert!(can_control_led(&DeviceKind::LightStrip).is_err());
+    }
+
+    #[test]
+    fn can_get_clock_accepts_plug_dimmer_strip() {
+        assert!(can_get_clock(&DeviceKind::Plug).is_ok());
+        assert!(can_get_clock(&DeviceKind::Dimmer).is_ok());
+        assert!(can_get_clock(&DeviceKind::Strip).is_ok());
+        assert!(can_get_clock(&DeviceKind::Bulb).is_err());
+        assert!(can_get_clock(&DeviceKind::LightStrip).is_err());
     }
 }

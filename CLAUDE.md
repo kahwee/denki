@@ -85,36 +85,47 @@ Environment variables take precedence over saved credentials.
 - `IOT.SMARTPLUGSWITCH` + `children` array → Strip
 - `IOT.SMARTPLUGSWITCH` → Plug
 
-Important implementation boundary:
-- KL135-style smartbulb controls are implemented through `smartlife.iot.smartbulb.lightingservice`.
-- KL430 light strips are detected and displayed, but their `smartlife.iot.lightStrip` control namespace is not implemented yet.
-- HS220 dimmers are detected and displayed. Relay-style power may work through plug commands, but brightness control via `smartlife.iot.dimmer` is not implemented yet.
-- HS300/KP303 strips are detected and outlet state is displayed. Per-outlet control is not implemented yet.
+Implementation status per device kind:
+
+| Device kind | Power | Dim | Warmth | Color | Energy | Schedules | LED | Clock | Outlets |
+|-------------|-------|-----|--------|-------|--------|-----------|-----|-------|---------|
+| KL135 Bulb | ✅ `smartbulb.lightingservice` | ✅ | ✅ | ✅ | ✅ `smartlife.iot.common.emeter` | — | — | — | — |
+| KL430 Strip | ❌ not implemented | ❌ not implemented | ❌ | ❌ | ✅ (unverified) | — | — | — | — |
+| HS220 Dimmer | ✅ `set_relay_state` | ✅ `smartlife.iot.dimmer` | — | — | — | ✅ | ✅ | ✅ | — |
+| KP115/HS110 Plug | ✅ `set_relay_state` | — | — | — | ✅ `emeter` (ENE flag required) | ✅ | ✅ | ✅ | — |
+| HS300/KP303 Strip | ✅ `set_relay_state` | — | — | — | — | ✅ | — | ✅ | ✅ per child_id |
+| Tapo (P125 etc.) | ✅ KLAP `set_device_info` | — | — | — | — | — | — | — | — |
+
+Commands guard unsupported combinations before issuing any network request and
+return a clear message naming the command, the actual device kind, and which
+device models support it (e.g. `` `warmth` is only supported on KL135-style
+color bulbs, not plug ``).
 
 ## Commands
 
 ```
-denki scan [--timeout N]              Discover all Kasa devices on the network
-denki info <device>                   Detailed device info (Kasa + Tapo)
-denki power <device> on|off|toggle    Power control (Kasa + Tapo, auto-detects type)
-denki dim <device> <0-100>            Brightness (KL135-style bulbs only)
-denki warmth <device> <2500-9000>     Color temperature in Kelvin (KL135-style bulbs only)
-denki color <device> <H> <S> <V>      HSV color (KL135-style bulbs only)
-denki energy <device>                 Real-time power usage
-denki energy-daily <device> [YYYY-MM] Daily energy stats
-denki energy-monthly <device> [YYYY]  Monthly energy stats
-denki specs <device>                  Hardware specs (bulbs only)
-denki presets <device>                Saved light presets (bulbs only)
-denki schedules <device>              Schedule rules (plugs only)
-denki led <device> on|off             LED indicator (plugs only)
-denki clock <device>                  Device clock (plugs only)
-denki outlets <device>                Per-outlet state (strips only)
-denki rename <device> <name>          Rename device
-denki restart <device>                Reboot device
-denki alias <name> <ip> [--klap]      Save a friendly name for a device
-denki unalias <name>                  Remove a saved alias
-denki aliases                         List all saved aliases
-denki login <email> <password>        Save Tapo credentials for KLAP commands
+denki scan [--timeout N]                Discover all Kasa devices on the network
+denki info <device>                     Detailed device info (Kasa + Tapo)
+denki power <device> on|off|toggle      Power control (Kasa + Tapo, auto-detects type)
+denki dim <device> <0-100>              Brightness — KL135 bulbs + HS220 dimmers only
+denki warmth <device> <2500-9000>       Color temperature in Kelvin — KL135 bulbs only
+denki color <device> <H> <S> <V>        HSV color — KL135 bulbs only
+denki energy <device>                   Real-time power usage — bulbs + ENE-capable plugs
+denki energy-daily <device> [YYYY-MM]   Daily energy stats
+denki energy-monthly <device> [YYYY]    Monthly energy stats
+denki specs <device>                    Hardware specs — KL135 bulbs only
+denki presets <device>                  Saved light presets — KL135 bulbs only
+denki schedules <device>                Schedule rules — plugs, dimmers, strips
+denki led <device> on|off               LED indicator — plugs and dimmers
+denki clock <device>                    Device clock — plugs, dimmers, strips
+denki outlets <device>                  Per-outlet state — strips only
+denki outlet <device> <N> on|off|toggle Control one outlet — strips only (1-based)
+denki rename <device> <name>            Rename device (all types)
+denki restart <device>                  Reboot device (all types)
+denki alias <name> <ip> [--klap]        Save a friendly name for a device
+denki unalias <name>                    Remove a saved alias
+denki aliases                           List all saved aliases
+denki login <email> <password>          Save Tapo credentials for KLAP commands
 ```
 
 ## Not Implemented
