@@ -1,5 +1,6 @@
 mod bulb;
 mod cipher;
+mod hosts;
 mod dimmer;
 mod display;
 mod klap;
@@ -174,6 +175,23 @@ enum Command {
         #[arg(value_enum)]
         state: PowerAction,
     },
+
+    /// Save a friendly name for a device IP (e.g. `denki alias "floor lamp" 192.168.7.254`)
+    Alias {
+        /// Friendly name to save
+        name: String,
+        /// IP address of the device
+        ip: String,
+    },
+
+    /// Remove a saved device alias
+    Unalias {
+        /// Friendly name to remove
+        name: String,
+    },
+
+    /// List all saved device aliases
+    Aliases,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -306,6 +324,23 @@ async fn resolve_host(input: &str) -> Result<String> {
             bail!("\"{input}\" matched multiple devices: {names}")
         }
     }
+}
+
+/// Resolve a device name to IP. Checks the hosts file first, then UDP scan.
+/// Accepts an IP address, a saved alias, or a device alias from the network.
+async fn resolve_host_any(input: &str) -> Result<String> {
+    use std::net::IpAddr;
+    // Already an IP address
+    if input.parse::<IpAddr>().is_ok() || input.contains('.') {
+        return Ok(input.to_string());
+    }
+    // Check saved hosts file
+    if let Some(ip) = hosts::lookup(input) {
+        println!("{}", format!("Using saved alias \"{input}\" [{ip}]").dimmed());
+        return Ok(ip);
+    }
+    // Fall back to live UDP scan (legacy Kasa only)
+    resolve_host(input).await
 }
 
 #[tokio::main]
@@ -570,6 +605,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Tapo { host } => {
+            let host = resolve_host_any(&host).await?;
             let (user, pass) = tapo_creds()?;
             let mut session = klap::handshake(&host, &user, &pass).await?;
             let json = ops::tapo_device_info(&mut session).await?;
@@ -580,6 +616,7 @@ async fn main() -> Result<()> {
         }
 
         Command::TapoPower { host, state } => {
+            let host = resolve_host_any(&host).await?;
             let (user, pass) = tapo_creds()?;
             let mut session = klap::handshake(&host, &user, &pass).await?;
             match state {
@@ -600,6 +637,33 @@ async fn main() -> Result<()> {
                     };
                     println!("{} toggled -> {}", host, label);
                 }
+            }
+        }
+        Command::Alias { name, ip } => {
+            hosts::set(&name, &ip)?;
+            println!("Saved: {} → {}", name.bold(), ip);
+        }
+
+        Command::Unalias { name } => {
+            if hosts::remove(&name)? {
+                println!("Removed alias \"{}\"", name);
+            } else {
+                bail!("No alias named \"{name}\" found");
+            }
+        }
+
+        Command::Aliases => {
+            let list = hosts::list()?;
+            if list.is_empty() {
+                println!("No saved aliases. Use `denki alias <name> <ip>` to add one.");
+                println!("File: {}", hosts::path_display());
+            } else {
+                println!("{:<30} {}", "Name".bold(), "IP".bold());
+                println!("{}", "─".repeat(50).dimmed());
+                for (name, ip) in &list {
+                    println!("{:<30} {}", name, ip);
+                }
+                println!("{}", format!("({} aliases in {})", list.len(), hosts::path_display()).dimmed());
             }
         }
     }
