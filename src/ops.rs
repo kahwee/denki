@@ -23,6 +23,7 @@
 //! Rename: system / set_dev_alias
 //! Reboot: system / reboot
 
+use crate::klap::KlapSession;
 use crate::transport;
 use anyhow::Result;
 use serde_json::json;
@@ -322,5 +323,59 @@ pub async fn rename(host: &str, name: &str) -> Result<()> {
 /// The device will be unreachable for ~10–15 seconds while it restarts.
 pub async fn restart(host: &str) -> Result<()> {
     transport::send(host, json!({"system": {"reboot": {"delay": 1}}})).await?;
+    Ok(())
+}
+
+// ── Tapo / KLAP — works on P125 and other Tapo devices ───────────────────────
+
+/// Fetch full device info from a Tapo device.
+/// Method: get_device_info (no params needed)
+pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
+    session.send(r#"{"method":"get_device_info","params":{}}"#).await
+}
+
+/// Turn a Tapo device on.
+pub async fn tapo_on(session: &mut KlapSession) -> Result<()> {
+    let resp = session
+        .send(r#"{"method":"set_device_info","params":{"device_on":true}}"#)
+        .await?;
+    check_tapo_error(&resp)?;
+    Ok(())
+}
+
+/// Turn a Tapo device off.
+pub async fn tapo_off(session: &mut KlapSession) -> Result<()> {
+    let resp = session
+        .send(r#"{"method":"set_device_info","params":{"device_on":false}}"#)
+        .await?;
+    check_tapo_error(&resp)?;
+    Ok(())
+}
+
+/// Toggle a Tapo device. Returns true if now on, false if now off.
+pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
+    let info = tapo_device_info(session).await?;
+    let is_on = info
+        .pointer("/result/device_on")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if is_on {
+        tapo_off(session).await?;
+        Ok(false)
+    } else {
+        tapo_on(session).await?;
+        Ok(true)
+    }
+}
+
+/// Check for a non-zero error_code in a Tapo response.
+fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
+    let code = resp
+        .get("error_code")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if code != 0 {
+        anyhow::bail!("Tapo device error: code {code}");
+    }
     Ok(())
 }

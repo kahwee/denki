@@ -2,9 +2,11 @@ mod bulb;
 mod cipher;
 mod dimmer;
 mod display;
+mod klap;
 mod ops;
 mod plug;
 mod strip;
+mod tapo;
 mod transport;
 
 use anyhow::{bail, Result};
@@ -110,6 +112,16 @@ enum Command {
 
     /// List all outlets on a power strip with their state (strips only)
     Outlets { host: String },
+
+    /// Show info about a Tapo device (uses TAPO_USER / TAPO_PASS env vars)
+    Tapo { host: String },
+
+    /// Turn a Tapo device on, off, or toggle (uses TAPO_USER / TAPO_PASS env vars)
+    TapoPower {
+        host: String,
+        #[arg(value_enum)]
+        state: PowerAction,
+    },
 }
 
 #[derive(ValueEnum, Clone)]

@@ -2,6 +2,7 @@ use crate::bulb::Bulb;
 use crate::dimmer::Dimmer;
 use crate::plug::Plug;
 use crate::strip::Strip;
+use crate::tapo::TapoDevice;
 use colored::Colorize;
 use std::net::IpAddr;
 
@@ -379,4 +380,54 @@ pub fn print_strip_outlets(s: &Strip) {
         let state = if child.is_on() { "on ".green().bold() } else { "off".dimmed() };
         println!("  Outlet {}: {}  {}", i + 1, state, child.alias);
     }
+}
+
+// ── Tapo device display ───────────────────────────────────────────────────────
+
+pub fn print_tapo_summary(ip: IpAddr, d: &TapoDevice) {
+    let state = if d.is_on() { "on".green().bold() } else { "off".dimmed() };
+    println!(
+        "{} {} {} {}",
+        format!("== {} ==", d.nickname).bold(),
+        format!("[{ip}]").dimmed(),
+        state,
+        tapo_signal_label(d.signal_level),
+    );
+    println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, d.fw_ver);
+    println!();
+}
+
+pub fn print_tapo_detail(ip: &str, d: &TapoDevice) {
+    let state = if d.is_on() { "ON".green().bold() } else { "OFF".red() };
+    println!("{}", format!("== {} ==", d.nickname).bold());
+    println!("  Host:      {ip}");
+    println!("  State:     {state}");
+    println!("  Model:     {}", d.model);
+    println!("  Hardware:  {}", d.hw_ver);
+    println!("  Firmware:  {}", d.fw_ver);
+    println!("  Signal:    {} dBm  {}", d.rssi, tapo_signal_label(d.signal_level));
+    if d.is_on() && d.on_time > 0 {
+        println!("  On for:    {}", fmt_duration(d.on_time));
+    }
+    if d.overheated {
+        println!("  {}", "WARNING: device overheated".red().bold());
+    }
+}
+
+fn tapo_signal_label(level: u8) -> colored::ColoredString {
+    match level {
+        3 => "excellent".green(),
+        2 => "good".yellow(),
+        1 => "weak".red(),
+        _ => "no signal".red(),
+    }
+}
+
+fn fmt_duration(secs: u64) -> String {
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    if h > 0 { format!("{h}h {m}m") }
+    else if m > 0 { format!("{m}m {s}s") }
+    else { format!("{s}s") }
 }
