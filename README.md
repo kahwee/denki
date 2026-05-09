@@ -48,6 +48,7 @@ cargo build --release
 ```bash
 cargo install --path .
 # binary lands in ~/.cargo/bin/denki (already on PATH if you used rustup)
+# re-run this after pulling updates to replace the installed binary
 ```
 
 Or copy manually:
