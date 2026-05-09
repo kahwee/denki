@@ -12,7 +12,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -43,12 +43,11 @@ fn hosts_path() -> PathBuf {
         .join("hosts.json")
 }
 
-fn load_map() -> Result<BTreeMap<String, HostEntry>> {
-    let path = hosts_path();
+fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
     if !path.exists() {
         return Ok(BTreeMap::new());
     }
-    let data = std::fs::read_to_string(&path)?;
+    let data = std::fs::read_to_string(path)?;
 
     // Try v2 format first
     if let Ok(map) = serde_json::from_str::<BTreeMap<String, HostEntry>>(&data) {
@@ -63,12 +62,11 @@ fn load_map() -> Result<BTreeMap<String, HostEntry>> {
         .collect())
 }
 
-fn save_map(map: &BTreeMap<String, HostEntry>) -> Result<()> {
-    let path = hosts_path();
+fn save_map(path: &Path, map: &BTreeMap<String, HostEntry>) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(&path, serde_json::to_string_pretty(map)?)?;
+    std::fs::write(path, serde_json::to_string_pretty(map)?)?;
     Ok(())
 }
 
@@ -85,7 +83,7 @@ pub fn normalize(s: &str) -> String {
 /// Look up a name — exact match first, then substring.
 /// Returns the HostEntry if exactly one match is found.
 pub fn lookup(name: &str) -> Option<HostEntry> {
-    let map = load_map().ok()?;
+    let map = load_map(&hosts_path()).ok()?;
     let needle = normalize(name);
 
     // Exact match
@@ -110,26 +108,103 @@ pub fn lookup(name: &str) -> Option<HostEntry> {
 
 /// Save (or overwrite) a name→entry alias.
 pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
-    let mut map = load_map()?;
+    let path = hosts_path();
+    let mut map = load_map(&path)?;
     map.insert(name.to_string(), HostEntry { ip: ip.to_string(), protocol });
-    save_map(&map)
+    save_map(&path, &map)
 }
 
 /// Remove an alias by exact name. Returns true if it existed.
 pub fn remove(name: &str) -> Result<bool> {
-    let mut map = load_map()?;
+    let path = hosts_path();
+    let mut map = load_map(&path)?;
     let removed = map.remove(name).is_some();
     if removed {
-        save_map(&map)?;
+        save_map(&path, &map)?;
     }
     Ok(removed)
 }
 
 /// List all saved aliases sorted by name.
 pub fn list() -> Result<Vec<(String, HostEntry)>> {
-    Ok(load_map()?.into_iter().collect())
+    Ok(load_map(&hosts_path())?.into_iter().collect())
 }
 
 pub fn path_display() -> String {
     hosts_path().display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    /// Each test gets a unique temp path so parallel tests don't interfere.
+    fn temp_path() -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir()
+            .join(format!("denki-hosts-{}-{}.json", std::process::id(), n))
+    }
+
+    #[test]
+    fn normalize_lowercases_and_collapses_whitespace() {
+        assert_eq!(normalize("Office Bulb"), "office bulb");
+        assert_eq!(normalize("Coat-Rack Lights"), "coat rack lights");
+        assert_eq!(normalize("  MULTIPLE   SPACES  "), "multiple spaces");
+        assert_eq!(normalize("123Abc!@#"), "123abc");
+    }
+
+    #[test]
+    fn load_returns_empty_map_when_file_missing() {
+        let path = temp_path(); // does not exist
+        let map = load_map(&path).unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn save_and_load_round_trips_v2_format() {
+        let path = temp_path();
+        let mut map = BTreeMap::new();
+        map.insert(
+            "floor lamp".to_string(),
+            HostEntry { ip: "192.168.1.10".to_string(), protocol: Protocol::Kasa },
+        );
+        map.insert(
+            "tapo plug".to_string(),
+            HostEntry { ip: "192.168.7.254".to_string(), protocol: Protocol::Klap },
+        );
+        save_map(&path, &map).unwrap();
+
+        let loaded = load_map(&path).unwrap();
+        assert_eq!(loaded["floor lamp"].ip, "192.168.1.10");
+        assert_eq!(loaded["floor lamp"].protocol, Protocol::Kasa);
+        assert_eq!(loaded["tapo plug"].ip, "192.168.7.254");
+        assert_eq!(loaded["tapo plug"].protocol, Protocol::Klap);
+    }
+
+    #[test]
+    fn load_v1_plain_strings_as_kasa() {
+        let path = temp_path();
+        std::fs::write(&path, r#"{"office bulb": "192.168.4.65"}"#).unwrap();
+
+        let map = load_map(&path).unwrap();
+        assert_eq!(map["office bulb"].ip, "192.168.4.65");
+        assert_eq!(map["office bulb"].protocol, Protocol::Kasa);
+    }
+
+    #[test]
+    fn saved_file_is_valid_json() {
+        let path = temp_path();
+        let mut map = BTreeMap::new();
+        map.insert(
+            "desk lamp".to_string(),
+            HostEntry { ip: "10.0.0.5".to_string(), protocol: Protocol::Kasa },
+        );
+        save_map(&path, &map).unwrap();
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(serde_json::from_str::<serde_json::Value>(&raw).is_ok());
+    }
 }

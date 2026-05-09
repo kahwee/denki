@@ -22,6 +22,7 @@
 
 pub mod bulb;
 pub mod cipher;
+pub mod creds;
 pub mod dimmer;
 pub mod hosts;
 pub mod klap;

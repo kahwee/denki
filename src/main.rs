@@ -1,4 +1,4 @@
-use denki::{bulb, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
+use denki::{bulb, creds, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -173,6 +173,14 @@ enum Command {
 
     /// List all saved device aliases
     Aliases,
+
+    /// Save Tapo account credentials to avoid setting env vars each session
+    Login {
+        /// Tapo account email address
+        email: String,
+        /// Tapo account password
+        password: String,
+    },
 }
 
 #[derive(ValueEnum, Clone)]
@@ -239,14 +247,9 @@ fn detect_kind(json: &serde_json::Value) -> DeviceKind {
     }
 }
 
-/// Read Tapo credentials from environment variables.
-/// Set TAPO_USER and TAPO_PASS before running Tapo commands.
+/// Load Tapo credentials — env vars first, then ~/.config/denki/credentials.json.
 fn tapo_creds() -> Result<(String, String)> {
-    let user =
-        std::env::var("TAPO_USER").map_err(|_| anyhow::anyhow!("TAPO_USER env var not set"))?;
-    let pass =
-        std::env::var("TAPO_PASS").map_err(|_| anyhow::anyhow!("TAPO_PASS env var not set"))?;
-    Ok((user, pass))
+    creds::load()
 }
 
 fn device_alias(json: &serde_json::Value) -> Option<&str> {
@@ -629,6 +632,12 @@ async fn main() -> Result<()> {
                 }
                 println!("{}", format!("({} aliases in {})", list.len(), hosts::path_display()).dimmed());
             }
+        }
+
+        Command::Login { email, password } => {
+            creds::save(&email, &password)?;
+            println!("Tapo credentials saved to {}", creds::path_display());
+            println!("(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)");
         }
     }
 

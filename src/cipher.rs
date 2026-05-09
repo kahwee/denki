@@ -88,4 +88,28 @@ mod tests {
         assert_eq!(framed.len(), plaintext.len() + 4);
         assert_ne!(&framed[..4], &raw[..]);
     }
+
+    #[test]
+    fn known_plaintext_produces_correct_cipher_bytes() {
+        // Manually derived: key=0xAB
+        //   '1' (0x31) ^ 0xAB = 0x9A, key = 0x9A
+        //   '2' (0x32) ^ 0x9A = 0xA8
+        assert_eq!(encode_raw(b"12"), vec![0x9A, 0xA8]);
+    }
+
+    #[test]
+    fn tcp_frame_has_correct_length_prefix_and_body() {
+        let encoded = encode(b"12");
+        assert_eq!(&encoded[..4], &[0x00, 0x00, 0x00, 0x02]); // big-endian length = 2
+        assert_eq!(&encoded[4..], &[0x9A, 0xA8]);              // same body as encode_raw
+    }
+
+    #[test]
+    fn sysinfo_probe_first_byte_matches_protocol() {
+        // '{' = 0x7B; 0x7B ^ 0xAB (key) = 0xD0
+        // This is the first byte of any get_sysinfo broadcast — a regression anchor.
+        let probe = br#"{"system":{"get_sysinfo":{}}}"#;
+        let encoded = encode_raw(probe);
+        assert_eq!(encoded[0], 0xD0);
+    }
 }
