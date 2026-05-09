@@ -1,5 +1,7 @@
 use crate::bulb::Bulb;
+use crate::dimmer::Dimmer;
 use crate::plug::Plug;
+use crate::strip::Strip;
 use colored::Colorize;
 use std::net::IpAddr;
 
@@ -265,4 +267,116 @@ fn caps_label(bulb: &Bulb) -> String {
     if bulb.is_variable_color_temp == 1 { caps.push("color-temp"); }
     if bulb.is_dimmable == 1 { caps.push("dimmable"); }
     caps.join(", ")
+}
+
+// ── Light strip display ───────────────────────────────────────────────────────
+// Light strips share the Bulb struct (same sysinfo shape) but use the
+// smartlife.iot.lightStrip namespace instead of smartbulb.lightingservice.
+
+pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
+    let state = if bulb.light_state.is_on() { "on".green().bold() } else { "off".dimmed() };
+    println!(
+        "{} {} {} {} {}",
+        format!("== {} ==", bulb.alias).bold(),
+        "[light strip]".dimmed(),
+        format!("[{ip}]").dimmed(),
+        state,
+        signal_label(bulb.rssi),
+    );
+    println!("   {} HW:{}  FW:{}", bulb.model, bulb.hw_ver, bulb.sw_ver);
+    let ls = &bulb.light_state;
+    if ls.color_temp() > 0 {
+        println!("   Brightness: {}%  Warmth: {}K", ls.brightness(), ls.color_temp());
+    } else {
+        println!("   Brightness: {}%  Color: hue={} sat={}", ls.brightness(), ls.hue(), ls.saturation());
+    }
+    println!();
+}
+
+pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
+    let state = if bulb.light_state.is_on() { "ON".green().bold() } else { "OFF".red() };
+    println!("{} {}", format!("== {} ==", bulb.alias).bold(), "[light strip]".dimmed());
+    println!("  Host:       {ip}");
+    println!("  State:      {state}");
+    println!("  Model:      {}", bulb.model);
+    println!("  Hardware:   {}", bulb.hw_ver);
+    println!("  Firmware:   {}", bulb.sw_ver);
+    println!("  Signal:     {} dBm  {}", bulb.rssi, signal_label(bulb.rssi));
+    let ls = &bulb.light_state;
+    println!("  Brightness: {}%", ls.brightness());
+    if ls.color_temp() > 0 {
+        println!("  Warmth:     {}K", ls.color_temp());
+    } else {
+        println!("  Color:      hue={} sat={} val={}", ls.hue(), ls.saturation(), ls.brightness());
+    }
+    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
+}
+
+// ── Dimmer display ────────────────────────────────────────────────────────────
+
+pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
+    let state = if d.is_on() { "on".green().bold() } else { "off".dimmed() };
+    println!(
+        "{} {} {} {} {}",
+        format!("== {} ==", d.alias).bold(),
+        "[dimmer]".dimmed(),
+        format!("[{ip}]").dimmed(),
+        state,
+        signal_label(d.rssi),
+    );
+    println!("   {} HW:{}  FW:{}  {}%", d.model, d.hw_ver, d.sw_ver, d.brightness);
+    println!();
+}
+
+pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
+    let state = if d.is_on() { "ON".green().bold() } else { "OFF".red() };
+    println!("{} {}", format!("== {} ==", d.alias).bold(), "[dimmer]".dimmed());
+    println!("  Host:       {ip}");
+    println!("  State:      {state}");
+    println!("  Model:      {}", d.model);
+    println!("  Hardware:   {}", d.hw_ver);
+    println!("  Firmware:   {}", d.sw_ver);
+    println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
+    println!("  Brightness: {}%", d.brightness);
+    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
+}
+
+// ── Strip display ─────────────────────────────────────────────────────────────
+
+pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
+    let on_count = s.children.iter().filter(|c| c.is_on()).count();
+    let state = if on_count > 0 {
+        format!("{}/{} on", on_count, s.children.len()).green().bold()
+    } else {
+        "all off".dimmed().to_string().normal()
+    };
+    println!(
+        "{} {} {} {}",
+        format!("== {} ==", s.alias).bold(),
+        "[strip]".dimmed(),
+        format!("[{ip}]").dimmed(),
+        state,
+    );
+    println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, s.sw_ver);
+    println!();
+}
+
+pub fn print_strip_detail(ip: &str, s: &Strip) {
+    let on_count = s.children.iter().filter(|c| c.is_on()).count();
+    println!("{} {}", format!("== {} ==", s.alias).bold(), "[strip]".dimmed());
+    println!("  Host:     {ip}");
+    println!("  Model:    {}", s.model);
+    println!("  Hardware: {}", s.hw_ver);
+    println!("  Firmware: {}", s.sw_ver);
+    println!("  Signal:   {} dBm  {}", s.rssi, signal_label(s.rssi));
+    println!("  Outlets:  {}/{} on", on_count, s.children.len());
+    print_strip_outlets(s);
+    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
+}
+
+pub fn print_strip_outlets(s: &Strip) {
+    for (i, child) in s.children.iter().enumerate() {
+        let state = if child.is_on() { "on ".green().bold() } else { "off".dimmed() };
+        println!("  Outlet {}: {}  {}", i + 1, state, child.alias);
+    }
 }

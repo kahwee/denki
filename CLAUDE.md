@@ -1,6 +1,6 @@
 # CLAUDE.md — denki
 
-Rust CLI for controlling TP-Link smart bulbs and plugs over the local network. Inspired by python-kasa but redesigned with cleaner commands.
+Rust CLI for controlling TP-Link smart bulbs and plugs over the local network.
 
 ## Build & Run
 

@@ -38,6 +38,7 @@ name        = "Smart Wi-Fi LED Bulb with Color Changing"
 mic_type    = "IOT.SMARTBULB"
 protocol    = "legacy"
 hw_versions = ["1.0", "2.6"]
+verified    = true   # personally owned and live-tested
 
   [devices.hw_diff]
   # Fields present in HW 2.6 sysinfo but absent in HW 1.0
@@ -165,6 +166,7 @@ name        = "Smart Wi-Fi Plug Mini with Energy Monitoring"
 mic_type    = "IOT.SMARTPLUGSWITCH"
 protocol    = "legacy"
 feature_str = "TIM:ENE"  # timer + energy monitoring
+verified    = true   # personally owned and live-tested
 
   [[devices.features]]
   id          = "power"
@@ -260,6 +262,7 @@ type_field  = "type"           # older firmware uses `type`, not `mic_type`
 type_value  = "IOT.SMARTPLUGSWITCH"
 protocol    = "legacy"
 feature_str = "TIM"            # timer only — NO energy monitoring chip
+verified    = true   # personally owned and live-tested
 
   [[devices.features]]
   id          = "power"
@@ -359,6 +362,7 @@ type_field  = "type"           # older firmware uses `type`, not `mic_type`
 type_value  = "IOT.SMARTPLUGSWITCH"
 protocol    = "legacy"
 feature_str = "TIM:ENE"
+verified    = true   # personally owned and live-tested
 
   [[devices.features]]
   id          = "power"
@@ -425,13 +429,14 @@ feature_str = "TIM:ENE"
 #   5. mic_type/type contains "SMARTPLUG"/"SWITCH" and dev_name contains "light"  → WallSwitch
 #   6. mic_type/type contains "SMARTPLUG"/"SWITCH"                                → Plug
 #
-# Source: kasa.iot.iotdevice.IotDevice._get_device_type_from_sys_info
+# Source: TP-Link legacy Kasa protocol research
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 [[devices]]
 model       = "HS220"
 name        = "Smart Wi-Fi Light Switch with Dimmer"
+verified    = false  # not personally owned; API details from TP-Link protocol research
 type_field  = "type"
 type_value  = "IOT.SMARTPLUGSWITCH"
 dev_name    = "Smart Wi-Fi Dimmer"   # "Dimmer" in dev_name triggers DeviceType.Dimmer
@@ -513,6 +518,7 @@ notes       = "Wall dimmer switch. Brightness via smartlife.iot.dimmer, NOT ligh
 [[devices]]
 model       = "HS300"
 name        = "Smart Wi-Fi Power Strip"
+verified    = false  # not personally owned; API details from TP-Link protocol research
 aliases     = ["KP303", "KP400"]
 type_field  = "type"
 type_value  = "IOT.SMARTPLUGSWITCH"
@@ -587,6 +593,7 @@ notes       = "Multi-outlet power strip. sysinfo includes 'children' array (one 
 [[devices]]
 model       = "KL430"
 name        = "Smart Wi-Fi LED Light Strip"
+verified    = false  # not personally owned; API details from TP-Link protocol research
 mic_type    = "IOT.SMARTBULB"
 protocol    = "legacy"
 notes       = "Light strip. Detected by 'length' field in sysinfo (KL135 bulbs have no length). Uses smartlife.iot.lightStrip namespace (NOT smartlife.iot.smartbulb.lightingservice). Supports animated effects via the Kasa app — unlike KL135, some effects may be available locally."
@@ -646,6 +653,7 @@ notes       = "Light strip. Detected by 'length' field in sysinfo (KL135 bulbs h
 [[devices]]
 model       = "LB130"
 name        = "Smart Wi-Fi LED Bulb with Color Changing (legacy)"
+verified    = false  # not personally owned; API details from TP-Link protocol research
 aliases     = ["LB120", "LB110", "KL130", "KL125", "KL120", "KL110"]
 type_field  = "type"
 type_value  = "IOT.SMARTBULB"
@@ -701,5 +709,6 @@ model       = "P125"
 name        = "Smart Wi-Fi Plug Mini"
 mic_type    = "IOT.SMARTPLUGSWITCH"
 protocol    = "klap"
+verified    = false  # KLAP protocol not yet implemented
 port        = 80
 notes       = "Uses KLAP protocol on port 80. Responds to UDP discovery but sysinfo JSON is in a different format. Not yet supported in denki."
