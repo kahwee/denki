@@ -101,13 +101,21 @@ return a clear message naming the command, the actual device kind, and which
 device models support it (e.g. `` `warmth` is only supported on KL135-style
 color bulbs, not plug ``).
 
+## Design Principles
+
+- **Return fast** — commands should start outputting immediately when possible; never block the full result to sort or batch
+- **No sorting** — scan and list output preserves arrival/insertion order; do not sort results
+- **Partial returns** — if a command can yield partial data (e.g. multi-device scan), emit each result as it arrives rather than collecting everything first
+
 ## Commands
 
 ```
 denki scan [--timeout N]                Discover all Kasa devices on the network
 denki info <device>                     Detailed device info (Kasa + Tapo)
-denki power <device> on|off|toggle      Power control (Kasa + Tapo, auto-detects type)
-denki dim <device> <0-100>              Brightness — KL135 bulbs + HS220 dimmers only
+denki on <device>                       Turn a device on (Kasa + Tapo)
+denki off <device>                      Turn a device off (Kasa + Tapo)
+denki toggle <device>                   Toggle a device on/off (Kasa + Tapo)
+denki dim <device> <0-100>              Brightness — KL135 bulbs + HS220 dimmers; turns on if off
 denki warmth <device> <2500-9000>       Color temperature in Kelvin — KL135 bulbs only
 denki color <device> <H> <S> <V>        HSV color — KL135 bulbs only
 denki energy <device>                   Real-time power usage — bulbs + ENE-capable plugs
@@ -136,5 +144,3 @@ denki login <email> <password>          Save Tapo credentials for KLAP commands
 - Schedule creation/deletion
 - Firmware updates (intentionally excluded)
 - KL430 light-strip control/effects routing
-- HS220 dimmer brightness routing
-- Per-outlet strip control
