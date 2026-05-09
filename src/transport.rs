@@ -79,18 +79,15 @@ pub async fn broadcast(timeout_secs: u64) -> Result<Vec<(std::net::IpAddr, serde
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
 
     let mut buf = vec![0u8; 4096];
-    loop {
-        match tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await {
-            Ok(Ok((n, addr))) => {
-                // UDP responses have no length prefix — decode raw from byte 0
-                let decoded = cipher::decode(&buf[..n]);
-                // Silently skip any response that isn't valid JSON (e.g. KLAP devices)
-                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&decoded) {
-                    results.push((addr.ip(), json));
-                }
-            }
-            // Timeout or socket error — stop collecting
-            _ => break,
+    // Stop on timeout or socket error; silently drop malformed responses
+    while let Ok(Ok((n, addr))) =
+        tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await
+    {
+        // UDP responses have no length prefix — decode raw from byte 0
+        let decoded = cipher::decode(&buf[..n]);
+        // Silently skip any response that isn't valid JSON (e.g. KLAP devices)
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&decoded) {
+            results.push((addr.ip(), json));
         }
     }
 

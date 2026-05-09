@@ -154,6 +154,18 @@ enum Command {
         host: String,
     },
 
+    /// Turn one outlet on a power strip on, off, or toggle it (strips only)
+    Outlet {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Outlet number, 1-based
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: u8,
+        #[arg(value_enum)]
+        state: PowerAction,
+    },
+
     /// Save a friendly name for a device IP (e.g. `denki alias "floor lamp" 192.168.7.254`)
     Alias {
         /// Friendly name to save
@@ -203,6 +215,7 @@ enum LedAction {
 ///   1. "Dimmer" in dev_name → Dimmer (HS220)
 ///   2. `children` array present → Strip (HS300, KP303, KP400)
 ///   3. Otherwise → Plug
+///
 /// For bulb-type devices:
 ///   1. `length` field present → LightStrip (KL430)
 ///   2. Otherwise → Bulb
@@ -266,21 +279,29 @@ async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
     klap::handshake(ip, &user, &pass).await
 }
 
-/// Check that a plug sysinfo response indicates energy monitoring capability.
-/// Returns an error for plugs without the ENE feature (e.g. HS105).
-/// Bulbs always pass — they never parse as Plug.
-fn require_energy(json: &serde_json::Value) -> Result<()> {
-    if let Some(p) = plug::parse(json) {
-        if !p.has_energy_monitoring() {
-            anyhow::bail!(
-                "{} ({}) does not have energy monitoring (feature: {:?})",
-                p.alias,
-                p.model,
-                p.feature
-            );
+/// Check that a device supports energy monitoring given its sysinfo and kind.
+///
+/// - Bulb / LightStrip: always supported (smartlife.iot.common.emeter)
+/// - Plug: only if it has the ENE feature flag (KP115/HS110 yes, HS105 no)
+/// - Dimmer / Strip / Unknown: not supported — bail with a clear message
+fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
+        DeviceKind::Plug => {
+            if let Some(p) = plug::parse(json) {
+                if !p.has_energy_monitoring() {
+                    anyhow::bail!(
+                        "{} ({}) does not have energy monitoring (feature: {:?})",
+                        p.alias,
+                        p.model,
+                        p.feature
+                    );
+                }
+            }
+            Ok(())
         }
+        other => anyhow::bail!("{other} does not support energy monitoring"),
     }
-    Ok(())
 }
 
 fn device_alias(json: &serde_json::Value) -> Option<&str> {
@@ -518,12 +539,13 @@ async fn main() -> Result<()> {
         }
 
         Command::Energy { host } => {
-            let host = resolve(&host).await?.ip;
-            let json = ops::sysinfo(&host).await?;
-            require_energy(&json)?;
-            let resp = match detect_kind(&json) {
-                DeviceKind::Bulb => ops::bulb_energy(&host).await?,
-                _ => ops::plug_energy(&host).await?,
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            let kind = detect_kind(&json);
+            require_energy(&json, &kind)?;
+            let resp = match &kind {
+                DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(&r.ip).await?,
+                _ => ops::plug_energy(&r.ip).await?,
             };
             display::print_energy_realtime(&resp);
         }
@@ -545,22 +567,28 @@ async fn main() -> Result<()> {
             let mo: u8 = parts[1].parse()?;
 
             let json = ops::sysinfo(&host).await?;
-            require_energy(&json)?;
-            let resp = match detect_kind(&json) {
-                DeviceKind::Bulb => ops::bulb_energy_daily(&host, year, mo).await?,
+            let kind = detect_kind(&json);
+            require_energy(&json, &kind)?;
+            let resp = match &kind {
+                DeviceKind::Bulb | DeviceKind::LightStrip => {
+                    ops::bulb_energy_daily(&host, year, mo).await?
+                }
                 _ => ops::plug_energy_daily(&host, year, mo).await?,
             };
             display::print_energy_daily(&resp, &month_str);
         }
 
         Command::EnergyMonthly { host, year } => {
-            let host = resolve(&host).await?.ip;
+            let r = resolve(&host).await?;
             let year = year.unwrap_or_else(|| current_year_month().0);
-            let json = ops::sysinfo(&host).await?;
-            require_energy(&json)?;
-            let resp = match detect_kind(&json) {
-                DeviceKind::Bulb => ops::bulb_energy_monthly(&host, year).await?,
-                _ => ops::plug_energy_monthly(&host, year).await?,
+            let json = ops::sysinfo(&r.ip).await?;
+            let kind = detect_kind(&json);
+            require_energy(&json, &kind)?;
+            let resp = match &kind {
+                DeviceKind::Bulb | DeviceKind::LightStrip => {
+                    ops::bulb_energy_monthly(&r.ip, year).await?
+                }
+                _ => ops::plug_energy_monthly(&r.ip, year).await?,
             };
             display::print_energy_monthly(&resp, year);
         }
@@ -658,6 +686,42 @@ async fn main() -> Result<()> {
                 Some(s) => display::print_strip_outlets(&s),
                 None => bail!("{host} does not appear to be a power strip"),
             }
+        }
+
+        Command::Outlet { host, outlet, state } => {
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            let s = strip::parse(&json)
+                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+            let idx = (outlet - 1) as usize;
+            let child = s.children.get(idx).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "outlet {} does not exist (strip has {} outlets)",
+                    outlet,
+                    s.children.len()
+                )
+            })?;
+            let now_on = match state {
+                PowerAction::On => {
+                    ops::strip_outlet_on(&r.ip, &child.id).await?;
+                    true
+                }
+                PowerAction::Off => {
+                    ops::strip_outlet_off(&r.ip, &child.id).await?;
+                    false
+                }
+                PowerAction::Toggle => {
+                    if child.is_on() {
+                        ops::strip_outlet_off(&r.ip, &child.id).await?;
+                        false
+                    } else {
+                        ops::strip_outlet_on(&r.ip, &child.id).await?;
+                        true
+                    }
+                }
+            };
+            let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+            println!("Outlet {} ({}) -> {}", outlet, child.alias, label);
         }
 
         Command::Alias { name, ip, klap } => {

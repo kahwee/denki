@@ -324,6 +324,38 @@ pub async fn plug_time(host: &str) -> Result<serde_json::Value> {
     transport::send(host, json!({"time": {"get_time": {}}})).await
 }
 
+// ── Strip (HS300/KP303) — per-outlet control ─────────────────────────────────
+//
+// Individual outlets are addressed via a `context.child_ids` wrapper.
+// The child_id comes from sysinfo.children[i].id (callers must fetch sysinfo
+// first to resolve the outlet number to the correct id).
+
+/// Turn on one outlet on a power strip by its child id.
+pub async fn strip_outlet_on(host: &str, child_id: &str) -> Result<()> {
+    transport::send(
+        host,
+        json!({
+            "context": {"child_ids": [child_id]},
+            "system": {"set_relay_state": {"state": 1}}
+        }),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Turn off one outlet on a power strip by its child id.
+pub async fn strip_outlet_off(host: &str, child_id: &str) -> Result<()> {
+    transport::send(
+        host,
+        json!({
+            "context": {"child_ids": [child_id]},
+            "system": {"set_relay_state": {"state": 0}}
+        }),
+    )
+    .await?;
+    Ok(())
+}
+
 // ── Shared — works on all device types ───────────────────────────────────────
 
 /// Rename the device. Sets the alias shown in the Kasa app and in sysinfo.
