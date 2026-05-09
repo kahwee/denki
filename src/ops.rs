@@ -206,6 +206,29 @@ pub async fn bulb_energy_monthly(host: &str, year: u16) -> Result<serde_json::Va
     .await
 }
 
+// ── Dimmer (HS220) — brightness ──────────────────────────────────────────────
+//
+// HS220 uses a separate smartlife.iot.dimmer namespace for brightness control.
+// The bulb lightingservice namespace does NOT work on dimmers.
+//
+// Important: brightness=0 is invalid on HS220 hardware. To turn off, use
+// set_relay_state (same as a plain plug). So dimmer_set_brightness(host, 0)
+// routes to plug_off instead of sending an invalid brightness command.
+
+/// Set HS220 dimmer brightness 1–100.
+/// Sending 0 is invalid; routes to plug_off instead.
+pub async fn dimmer_set_brightness(host: &str, level: u8) -> Result<()> {
+    if level == 0 {
+        return plug_off(host).await;
+    }
+    transport::send(
+        host,
+        json!({"smartlife.iot.dimmer": {"set_brightness": {"brightness": level}}}),
+    )
+    .await?;
+    Ok(())
+}
+
 // ── Plug (KP115) — power ─────────────────────────────────────────────────────
 
 /// Turn the plug's relay on. Uses set_relay_state (not lightingservice).

@@ -215,6 +215,19 @@ enum DeviceKind {
     Unknown(String),
 }
 
+impl std::fmt::Display for DeviceKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceKind::Bulb => write!(f, "bulb"),
+            DeviceKind::LightStrip => write!(f, "light strip"),
+            DeviceKind::Dimmer => write!(f, "dimmer"),
+            DeviceKind::Strip => write!(f, "power strip"),
+            DeviceKind::Plug => write!(f, "plug"),
+            DeviceKind::Unknown(t) => write!(f, "unknown ({t})"),
+        }
+    }
+}
+
 fn detect_kind(json: &serde_json::Value) -> DeviceKind {
     let sysinfo = json.pointer("/system/get_sysinfo");
     let type_str = sysinfo
@@ -467,14 +480,25 @@ async fn main() -> Result<()> {
         }
 
         Command::Dim { host, level } => {
-            let host = resolve(&host).await?.ip;
-            ops::set_brightness(&host, level).await?;
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Bulb | DeviceKind::LightStrip => {
+                    ops::set_brightness(&r.ip, level).await?
+                }
+                DeviceKind::Dimmer => ops::dimmer_set_brightness(&r.ip, level).await?,
+                kind => bail!("{kind} does not support brightness control"),
+            }
             println!("Brightness -> {level}%");
         }
 
         Command::Warmth { host, kelvin } => {
-            let host = resolve(&host).await?.ip;
-            ops::set_warmth(&host, kelvin).await?;
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Bulb => ops::set_warmth(&r.ip, kelvin).await?,
+                kind => bail!("{kind} does not support color temperature (bulbs only)"),
+            }
             println!("Color temperature -> {kelvin}K");
         }
 
@@ -484,8 +508,12 @@ async fn main() -> Result<()> {
             saturation,
             value,
         } => {
-            let host = resolve(&host).await?.ip;
-            ops::set_color(&host, hue, saturation, value).await?;
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Bulb => ops::set_color(&r.ip, hue, saturation, value).await?,
+                kind => bail!("{kind} does not support HSV color (bulbs only)"),
+            }
             println!("Color -> hue:{hue} sat:{saturation} val:{value}");
         }
 
@@ -538,46 +566,76 @@ async fn main() -> Result<()> {
         }
 
         Command::Specs { host } => {
-            let host = resolve(&host).await?.ip;
-            let resp = ops::bulb_specs(&host).await?;
-            display::print_bulb_specs(&resp);
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Bulb => {
+                    let resp = ops::bulb_specs(&r.ip).await?;
+                    display::print_bulb_specs(&resp);
+                }
+                kind => bail!("{kind} does not support specs (bulbs only)"),
+            }
         }
 
         Command::Presets { host } => {
-            let host = resolve(&host).await?.ip;
-            let resp = ops::bulb_presets(&host).await?;
-            display::print_bulb_presets(&resp);
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Bulb => {
+                    let resp = ops::bulb_presets(&r.ip).await?;
+                    display::print_bulb_presets(&resp);
+                }
+                kind => bail!("{kind} does not support presets (bulbs only)"),
+            }
         }
 
         Command::Schedules { host } => {
-            let host = resolve(&host).await?.ip;
-            let resp = ops::plug_schedules(&host).await?;
-            display::print_schedules(&resp);
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => {
+                    let resp = ops::plug_schedules(&r.ip).await?;
+                    display::print_schedules(&resp);
+                }
+                kind => bail!("{kind} does not support schedules (plugs, dimmers, and strips only)"),
+            }
         }
 
         Command::Led { host, state } => {
-            let host = resolve(&host).await?.ip;
-            let on = matches!(state, LedAction::On);
-            ops::plug_led(&host, on).await?;
-            println!(
-                "LED indicator {}",
-                if on { "on".green() } else { "off".dimmed() }
-            );
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Plug | DeviceKind::Dimmer => {
+                    let on = matches!(state, LedAction::On);
+                    ops::plug_led(&r.ip, on).await?;
+                    println!(
+                        "LED indicator {}",
+                        if on { "on".green() } else { "off".dimmed() }
+                    );
+                }
+                kind => bail!("{kind} does not support LED control (plugs and dimmers only)"),
+            }
         }
 
         Command::Clock { host } => {
-            let host = resolve(&host).await?.ip;
-            let resp = ops::plug_time(&host).await?;
-            if let Some(t) = resp.pointer("/time/get_time") {
-                println!(
-                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-                    t["year"].as_u64().unwrap_or(0),
-                    t["month"].as_u64().unwrap_or(0),
-                    t["mday"].as_u64().unwrap_or(0),
-                    t["hour"].as_u64().unwrap_or(0),
-                    t["min"].as_u64().unwrap_or(0),
-                    t["sec"].as_u64().unwrap_or(0),
-                );
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            match detect_kind(&json) {
+                DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => {
+                    let resp = ops::plug_time(&r.ip).await?;
+                    if let Some(t) = resp.pointer("/time/get_time") {
+                        println!(
+                            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                            t["year"].as_u64().unwrap_or(0),
+                            t["month"].as_u64().unwrap_or(0),
+                            t["mday"].as_u64().unwrap_or(0),
+                            t["hour"].as_u64().unwrap_or(0),
+                            t["min"].as_u64().unwrap_or(0),
+                            t["sec"].as_u64().unwrap_or(0),
+                        );
+                    }
+                }
+                kind => bail!("{kind} does not support clock (plugs, dimmers, and strips only)"),
             }
         }
 
@@ -647,17 +705,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn kind_name(kind: DeviceKind) -> &'static str {
-        match kind {
-            DeviceKind::Bulb => "bulb",
-            DeviceKind::LightStrip => "lightstrip",
-            DeviceKind::Dimmer => "dimmer",
-            DeviceKind::Strip => "strip",
-            DeviceKind::Plug => "plug",
-            DeviceKind::Unknown(_) => "unknown",
-        }
-    }
-
     #[test]
     fn detect_kind_separates_bulbs_and_light_strips() {
         let bulb = json!({
@@ -678,8 +725,8 @@ mod tests {
             }
         });
 
-        assert_eq!(kind_name(detect_kind(&bulb)), "bulb");
-        assert_eq!(kind_name(detect_kind(&strip)), "lightstrip");
+        assert_eq!(detect_kind(&bulb).to_string(), "bulb");
+        assert_eq!(detect_kind(&strip).to_string(), "light strip");
     }
 
     #[test]
@@ -710,9 +757,9 @@ mod tests {
             }
         });
 
-        assert_eq!(kind_name(detect_kind(&dimmer)), "dimmer");
-        assert_eq!(kind_name(detect_kind(&strip)), "strip");
-        assert_eq!(kind_name(detect_kind(&plug)), "plug");
+        assert_eq!(detect_kind(&dimmer).to_string(), "dimmer");
+        assert_eq!(detect_kind(&strip).to_string(), "power strip");
+        assert_eq!(detect_kind(&plug).to_string(), "plug");
     }
 
     #[test]
@@ -725,10 +772,8 @@ mod tests {
             }
         });
 
-        match detect_kind(&json) {
-            DeviceKind::Unknown(t) => assert_eq!(t, "IOT.UNKNOWN"),
-            _ => panic!("expected unknown device kind"),
-        }
+        let kind = detect_kind(&json);
+        assert_eq!(kind.to_string(), "unknown (IOT.UNKNOWN)");
     }
 
     #[test]
