@@ -49,7 +49,10 @@ impl Dimmer {
 /// Returns None if dev_name doesn't contain "Dimmer".
 pub fn parse(json: &serde_json::Value) -> Option<Dimmer> {
     let sysinfo = json.pointer("/system/get_sysinfo")?;
-    let dev_name = sysinfo.get("dev_name").and_then(|v| v.as_str()).unwrap_or("");
+    let dev_name = sysinfo
+        .get("dev_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if !dev_name.contains("Dimmer") {
         return None;
     }

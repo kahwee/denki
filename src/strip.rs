@@ -53,7 +53,10 @@ impl Strip {
     }
 
     pub fn has_energy_monitoring(&self) -> bool {
-        self.feature.as_deref().map(|f| f.contains("ENE")).unwrap_or(false)
+        self.feature
+            .as_deref()
+            .map(|f| f.contains("ENE"))
+            .unwrap_or(false)
     }
 }
 

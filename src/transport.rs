@@ -76,8 +76,7 @@ pub async fn broadcast(timeout_secs: u64) -> Result<Vec<(std::net::IpAddr, serde
         .await?;
 
     let mut results = Vec::new();
-    let deadline =
-        tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
 
     let mut buf = vec![0u8; 4096];
     loop {

@@ -12,6 +12,7 @@ mod transport;
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::Colorize;
+use std::net::IpAddr;
 
 #[derive(Parser)]
 #[command(
@@ -33,10 +34,16 @@ enum Command {
     },
 
     /// Show detailed info about a device
-    Info { host: String },
+    Info {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// Turn a device on, off, or toggle it
     Power {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_enum)]
         state: PowerAction,
@@ -44,6 +51,8 @@ enum Command {
 
     /// Set brightness 0-100 (bulbs only)
     Dim {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
         level: u8,
@@ -51,6 +60,8 @@ enum Command {
 
     /// Set color temperature in Kelvin 2500-9000 (bulbs only)
     Warmth {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_parser = clap::value_parser!(u16).range(2500..=9000))]
         kelvin: u16,
@@ -58,6 +69,8 @@ enum Command {
 
     /// Set color in HSV — hue 0-360, saturation 0-100, value 0-100 (bulbs only)
     Color {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_parser = clap::value_parser!(u16).range(0..=360))]
         hue: u16,
@@ -68,10 +81,16 @@ enum Command {
     },
 
     /// Show real-time energy usage
-    Energy { host: String },
+    Energy {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// Show daily energy usage for a month (YYYY-MM)
     EnergyDaily {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
         host: String,
         /// Month in YYYY-MM format (defaults to current month)
         #[arg(default_value = "2026-05")]
@@ -80,38 +99,71 @@ enum Command {
 
     /// Show monthly energy usage for a year (plugs only)
     EnergyMonthly {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(default_value = "2026")]
         year: u16,
     },
 
     /// Show bulb hardware specs — lumens, wattage, CRI (bulbs only)
-    Specs { host: String },
+    Specs {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// Show saved light presets (bulbs only)
-    Presets { host: String },
+    Presets {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// Show scheduled rules (plugs only)
-    Schedules { host: String },
+    Schedules {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// Control the plug's LED indicator (plugs only)
     Led {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_enum)]
         state: LedAction,
     },
 
     /// Show device clock
-    Clock { host: String },
+    Clock {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// Rename a device
-    Rename { host: String, name: String },
+    Rename {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        name: String,
+    },
 
     /// Reboot a device
-    Restart { host: String },
+    Restart {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// List all outlets on a power strip with their state (strips only)
-    Outlets { host: String },
+    Outlets {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
 
     /// Show info about a Tapo device (uses TAPO_USER / TAPO_PASS env vars)
     Tapo { host: String },
@@ -170,7 +222,11 @@ fn detect_kind(json: &serde_json::Value) -> DeviceKind {
     let has_length = sysinfo.and_then(|s| s.get("length")).is_some();
 
     if type_str.contains("SMARTBULB") {
-        if has_length { DeviceKind::LightStrip } else { DeviceKind::Bulb }
+        if has_length {
+            DeviceKind::LightStrip
+        } else {
+            DeviceKind::Bulb
+        }
     } else if type_str.contains("PLUG") || type_str.contains("SWITCH") {
         if dev_name.contains("Dimmer") {
             DeviceKind::Dimmer
@@ -187,11 +243,69 @@ fn detect_kind(json: &serde_json::Value) -> DeviceKind {
 /// Read Tapo credentials from environment variables.
 /// Set TAPO_USER and TAPO_PASS before running Tapo commands.
 fn tapo_creds() -> Result<(String, String)> {
-    let user = std::env::var("TAPO_USER")
-        .map_err(|_| anyhow::anyhow!("TAPO_USER env var not set"))?;
-    let pass = std::env::var("TAPO_PASS")
-        .map_err(|_| anyhow::anyhow!("TAPO_PASS env var not set"))?;
+    let user =
+        std::env::var("TAPO_USER").map_err(|_| anyhow::anyhow!("TAPO_USER env var not set"))?;
+    let pass =
+        std::env::var("TAPO_PASS").map_err(|_| anyhow::anyhow!("TAPO_PASS env var not set"))?;
     Ok((user, pass))
+}
+
+fn device_alias(json: &serde_json::Value) -> Option<&str> {
+    json.pointer("/system/get_sysinfo/alias")
+        .and_then(|v| v.as_str())
+}
+
+fn normalize_name(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn alias_matches(alias: &str, query: &str) -> bool {
+    let alias = normalize_name(alias);
+    let query = normalize_name(query);
+    !query.is_empty() && (alias == query || alias.contains(&query))
+}
+
+async fn resolve_host(input: &str) -> Result<String> {
+    if input.parse::<IpAddr>().is_ok() || input.contains('.') {
+        return Ok(input.to_string());
+    }
+
+    println!("{}", format!("Resolving \"{input}\"...").dimmed());
+    let found = transport::broadcast(3).await?;
+    let matches: Vec<_> = found
+        .iter()
+        .filter_map(|(ip, json)| {
+            let alias = device_alias(json)?;
+            alias_matches(alias, input).then_some((*ip, alias.to_string()))
+        })
+        .collect();
+
+    match matches.as_slice() {
+        [(ip, alias)] => {
+            println!("{}", format!("Using {alias} [{ip}]").dimmed());
+            Ok(ip.to_string())
+        }
+        [] => bail!("No device named \"{input}\" found. Run `denki scan` to see available names."),
+        many => {
+            let names = many
+                .iter()
+                .map(|(ip, alias)| format!("{alias} [{ip}]"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!("\"{input}\" matched multiple devices: {names}")
+        }
+    }
 }
 
 #[tokio::main]
@@ -242,6 +356,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Info { host } => {
+            let host = resolve_host(&host).await?;
             let json = ops::sysinfo(&host).await?;
             match detect_kind(&json) {
                 DeviceKind::Bulb => match bulb::parse(&json) {
@@ -269,17 +384,26 @@ async fn main() -> Result<()> {
         }
 
         Command::Power { host, state } => {
+            let host = resolve_host(&host).await?;
             let json = ops::sysinfo(&host).await?;
             let kind = detect_kind(&json);
             let use_bulb_ns = matches!(kind, DeviceKind::Bulb | DeviceKind::LightStrip);
 
             let result = match state {
                 PowerAction::On => {
-                    if use_bulb_ns { ops::bulb_on(&host).await? } else { ops::plug_on(&host).await? }
+                    if use_bulb_ns {
+                        ops::bulb_on(&host).await?
+                    } else {
+                        ops::plug_on(&host).await?
+                    }
                     println!("{} {}", host, "on".green().bold());
                 }
                 PowerAction::Off => {
-                    if use_bulb_ns { ops::bulb_off(&host).await? } else { ops::plug_off(&host).await? }
+                    if use_bulb_ns {
+                        ops::bulb_off(&host).await?
+                    } else {
+                        ops::plug_off(&host).await?
+                    }
                     println!("{} {}", host, "off".dimmed());
                 }
                 PowerAction::Toggle => {
@@ -288,7 +412,11 @@ async fn main() -> Result<()> {
                     } else {
                         ops::plug_toggle(&host).await?
                     };
-                    let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                    let label = if now_on {
+                        "on".green().bold()
+                    } else {
+                        "off".dimmed()
+                    };
                     println!("{} toggled -> {}", host, label);
                 }
             };
@@ -296,27 +424,40 @@ async fn main() -> Result<()> {
         }
 
         Command::Dim { host, level } => {
+            let host = resolve_host(&host).await?;
             ops::set_brightness(&host, level).await?;
             println!("Brightness -> {level}%");
         }
 
         Command::Warmth { host, kelvin } => {
+            let host = resolve_host(&host).await?;
             ops::set_warmth(&host, kelvin).await?;
             println!("Color temperature -> {kelvin}K");
         }
 
-        Command::Color { host, hue, saturation, value } => {
+        Command::Color {
+            host,
+            hue,
+            saturation,
+            value,
+        } => {
+            let host = resolve_host(&host).await?;
             ops::set_color(&host, hue, saturation, value).await?;
             println!("Color -> hue:{hue} sat:{saturation} val:{value}");
         }
 
         Command::Energy { host } => {
+            let host = resolve_host(&host).await?;
             let json = ops::sysinfo(&host).await?;
             // Check plug capability before calling — HS105 (TIM only) has no energy chip
             if let Some(p) = plug::parse(&json) {
                 if !p.has_energy_monitoring() {
-                    bail!("{} ({}) does not have energy monitoring (feature: {:?})",
-                        p.alias, p.model, p.feature);
+                    bail!(
+                        "{} ({}) does not have energy monitoring (feature: {:?})",
+                        p.alias,
+                        p.model,
+                        p.feature
+                    );
                 }
             }
             let resp = match detect_kind(&json) {
@@ -327,6 +468,7 @@ async fn main() -> Result<()> {
         }
 
         Command::EnergyDaily { host, month } => {
+            let host = resolve_host(&host).await?;
             let parts: Vec<&str> = month.split('-').collect();
             if parts.len() != 2 {
                 bail!("Month must be in YYYY-MM format");
@@ -348,6 +490,7 @@ async fn main() -> Result<()> {
         }
 
         Command::EnergyMonthly { host, year } => {
+            let host = resolve_host(&host).await?;
             let json = ops::sysinfo(&host).await?;
             if let Some(p) = plug::parse(&json) {
                 if !p.has_energy_monitoring() {
@@ -362,27 +505,35 @@ async fn main() -> Result<()> {
         }
 
         Command::Specs { host } => {
+            let host = resolve_host(&host).await?;
             let resp = ops::bulb_specs(&host).await?;
             display::print_bulb_specs(&resp);
         }
 
         Command::Presets { host } => {
+            let host = resolve_host(&host).await?;
             let resp = ops::bulb_presets(&host).await?;
             display::print_bulb_presets(&resp);
         }
 
         Command::Schedules { host } => {
+            let host = resolve_host(&host).await?;
             let resp = ops::plug_schedules(&host).await?;
             display::print_schedules(&resp);
         }
 
         Command::Led { host, state } => {
+            let host = resolve_host(&host).await?;
             let on = matches!(state, LedAction::On);
             ops::plug_led(&host, on).await?;
-            println!("LED indicator {}", if on { "on".green() } else { "off".dimmed() });
+            println!(
+                "LED indicator {}",
+                if on { "on".green() } else { "off".dimmed() }
+            );
         }
 
         Command::Clock { host } => {
+            let host = resolve_host(&host).await?;
             let resp = ops::plug_time(&host).await?;
             if let Some(t) = resp.pointer("/time/get_time") {
                 println!(
@@ -398,16 +549,19 @@ async fn main() -> Result<()> {
         }
 
         Command::Rename { host, name } => {
+            let host = resolve_host(&host).await?;
             ops::rename(&host, &name).await?;
             println!("Renamed to \"{}\"", name.bold());
         }
 
         Command::Restart { host } => {
+            let host = resolve_host(&host).await?;
             ops::restart(&host).await?;
             println!("{} rebooting...", host);
         }
 
         Command::Outlets { host } => {
+            let host = resolve_host(&host).await?;
             let json = ops::sysinfo(&host).await?;
             match strip::parse(&json) {
                 Some(s) => display::print_strip_outlets(&s),
@@ -439,7 +593,11 @@ async fn main() -> Result<()> {
                 }
                 PowerAction::Toggle => {
                     let now_on = ops::tapo_toggle(&mut session).await?;
-                    let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                    let label = if now_on {
+                        "on".green().bold()
+                    } else {
+                        "off".dimmed()
+                    };
                     println!("{} toggled -> {}", host, label);
                 }
             }
@@ -447,4 +605,115 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn kind_name(kind: DeviceKind) -> &'static str {
+        match kind {
+            DeviceKind::Bulb => "bulb",
+            DeviceKind::LightStrip => "lightstrip",
+            DeviceKind::Dimmer => "dimmer",
+            DeviceKind::Strip => "strip",
+            DeviceKind::Plug => "plug",
+            DeviceKind::Unknown(_) => "unknown",
+        }
+    }
+
+    #[test]
+    fn detect_kind_separates_bulbs_and_light_strips() {
+        let bulb = json!({
+            "system": {
+                "get_sysinfo": {
+                    "mic_type": "IOT.SMARTBULB",
+                    "dev_name": "Smart Wi-Fi LED Bulb"
+                }
+            }
+        });
+        let strip = json!({
+            "system": {
+                "get_sysinfo": {
+                    "mic_type": "IOT.SMARTBULB",
+                    "dev_name": "Smart Wi-Fi Light Strip",
+                    "length": 200
+                }
+            }
+        });
+
+        assert_eq!(kind_name(detect_kind(&bulb)), "bulb");
+        assert_eq!(kind_name(detect_kind(&strip)), "lightstrip");
+    }
+
+    #[test]
+    fn detect_kind_prefers_dimmer_then_strip_then_plug() {
+        let dimmer = json!({
+            "system": {
+                "get_sysinfo": {
+                    "mic_type": "IOT.SMARTPLUGSWITCH",
+                    "dev_name": "Smart Wi-Fi Dimmer"
+                }
+            }
+        });
+        let strip = json!({
+            "system": {
+                "get_sysinfo": {
+                    "mic_type": "IOT.SMARTPLUGSWITCH",
+                    "dev_name": "Smart Wi-Fi Power Strip",
+                    "children": []
+                }
+            }
+        });
+        let plug = json!({
+            "system": {
+                "get_sysinfo": {
+                    "type": "IOT.SMARTPLUGSWITCH",
+                    "dev_name": "Smart Wi-Fi Plug"
+                }
+            }
+        });
+
+        assert_eq!(kind_name(detect_kind(&dimmer)), "dimmer");
+        assert_eq!(kind_name(detect_kind(&strip)), "strip");
+        assert_eq!(kind_name(detect_kind(&plug)), "plug");
+    }
+
+    #[test]
+    fn detect_kind_preserves_unknown_type() {
+        let json = json!({
+            "system": {
+                "get_sysinfo": {
+                    "mic_type": "IOT.UNKNOWN"
+                }
+            }
+        });
+
+        match detect_kind(&json) {
+            DeviceKind::Unknown(t) => assert_eq!(t, "IOT.UNKNOWN"),
+            _ => panic!("expected unknown device kind"),
+        }
+    }
+
+    #[test]
+    fn alias_matching_is_case_and_punctuation_insensitive() {
+        assert!(alias_matches("Living Room Right Lamp", "living room"));
+        assert!(alias_matches("Coat-Rack Lights", "coat rack"));
+        assert!(alias_matches("Kitchen Wax Melter", "KITCHEN"));
+        assert!(!alias_matches("Back Porch Reading Lamp", "coat rack"));
+    }
+
+    #[test]
+    fn device_alias_reads_legacy_sysinfo_alias() {
+        let json = json!({
+            "system": {
+                "get_sysinfo": {
+                    "alias": "Coat Rack Lights"
+                }
+            }
+        });
+
+        assert_eq!(device_alias(&json), Some("Coat Rack Lights"));
+    }
 }

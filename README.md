@@ -12,8 +12,9 @@ Command-line tool for controlling TP-Link smart bulbs and plugs over your local 
 | KP115 | Smart plug | Yes (V/A/W) | — |
 | HS110 | Smart plug | Yes (V/A/W) | — |
 | HS105 | Smart plug mini | No | — |
+| P125/P125M | Tapo smart plug | Not yet exposed | — |
 
-> Newer Tapo devices (P125, L530) use a different protocol and are not yet supported.
+> Tapo/KLAP support is experimental. Set `TAPO_USER` and `TAPO_PASS` before using Tapo commands.
 
 ## Install
 
@@ -86,43 +87,56 @@ This broadcasts a UDP discovery packet and lists everything it finds. Devices mu
 ### Control power
 
 ```bash
-denki power 192.168.1.42 on
-denki power 192.168.1.42 off
-denki power 192.168.1.42 toggle
+denki power "Office Bulb" on
+denki power "Office Bulb" off
+denki power "Office Bulb" toggle
 ```
+
+You can use the device name shown by `denki scan`, or pass an IP address if you
+prefer. Name matching is case-insensitive and partial, so
+`denki info "office"` can resolve `Office Bulb` when it is the only match.
 
 ### Bulb: brightness, color temperature, color
 
 ```bash
-denki dim 192.168.1.42 50          # 0–100%
-denki warmth 192.168.1.42 2700     # 2500–9000 Kelvin (warm to cool white)
-denki color 192.168.1.42 275 50 80 # hue (0–360), saturation (0–100), value (0–100)
+denki dim "Office Bulb" 50          # 0–100%
+denki warmth "Office Bulb" 2700     # 2500–9000 Kelvin (warm to cool white)
+denki color "Office Bulb" 275 50 80 # hue (0–360), saturation (0–100), value (0–100)
 ```
 
 ### Device info
 
 ```bash
-denki info 192.168.1.42
+denki info "Office Bulb"
 ```
 
 ### Energy usage
 
 ```bash
-denki energy 192.168.1.42                   # real-time watts
-denki energy-daily 192.168.1.42 2025-03     # daily breakdown for a month
-denki energy-monthly 192.168.1.42 2025      # monthly totals for a year
+denki energy "Office Bulb"                   # real-time watts
+denki energy-daily "Office Bulb" 2025-03     # daily breakdown for a month
+denki energy-monthly "Office Bulb" 2025      # monthly totals for a year
 ```
 
 ### Other commands
 
 ```bash
-denki specs 192.168.1.42          # hardware specs — lumens, CRI, wattage (bulbs)
-denki presets 192.168.1.42        # saved light presets (bulbs)
-denki schedules 192.168.1.42      # scheduled on/off rules (plugs)
-denki led 192.168.1.42 off        # turn off the status LED (plugs)
-denki clock 192.168.1.42          # show device clock (plugs)
-denki rename 192.168.1.42 "Desk Lamp"
-denki restart 192.168.1.42
+denki specs "Office Bulb"          # hardware specs — lumens, CRI, wattage (bulbs)
+denki presets "Office Bulb"        # saved light presets (bulbs)
+denki schedules "Desk Plug"        # scheduled on/off rules (plugs)
+denki led "Desk Plug" off          # turn off the status LED (plugs)
+denki clock "Desk Plug"            # show device clock (plugs)
+denki rename "Desk Plug" "Desk Lamp"
+denki restart "Desk Lamp"
+```
+
+### Tapo devices
+
+```bash
+export TAPO_USER="you@example.com"
+export TAPO_PASS="your-password"
+denki tapo 192.168.1.50
+denki tapo-power 192.168.1.50 on
 ```
 
 ## How it works
@@ -136,7 +150,7 @@ Discovery uses UDP broadcast to the same port. The device responds with its full
 - **Encrypt:** key starts at 171; each output byte = input XOR previous output
 - **TCP:** adds a 4-byte big-endian length prefix (`encode`)
 - **UDP:** no length prefix (`encode_raw` for send, `decode` for receive)
-- **Newer Tapo devices** (P125, L530) use KLAP on port 80 — not yet implemented
+- **Newer Tapo devices** (P125, L530) use KLAP on port 80 — experimental support is available through `denki tapo` and `denki tapo-power`
 
 ### Device capabilities
 
@@ -162,8 +176,7 @@ Discovery uses UDP broadcast to the same port. The device responds with its full
 
 ## Not Implemented
 
-- KLAP protocol (port 80) — needed for P125 and newer Tapo devices
-- Tapo account authentication
+- Full Tapo feature coverage beyond basic info and power
 - Away mode rule creation
 - Countdown timer creation
 - Schedule creation/deletion

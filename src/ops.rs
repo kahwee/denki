@@ -210,15 +210,13 @@ pub async fn bulb_energy_monthly(host: &str, year: u16) -> Result<serde_json::Va
 
 /// Turn the plug's relay on. Uses set_relay_state (not lightingservice).
 pub async fn plug_on(host: &str) -> Result<()> {
-    transport::send(host, json!({"system": {"set_relay_state": {"state": 1}}}))
-        .await?;
+    transport::send(host, json!({"system": {"set_relay_state": {"state": 1}}})).await?;
     Ok(())
 }
 
 /// Turn the plug's relay off.
 pub async fn plug_off(host: &str) -> Result<()> {
-    transport::send(host, json!({"system": {"set_relay_state": {"state": 0}}}))
-        .await?;
+    transport::send(host, json!({"system": {"set_relay_state": {"state": 0}}})).await?;
     Ok(())
 }
 
@@ -283,11 +281,7 @@ pub async fn plug_energy_daily(host: &str, year: u16, month: u8) -> Result<serde
 /// Monthly energy totals for a full year.
 /// Response path: /emeter/get_monthstat/month_list
 pub async fn plug_energy_monthly(host: &str, year: u16) -> Result<serde_json::Value> {
-    transport::send(
-        host,
-        json!({"emeter": {"get_monthstat": {"year": year}}}),
-    )
-    .await
+    transport::send(host, json!({"emeter": {"get_monthstat": {"year": year}}})).await
 }
 
 // ── Plug (KP115) — info ───────────────────────────────────────────────────────
@@ -311,11 +305,7 @@ pub async fn plug_time(host: &str) -> Result<serde_json::Value> {
 
 /// Rename the device. Sets the alias shown in the Kasa app and in sysinfo.
 pub async fn rename(host: &str, name: &str) -> Result<()> {
-    transport::send(
-        host,
-        json!({"system": {"set_dev_alias": {"alias": name}}}),
-    )
-    .await?;
+    transport::send(host, json!({"system": {"set_dev_alias": {"alias": name}}})).await?;
     Ok(())
 }
 
@@ -331,7 +321,9 @@ pub async fn restart(host: &str) -> Result<()> {
 /// Fetch full device info from a Tapo device.
 /// Method: get_device_info (no params needed)
 pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
-    session.send(r#"{"method":"get_device_info","params":{}}"#).await
+    session
+        .send(r#"{"method":"get_device_info","params":{}}"#)
+        .await
 }
 
 /// Turn a Tapo device on.
@@ -370,10 +362,7 @@ pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
 
 /// Check for a non-zero error_code in a Tapo response.
 fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
-    let code = resp
-        .get("error_code")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let code = resp.get("error_code").and_then(|v| v.as_i64()).unwrap_or(0);
     if code != 0 {
         anyhow::bail!("Tapo device error: code {code}");
     }

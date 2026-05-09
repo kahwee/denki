@@ -50,3 +50,42 @@ pub fn decode(ciphertext: &[u8]) -> Vec<u8> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_raw_round_trips_with_decode() {
+        let plaintext = br#"{"system":{"get_sysinfo":{}}}"#;
+
+        let encoded = encode_raw(plaintext);
+        let decoded = decode(&encoded);
+
+        assert_eq!(decoded, plaintext);
+    }
+
+    #[test]
+    fn encode_adds_big_endian_length_prefix_for_tcp() {
+        let plaintext = b"hello kasa";
+
+        let encoded = encode(plaintext);
+        let len = u32::from_be_bytes(encoded[..4].try_into().unwrap());
+        let decoded = decode(&encoded[4..]);
+
+        assert_eq!(len as usize, plaintext.len());
+        assert_eq!(decoded, plaintext);
+    }
+
+    #[test]
+    fn udp_encoding_has_no_length_prefix() {
+        let plaintext = b"ping";
+
+        let raw = encode_raw(plaintext);
+        let framed = encode(plaintext);
+
+        assert_eq!(raw.len(), plaintext.len());
+        assert_eq!(framed.len(), plaintext.len() + 4);
+        assert_ne!(&framed[..4], &raw[..]);
+    }
+}

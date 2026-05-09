@@ -93,3 +93,73 @@ pub fn parse(json: &serde_json::Value) -> Option<Plug> {
     }
     serde_json::from_value(sysinfo.clone()).ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_accepts_newer_plug_mic_type() {
+        let json = json!({
+            "system": {
+                "get_sysinfo": {
+                    "mic_type": "IOT.SMARTPLUGSWITCH",
+                    "alias": "Desk Plug",
+                    "model": "KP115(US)",
+                    "hw_ver": "1.0",
+                    "sw_ver": "1.1.1 Build 250908 Rel.112945",
+                    "rssi": -48,
+                    "relay_state": 1,
+                    "on_time": 3661,
+                    "led_off": 0,
+                    "feature": "TIM:ENE"
+                }
+            }
+        });
+
+        let plug = parse(&json).expect("plug should parse");
+
+        assert!(plug.is_on());
+        assert!(plug.has_energy_monitoring());
+        assert_eq!(plug.on_time_fmt(), "1h 1m");
+    }
+
+    #[test]
+    fn parse_accepts_older_type_field() {
+        let json = json!({
+            "system": {
+                "get_sysinfo": {
+                    "type": "IOT.SMARTPLUGSWITCH",
+                    "alias": "Old Plug",
+                    "model": "HS105(US)",
+                    "hw_ver": "5.0",
+                    "sw_ver": "1.0.0",
+                    "rssi": -70,
+                    "relay_state": 0,
+                    "feature": "TIM"
+                }
+            }
+        });
+
+        let plug = parse(&json).expect("older plug should parse");
+
+        assert!(!plug.is_on());
+        assert!(!plug.has_energy_monitoring());
+        assert_eq!(plug.on_time_fmt(), "off");
+    }
+
+    #[test]
+    fn parse_rejects_non_plug_device() {
+        let json = json!({
+            "system": {
+                "get_sysinfo": {
+                    "mic_type": "IOT.SMARTBULB",
+                    "alias": "Bulb"
+                }
+            }
+        });
+
+        assert!(parse(&json).is_none());
+    }
+}

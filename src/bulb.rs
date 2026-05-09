@@ -120,3 +120,78 @@ pub fn parse(json: &serde_json::Value) -> Option<Bulb> {
     let sysinfo = json.pointer("/system/get_sysinfo")?;
     serde_json::from_value(sysinfo.clone()).ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_reads_inline_light_state_when_on() {
+        let json = json!({
+            "system": {
+                "get_sysinfo": {
+                    "alias": "Office Color",
+                    "model": "KL135(US)",
+                    "hw_ver": "2.6",
+                    "sw_ver": "1.0.9 Build 250610 Rel.123456",
+                    "rssi": -52,
+                    "dev_state": "normal",
+                    "is_color": 1,
+                    "is_dimmable": 1,
+                    "is_variable_color_temp": 1,
+                    "light_state": {
+                        "on_off": 1,
+                        "brightness": 80,
+                        "color_temp": 2700,
+                        "hue": 0,
+                        "saturation": 0
+                    }
+                }
+            }
+        });
+
+        let bulb = parse(&json).expect("bulb should parse");
+
+        assert!(bulb.light_state.is_on());
+        assert_eq!(bulb.alias, "Office Color");
+        assert_eq!(bulb.light_state.brightness(), 80);
+        assert_eq!(bulb.light_state.color_temp(), 2700);
+    }
+
+    #[test]
+    fn parse_falls_back_to_default_on_state_when_off() {
+        let json = json!({
+            "system": {
+                "get_sysinfo": {
+                    "alias": "Office Color",
+                    "model": "KL135(US)",
+                    "hw_ver": "1.0",
+                    "sw_ver": "1.0.15 Build 240429 Rel.154143",
+                    "rssi": -61,
+                    "dev_state": "normal",
+                    "is_color": 1,
+                    "is_dimmable": 1,
+                    "is_variable_color_temp": 1,
+                    "light_state": {
+                        "on_off": 0,
+                        "dft_on_state": {
+                            "brightness": 45,
+                            "color_temp": 0,
+                            "hue": 275,
+                            "saturation": 50
+                        }
+                    }
+                }
+            }
+        });
+
+        let bulb = parse(&json).expect("bulb should parse");
+
+        assert!(!bulb.light_state.is_on());
+        assert_eq!(bulb.light_state.brightness(), 45);
+        assert_eq!(bulb.light_state.color_temp(), 0);
+        assert_eq!(bulb.light_state.hue(), 275);
+        assert_eq!(bulb.light_state.saturation(), 50);
+    }
+}

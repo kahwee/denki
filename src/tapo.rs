@@ -68,5 +68,57 @@ pub fn parse(json: &serde_json::Value) -> Option<TapoDevice> {
     Some(device)
 }
 
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_decodes_base64_nickname() {
+        let json = json!({
+            "error_code": 0,
+            "result": {
+                "model": "P125M",
+                "hw_ver": "1.0",
+                "fw_ver": "1.2.3 Build 260101 Rel.123456",
+                "device_on": true,
+                "on_time": 42,
+                "rssi": -55,
+                "signal_level": 2,
+                "nickname": "RGVzayBQbHVn",
+                "overheated": false,
+                "device_id": "abc123"
+            }
+        });
+
+        let device = parse(&json).expect("tapo device should parse");
+
+        assert_eq!(device.nickname, "Desk Plug");
+        assert!(device.is_on());
+        assert_eq!(device.signal_level, 2);
+    }
+
+    #[test]
+    fn parse_leaves_plain_nickname_when_base64_decode_fails() {
+        let json = json!({
+            "result": {
+                "model": "P125M",
+                "hw_ver": "1.0",
+                "fw_ver": "1.2.3",
+                "device_on": false,
+                "rssi": -75,
+                "nickname": "not base64!",
+                "device_id": "abc123"
+            }
+        });
+
+        let device = parse(&json).expect("tapo device should parse");
+
+        assert_eq!(device.nickname, "not base64!");
+        assert!(!device.is_on());
+        assert_eq!(device.signal_level, 0);
+    }
+}

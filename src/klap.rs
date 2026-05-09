@@ -93,14 +93,42 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))
+        .http1_only()
         .build()?;
 
     // ── Handshake 1 ──────────────────────────────────────────────────────────
-    let resp = client
-        .post(format!("{base}/handshake1"))
-        .body(local_seed.to_vec())
-        .send()
-        .await?;
+    // ── Raw TCP test ─────────────────────────────────────────────────────────
+    {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpStream;
+        let mut stream = TcpStream::connect(format!("{host}:80")).await?;
+        let request = format!(
+            "POST /app/handshake1 HTTP/1.1\r\nHost: {host}:80\r\nContent-Type: application/octet-stream\r\nContent-Length: 16\r\nConnection: close\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await?;
+        stream.write_all(&local_seed).await?;
+        let mut buf = vec![0u8; 4096];
+        let n = stream.read(&mut buf).await?;
+        let resp_str = String::from_utf8_lossy(&buf[..n]);
+        let status_line = resp_str.lines().next().unwrap_or("???");
+        eprintln!("DEBUG raw TCP handshake1: {}", status_line);
+    }
+
+    let body1 = local_seed.to_vec();
+    eprintln!(
+        "DEBUG hs1: body len={}, seed={:?}",
+        body1.len(),
+        &body1[..4]
+    );
+    let test_url = std::env::var("KLAP_TEST_URL").unwrap_or_else(|_| format!("{base}/handshake1"));
+    let req1 = client
+        .post(&test_url)
+        .header("Content-Type", "application/octet-stream")
+        .body(body1)
+        .build()?;
+    eprintln!("DEBUG hs1 request headers: {:?}", req1.headers());
+    let resp = client.execute(req1).await?;
+    eprintln!("DEBUG hs1 status: {}", resp.status());
 
     if !resp.status().is_success() {
         bail!("Handshake 1 failed: HTTP {}", resp.status());
@@ -138,6 +166,7 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
     let client_proof = sha256_multi(&[&remote_seed, &local_seed, &ah]);
     let resp2 = client
         .post(format!("{base}/handshake2"))
+        .header("Content-Type", "application/octet-stream")
         .header("Cookie", &cookie)
         .body(client_proof.to_vec())
         .send()
@@ -148,15 +177,13 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
     }
 
     // ── Key derivation ────────────────────────────────────────────────────────
-    let key: [u8; 16] = sha256_multi(&[b"lsk", &local_seed, &remote_seed, &ah])[..16]
-        .try_into()?;
+    let key: [u8; 16] = sha256_multi(&[b"lsk", &local_seed, &remote_seed, &ah])[..16].try_into()?;
 
     let iv_full = sha256_multi(&[b"iv", &local_seed, &remote_seed, &ah]);
     let iv_base: [u8; 12] = iv_full[..12].try_into()?;
     let seq = i32::from_be_bytes(iv_full[28..32].try_into()?);
 
-    let sig: [u8; 28] = sha256_multi(&[b"ldk", &local_seed, &remote_seed, &ah])[..28]
-        .try_into()?;
+    let sig: [u8; 28] = sha256_multi(&[b"ldk", &local_seed, &remote_seed, &ah])[..28].try_into()?;
 
     Ok(KlapSession {
         key,
@@ -178,6 +205,7 @@ impl KlapSession {
             .client
             .post(&self.request_url)
             .query(&[("seq", seq)])
+            .header("Content-Type", "application/octet-stream")
             .header("Cookie", &self.cookie)
             .body(payload)
             .send()
