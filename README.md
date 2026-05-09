@@ -4,22 +4,27 @@ Command-line tool for controlling TP-Link Kasa and Tapo smart devices over your 
 
 *denki* means electricity in Japanese.
 
-## Supported Devices
+## Support Status
 
-| Model | Type | Protocol | Energy | Color/Dim |
-|-------|------|----------|--------|-----------|
-| KL135 | Smart bulb | Kasa (XOR) | Yes (W only) | Yes — HSV + color temp |
-| KL430 | LED light strip | Kasa (XOR) | Yes (W only) | Yes — HSV + color temp + effects |
-| KP115 | Smart plug mini | Kasa (XOR) | Yes (V/A/W/Wh) | — |
-| HS110 | Smart plug | Kasa (XOR) | Yes (V/A/W/kWh) | — |
-| HS105 | Smart plug mini | Kasa (XOR) | No | — |
-| HS220 | Dimmer switch | Kasa (XOR) | No | Brightness only |
-| HS300/KP303 | Power strip | Kasa (XOR) | Yes (aggregate) | — |
-| P125/P125M | Tapo plug mini | KLAP (HTTP) | Not yet | — |
+| Model | Type | Protocol | Current CLI status |
+|-------|------|----------|--------------------|
+| KL135 | Smart bulb | Kasa (XOR) | Info, power, brightness, color temperature, HSV color, energy, specs, presets |
+| KP115 | Smart plug mini | Kasa (XOR) | Info, power, energy, schedules, clock, LED |
+| HS110 | Smart plug | Kasa (XOR) | Info, power, energy |
+| HS105 | Smart plug mini | Kasa (XOR) | Info, power, schedules, clock, LED; no energy chip |
+| P125/P125M | Tapo plug mini | KLAP (HTTP) | Experimental info and power via saved `--klap` alias |
+
+The parser can identify a few more Kasa device families, but their controls are not fully wired yet:
+
+| Model | Current limitation |
+|-------|--------------------|
+| KL430 light strip | Scan/info only. Power, color, effects, and energy need the `smartlife.iot.lightStrip` namespace and are not implemented yet. |
+| HS220 dimmer | Scan/info and basic relay-style power may work. Brightness control is not implemented yet. |
+| HS300/KP303 power strip | Scan/info/outlet listing. Per-outlet control and strip-specific energy behavior are not implemented yet. |
 
 > **Note on energy units:** KP115 returns milli-units (`voltage_mv`, `current_ma`, `power_mw`). HS110 returns real units (`voltage`, `current`, `power` in V/A/W). Both share the same command.
 
-Devices marked `verified = true` in `devices.toml` have been live-tested on real hardware.
+Devices marked `verified = true` in `devices.toml` have been live-tested on real hardware. Some entries in `devices.toml` are capability notes for future work, not a promise that every command is already routed in the CLI.
 
 ## Install
 
@@ -53,14 +58,14 @@ cp target/release/denki /usr/local/bin/
 
 ## Usage
 
-### Discover devices
+### Discover Kasa Devices
 
 ```bash
 denki scan
 denki scan --timeout 5
 ```
 
-Broadcasts a UDP discovery packet on port 9999. Devices must be on the same subnet.
+Broadcasts a Kasa UDP discovery packet on port 9999. Devices must be on the same subnet. Tapo/KLAP devices do not respond to this scan; save them manually with `denki alias <name> <ip> --klap`.
 
 ```
 Found 3 device(s)
@@ -94,9 +99,9 @@ denki power "desk lamp" toggle
 denki power 192.168.1.42 on        # raw IP also works
 ```
 
-Name matching is case-insensitive and partial — `"desk"` resolves `"Desk Lamp"` if it's the only match. For Tapo devices saved with `--klap`, `TAPO_USER` and `TAPO_PASS` must be set.
+Name matching is case-insensitive and partial — `"desk"` resolves `"Desk Lamp"` if it's the only match. Raw IP addresses are treated as Kasa/XOR devices. For Tapo/KLAP devices, use a saved alias with `--klap`.
 
-### Bulb controls
+### KL135 Bulb Controls
 
 ```bash
 denki dim "desk lamp" 50           # brightness 0–100%
@@ -104,7 +109,7 @@ denki warmth "desk lamp" 2700      # color temperature 2500–9000 K
 denki color "desk lamp" 275 50 80  # hue (0–360) saturation (0–100) value (0–100)
 ```
 
-Setting saturation > 0 activates color mode and disables color temperature mode (they are mutually exclusive on the device).
+Setting saturation > 0 activates color mode and disables color temperature mode (they are mutually exclusive on the device). These controls are currently implemented for the smartbulb namespace used by KL135-style bulbs, not KL430 light strips or HS220 dimmers.
 
 ### Device info
 
@@ -148,7 +153,13 @@ denki info "tapo plug"
 denki power "tapo plug" on
 ```
 
-The `--klap` flag tells denki to use KLAP instead of the legacy XOR protocol. Without it, power and info commands fall back to Kasa/XOR, which will time out on Tapo devices.
+You can also save credentials locally:
+
+```bash
+denki login "you@example.com" "your-tapo-password"
+```
+
+`TAPO_USER` and `TAPO_PASS` take precedence over saved credentials. The `--klap` flag tells denki to use KLAP instead of the legacy XOR protocol. Without it, power and info commands fall back to Kasa/XOR, which will time out on Tapo devices.
 
 ## How it works
 
@@ -181,6 +192,7 @@ denki implements this over raw `tokio::net::TcpStream` rather than an HTTP clien
 | `src/transport.rs` | TCP `send()` + UDP `broadcast()` for Kasa device communication |
 | `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
 | `src/hosts.rs` | Alias registry — maps friendly names to IP + protocol, stored as JSON |
+| `src/creds.rs` | Tapo credential loading/saving for env vars and `denki login` |
 | `src/bulb.rs` | KL135/KL430 sysinfo parsing |
 | `src/plug.rs` | Plug sysinfo parsing + feature detection (KP115, HS110, HS105) |
 | `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
@@ -188,6 +200,7 @@ denki implements this over raw `tokio::net::TcpStream` rather than an HTTP clien
 | `src/tapo.rs` | Tapo device info parsing (P125 `get_device_info` response) |
 | `src/ops.rs` | All API calls, namespaced by device type: `bulb_*`, `plug_*`, `tapo_*`, shared |
 | `src/display.rs` | Colored terminal output for all device types |
+| `src/lib.rs` | Library crate exports for reuse from Rust |
 | `devices.toml` | Machine-readable device capability map — supported commands, verified hardware |
 
 ## Library usage
@@ -218,7 +231,8 @@ ops::tapo_on(&mut session).await?;
 - Countdown timer creation
 - Schedule creation and deletion
 - Firmware updates (intentionally excluded)
-- Effect animations (not available via local API on KL135; KL430 supports them)
+- KL430 light-strip control/effects routing
+- HS220 dimmer brightness routing
 
 ## License
 
