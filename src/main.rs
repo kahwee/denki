@@ -1,4 +1,4 @@
-use denki::{bulb, cipher, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
+use denki::{bulb, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand, ValueEnum};
