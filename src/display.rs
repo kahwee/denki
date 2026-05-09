@@ -495,9 +495,14 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     // strip has no rssi in sysinfo root — signal not shown
     println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
     let a = &s.alias;
+    let energy_hint = if s.has_energy_monitoring() {
+        format!("  ·  denki outlet-energy \"{a}\" 1")
+    } else {
+        String::new()
+    };
     println!(
         "   {}",
-        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off").dimmed()
+        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off{energy_hint}").dimmed()
     );
     println!();
 }
@@ -517,7 +522,13 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
 
 pub fn print_strip_outlets(s: &Strip) {
     for (i, child) in s.children.iter().enumerate() {
-        println!("  Outlet {}: {}  {}", i + 1, on_state(child.is_on()), child.alias);
+        let n = i + 1;
+        let on_time = if child.is_on() && child.on_time > 0 {
+            format!("  (on for {})", child.on_time_fmt()).dimmed().to_string()
+        } else {
+            String::new()
+        };
+        println!("  Outlet {n}: {}  {}{}", on_state(child.is_on()), child.alias, on_time);
     }
 }
 

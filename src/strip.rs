@@ -64,6 +64,14 @@ impl StripChild {
     pub fn is_on(&self) -> bool {
         self.state == 1
     }
+
+    pub fn on_time_fmt(&self) -> String {
+        if self.on_time == 0 {
+            "off".to_string()
+        } else {
+            crate::fmt::duration(self.on_time)
+        }
+    }
 }
 
 /// Parse a strip from a raw sysinfo response JSON.

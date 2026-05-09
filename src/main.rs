@@ -178,6 +178,51 @@ enum Command {
         state: PowerAction,
     },
 
+    /// Show real-time energy for one outlet on a power strip (strips with ENE feature only)
+    OutletEnergy {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Outlet number, 1-based
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: u8,
+    },
+
+    /// Show daily energy usage for one outlet (YYYY-MM, strips with ENE feature only)
+    OutletEnergyDaily {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Outlet number, 1-based
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: u8,
+        /// Month in YYYY-MM format (defaults to current month)
+        month: Option<String>,
+    },
+
+    /// Show monthly energy totals for one outlet (strips with ENE feature only)
+    OutletEnergyMonthly {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Outlet number, 1-based
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: u8,
+        year: Option<u16>,
+    },
+
+    /// Rename one outlet on a power strip
+    OutletRename {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Outlet number, 1-based
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: u8,
+        /// New name for the outlet
+        name: String,
+    },
+
     /// Save a friendly name for a device IP (e.g. `denki alias "floor lamp" 192.168.7.254`)
     Alias {
         /// Friendly name to save
@@ -400,9 +445,9 @@ fn can_get_schedules(kind: &DeviceKind) -> Result<()> {
 
 fn can_control_led(kind: &DeviceKind) -> Result<()> {
     match kind {
-        DeviceKind::Plug | DeviceKind::Dimmer => Ok(()),
+        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
         other => anyhow::bail!(
-            "`led` is only supported on plugs and dimmers (e.g. KP115, HS220), not {other}"
+            "`led` is only supported on plugs, dimmers, and strips (e.g. KP115, HS220, HS300), not {other}"
         ),
     }
 }
@@ -433,6 +478,19 @@ fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()> {
                         p.alias,
                         p.model,
                         p.feature
+                    );
+                }
+            }
+            Ok(())
+        }
+        DeviceKind::Strip => {
+            if let Some(s) = strip::parse(json) {
+                if !s.has_energy_monitoring() {
+                    anyhow::bail!(
+                        "{} ({}) does not have energy monitoring (feature: {:?})",
+                        s.alias,
+                        s.model,
+                        s.feature
                     );
                 }
             }
@@ -485,6 +543,18 @@ async fn resolve(input: &str) -> Result<Resolved> {
         "No device named \"{input}\" found in saved aliases.\n\
          Run `denki scan` to discover devices, then `denki alias \"{input}\" <ip>` to save it."
     )
+}
+
+/// Resolve a 1-based outlet number to the matching StripChild, with a clear error if out of range.
+fn resolve_outlet(s: &strip::Strip, outlet: u8) -> Result<&strip::StripChild> {
+    let idx = (outlet - 1) as usize;
+    s.children.get(idx).ok_or_else(|| {
+        anyhow::anyhow!(
+            "outlet {} does not exist (strip has {} outlets)",
+            outlet,
+            s.children.len()
+        )
+    })
 }
 
 #[tokio::main]
@@ -785,14 +855,7 @@ async fn main() -> Result<()> {
             let json = ops::sysinfo(&r.ip).await?;
             let s = strip::parse(&json)
                 .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-            let idx = (outlet - 1) as usize;
-            let child = s.children.get(idx).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "outlet {} does not exist (strip has {} outlets)",
-                    outlet,
-                    s.children.len()
-                )
-            })?;
+            let child = resolve_outlet(&s, outlet)?;
             let now_on = match state {
                 PowerAction::On => {
                     ops::strip_outlet_on(&r.ip, &child.id).await?;
@@ -814,6 +877,68 @@ async fn main() -> Result<()> {
             };
             let label = if now_on { "on".green().bold() } else { "off".dimmed() };
             println!("Outlet {} ({}) -> {}", outlet, child.alias, label);
+        }
+
+        Command::OutletEnergy { host, outlet } => {
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            let s = strip::parse(&json)
+                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+            if !s.has_energy_monitoring() {
+                bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
+            }
+            let child = resolve_outlet(&s, outlet)?;
+            let resp = ops::strip_outlet_energy(&r.ip, &child.id).await?;
+            println!("Outlet {} ({})", outlet, child.alias.bold());
+            display::print_energy_realtime(&resp);
+        }
+
+        Command::OutletEnergyDaily { host, outlet, month } => {
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            let s = strip::parse(&json)
+                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+            if !s.has_energy_monitoring() {
+                bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
+            }
+            let child = resolve_outlet(&s, outlet)?;
+            let month_str = match month {
+                Some(m) => m,
+                None => { let (y, m) = current_year_month(); format!("{y}-{m:02}") }
+            };
+            let parts: Vec<&str> = month_str.split('-').collect();
+            if parts.len() != 2 { bail!("Month must be in YYYY-MM format"); }
+            let year: u16 = parts[0].parse()?;
+            let mo: u8 = parts[1].parse()?;
+            let resp = ops::strip_outlet_energy_daily(&r.ip, &child.id, year, mo).await?;
+            println!("Outlet {} ({})", outlet, child.alias.bold());
+            display::print_energy_daily(&resp, &month_str);
+        }
+
+        Command::OutletEnergyMonthly { host, outlet, year } => {
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            let s = strip::parse(&json)
+                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+            if !s.has_energy_monitoring() {
+                bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
+            }
+            let child = resolve_outlet(&s, outlet)?;
+            let year = year.unwrap_or_else(|| current_year_month().0);
+            let resp = ops::strip_outlet_energy_monthly(&r.ip, &child.id, year).await?;
+            println!("Outlet {} ({})", outlet, child.alias.bold());
+            display::print_energy_monthly(&resp, year);
+        }
+
+        Command::OutletRename { host, outlet, name } => {
+            let r = resolve(&host).await?;
+            let json = ops::sysinfo(&r.ip).await?;
+            let s = strip::parse(&json)
+                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+            let child = resolve_outlet(&s, outlet)?;
+            let old_name = child.alias.clone();
+            ops::strip_outlet_rename(&r.ip, &child.id, &name).await?;
+            println!("Outlet {} renamed: {} → {}", outlet, old_name, name.bold());
         }
 
         Command::Alias { name, ip, klap } => {
@@ -1028,11 +1153,11 @@ mod tests {
     }
 
     #[test]
-    fn can_control_led_accepts_plug_and_dimmer() {
+    fn can_control_led_accepts_plug_dimmer_and_strip() {
         assert!(can_control_led(&DeviceKind::Plug).is_ok());
         assert!(can_control_led(&DeviceKind::Dimmer).is_ok());
+        assert!(can_control_led(&DeviceKind::Strip).is_ok());
         assert!(can_control_led(&DeviceKind::Bulb).is_err());
-        assert!(can_control_led(&DeviceKind::Strip).is_err());
         assert!(can_control_led(&DeviceKind::LightStrip).is_err());
     }
 

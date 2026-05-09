@@ -20,7 +20,7 @@ The parser can identify a few more Kasa device families, but their controls are 
 |-------|--------------------|
 | KL430 light strip | Scan/info only. Power, color, effects, and energy need the `smartlife.iot.lightStrip` namespace and are not implemented yet. |
 | HS220 dimmer | Info, power, and brightness (`denki dim`) via `smartlife.iot.dimmer`. Schedules and clock work. |
-| HS300/KP303 power strip | Info, outlet listing (`denki outlets`), and per-outlet control (`denki outlet N on\|off`). Strip-level energy not implemented. |
+| HS300/KP303 power strip | Info, outlet listing (`denki outlets`), per-outlet control (`denki outlet N on\|off\|toggle`), per-outlet energy (`denki outlet-energy N`), per-outlet rename (`denki outlet-rename N name`), strip-level LED. Strip-level energy via `denki energy` on ENE-capable models. |
 
 > **Note on energy units:** KP115 returns milli-units (`voltage_mv`, `current_ma`, `power_mw`). HS110 returns real units (`voltage`, `current`, `power` in V/A/W). Both share the same command.
 
@@ -134,11 +134,16 @@ denki energy-monthly "desk plug" 2025     # monthly totals for a year
 denki specs "desk lamp"            # hardware specs: lumens, CRI, wattage (bulbs)
 denki presets "desk lamp"          # saved light presets (bulbs)
 denki schedules "desk plug"        # scheduled on/off rules (plugs)
-denki led "desk plug" off          # turn off the status LED (plugs)
+denki led "desk plug" off          # turn off the status LED (plugs, dimmers, strips)
 denki clock "desk plug"            # show device clock (plugs)
-denki outlets "power strip"        # list outlets and their state (strips)
+denki outlets "power strip"        # list outlets with state and on-time (strips)
 denki outlet "power strip" 2 on    # turn outlet 2 on (strips)
 denki outlet "power strip" 2 off   # turn outlet 2 off (strips)
+denki outlet "power strip" 2 toggle
+denki outlet-energy "power strip" 2          # real-time energy for one outlet (strips with ENE)
+denki outlet-energy-daily "power strip" 2 2025-03
+denki outlet-energy-monthly "power strip" 2 2025
+denki outlet-rename "power strip" 2 "Coffee Maker"
 denki rename "desk plug" "new name"
 denki restart "desk lamp"
 ```
@@ -235,7 +240,7 @@ ops::tapo_on(&mut session).await?;
 - Schedule creation and deletion
 - Firmware updates (intentionally excluded)
 - KL430 light-strip control/effects routing
-- Strip-level energy monitoring for HS300/KP303
+- Strip-level energy monitoring for HS300/KP303 without ENE feature flag
 
 ## License
 

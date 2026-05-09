@@ -345,6 +345,70 @@ pub async fn strip_outlet_off(host: &str, child_id: &str) -> Result<()> {
     strip_outlet_set(host, child_id, false).await
 }
 
+// ── Strip (HS300/KP303) — per-outlet energy ──────────────────────────────────
+//
+// Per-outlet energy uses the same emeter namespace as plugs, but wrapped in
+// context.child_ids to target a specific outlet.
+// Strip-level energy (no context) works via the existing plug_energy* functions.
+
+/// Real-time energy for one outlet on a power strip.
+pub async fn strip_outlet_energy(host: &str, child_id: &str) -> Result<serde_json::Value> {
+    transport::send(
+        host,
+        json!({
+            "context": {"child_ids": [child_id]},
+            "emeter": {"get_realtime": {}}
+        }),
+    )
+    .await
+}
+
+/// Daily energy usage for one outlet.
+pub async fn strip_outlet_energy_daily(
+    host: &str,
+    child_id: &str,
+    year: u16,
+    month: u8,
+) -> Result<serde_json::Value> {
+    transport::send(
+        host,
+        json!({
+            "context": {"child_ids": [child_id]},
+            "emeter": {"get_daystat": {"month": month, "year": year}}
+        }),
+    )
+    .await
+}
+
+/// Monthly energy totals for one outlet.
+pub async fn strip_outlet_energy_monthly(
+    host: &str,
+    child_id: &str,
+    year: u16,
+) -> Result<serde_json::Value> {
+    transport::send(
+        host,
+        json!({
+            "context": {"child_ids": [child_id]},
+            "emeter": {"get_monthstat": {"year": year}}
+        }),
+    )
+    .await
+}
+
+/// Rename one outlet on a power strip.
+pub async fn strip_outlet_rename(host: &str, child_id: &str, name: &str) -> Result<()> {
+    transport::send(
+        host,
+        json!({
+            "context": {"child_ids": [child_id]},
+            "system": {"set_dev_alias": {"alias": name}}
+        }),
+    )
+    .await?;
+    Ok(())
+}
+
 // ── Shared — works on all device types ───────────────────────────────────────
 
 /// Rename the device. Sets the alias shown in the Kasa app and in sysinfo.
