@@ -36,7 +36,7 @@ pub async fn sysinfo(host: &str) -> Result<serde_json::Value> {
     transport::send(host, json!({"system": {"get_sysinfo": {}}})).await
 }
 
-// ── Bulb (KL135) — power ─────────────────────────────────────────────────────
+// ── Bulb (KL135) — on/off ────────────────────────────────────────────────────
 
 async fn bulb_set_power(host: &str, on: bool) -> Result<()> {
     transport::send(
@@ -222,7 +222,7 @@ pub async fn dimmer_set_brightness(host: &str, level: u8) -> Result<()> {
     Ok(())
 }
 
-// ── Plug (KP115) — power ─────────────────────────────────────────────────────
+// ── Plug (KP115) — on/off ────────────────────────────────────────────────────
 
 /// Turn the plug's relay on. Uses set_relay_state (not lightingservice).
 pub async fn plug_on(host: &str) -> Result<()> {

@@ -8,7 +8,7 @@ use std::net::IpAddr;
 #[derive(Parser)]
 #[command(
     name = "denki",
-    about = "Control TP-Link smart bulbs and plugs from the terminal",
+    about = "Control TP-Link Kasa and Tapo devices from the terminal",
     version
 )]
 struct Cli {
@@ -336,7 +336,7 @@ async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
     klap::handshake(ip, &user, &pass).await
 }
 
-/// Execute a power action on a Kasa device using an already-fetched sysinfo blob.
+/// Execute an on/off/toggle action on a Kasa device using an already-fetched sysinfo blob.
 ///
 /// `target_on`:
 ///   - `Some(true)`  → turn on
