@@ -84,8 +84,7 @@ enum Command {
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Month in YYYY-MM format (defaults to current month)
-        #[arg(default_value = "2026-05")]
-        month: String,
+        month: Option<String>,
     },
 
     /// Show monthly energy usage for a year (plugs only)
@@ -93,8 +92,7 @@ enum Command {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
-        #[arg(default_value = "2026")]
-        year: u16,
+        year: Option<u16>,
     },
 
     /// Show bulb hardware specs — lumens, wattage, CRI (bulbs only)
@@ -256,46 +254,61 @@ fn device_alias(json: &serde_json::Value) -> Option<&str> {
         .and_then(|v| v.as_str())
 }
 
-fn normalize_name(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+/// Returns the current (year, month) using only std — no external date crate.
+/// Uses Howard Hinnant's civil_from_days algorithm.
+fn current_year_month() -> (u16, u8) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() / 86400)
+        .unwrap_or(0) as i64;
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    (year as u16, m as u8)
 }
 
-fn alias_matches(alias: &str, query: &str) -> bool {
-    let alias = normalize_name(alias);
-    let query = normalize_name(query);
-    !query.is_empty() && (alias == query || alias.contains(&query))
+/// Resolved device: IP + protocol to use.
+struct Resolved {
+    ip: String,
+    protocol: hosts::Protocol,
 }
 
-async fn resolve_host(input: &str) -> Result<String> {
+/// Resolve a name or IP to (ip, protocol).
+/// Resolution order:
+///   1. Already an IP → Kasa (default)
+///   2. Saved alias in hosts file → uses stored protocol
+///   3. Live UDP scan → Kasa
+async fn resolve(input: &str) -> Result<Resolved> {
     if input.parse::<IpAddr>().is_ok() || input.contains('.') {
-        return Ok(input.to_string());
+        return Ok(Resolved { ip: input.to_string(), protocol: hosts::Protocol::Kasa });
     }
-
+    if let Some(entry) = hosts::lookup(input) {
+        println!("{}", format!("Using alias \"{input}\" [{}]", entry.ip).dimmed());
+        return Ok(Resolved { ip: entry.ip, protocol: entry.protocol });
+    }
     println!("{}", format!("Resolving \"{input}\"...").dimmed());
     let found = transport::broadcast(3).await?;
     let matches: Vec<_> = found
         .iter()
         .filter_map(|(ip, json)| {
             let alias = device_alias(json)?;
-            alias_matches(alias, input).then_some((*ip, alias.to_string()))
+            let a = hosts::normalize(alias);
+            let q = hosts::normalize(input);
+            (!q.is_empty() && (a == q || a.contains(&q))).then_some((*ip, alias.to_string()))
         })
         .collect();
 
     match matches.as_slice() {
         [(ip, alias)] => {
             println!("{}", format!("Using {alias} [{ip}]").dimmed());
-            Ok(ip.to_string())
+            Ok(Resolved { ip: ip.to_string(), protocol: hosts::Protocol::Kasa })
         }
         [] => bail!("No device named \"{input}\" found. Run `denki scan` to see available names."),
         many => {
@@ -307,32 +320,6 @@ async fn resolve_host(input: &str) -> Result<String> {
             bail!("\"{input}\" matched multiple devices: {names}")
         }
     }
-}
-
-/// Resolved device: IP + protocol to use.
-struct Resolved {
-    ip: String,
-    protocol: hosts::Protocol,
-}
-
-/// Resolve a name or IP to (ip, protocol).
-/// Resolution order:
-///   1. Already an IP → Kasa (default; save an alias with --klap for Tapo)
-///   2. Saved alias in hosts file → uses stored protocol
-///   3. Live UDP scan → Kasa
-async fn resolve(input: &str) -> Result<Resolved> {
-    // Already an IP or hostname with dots
-    if input.parse::<IpAddr>().is_ok() || input.contains('.') {
-        return Ok(Resolved { ip: input.to_string(), protocol: hosts::Protocol::Kasa });
-    }
-    // Saved alias
-    if let Some(entry) = hosts::lookup(input) {
-        println!("{}", format!("Using alias \"{input}\" [{}]", entry.ip).dimmed());
-        return Ok(Resolved { ip: entry.ip, protocol: entry.protocol });
-    }
-    // UDP scan for legacy Kasa devices
-    let ip = resolve_host(input).await?;
-    Ok(Resolved { ip, protocol: hosts::Protocol::Kasa })
 }
 
 #[tokio::main]
@@ -461,13 +448,13 @@ async fn main() -> Result<()> {
         }
 
         Command::Dim { host, level } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             ops::set_brightness(&host, level).await?;
             println!("Brightness -> {level}%");
         }
 
         Command::Warmth { host, kelvin } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             ops::set_warmth(&host, kelvin).await?;
             println!("Color temperature -> {kelvin}K");
         }
@@ -478,13 +465,13 @@ async fn main() -> Result<()> {
             saturation,
             value,
         } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             ops::set_color(&host, hue, saturation, value).await?;
             println!("Color -> hue:{hue} sat:{saturation} val:{value}");
         }
 
         Command::Energy { host } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             let json = ops::sysinfo(&host).await?;
             // Check plug capability before calling — HS105 (TIM only) has no energy chip
             if let Some(p) = plug::parse(&json) {
@@ -505,8 +492,15 @@ async fn main() -> Result<()> {
         }
 
         Command::EnergyDaily { host, month } => {
-            let host = resolve_host(&host).await?;
-            let parts: Vec<&str> = month.split('-').collect();
+            let host = resolve(&host).await?.ip;
+            let month_str = match month {
+                Some(m) => m,
+                None => {
+                    let (y, m) = current_year_month();
+                    format!("{y}-{m:02}")
+                }
+            };
+            let parts: Vec<&str> = month_str.split('-').collect();
             if parts.len() != 2 {
                 bail!("Month must be in YYYY-MM format");
             }
@@ -523,11 +517,12 @@ async fn main() -> Result<()> {
                 DeviceKind::Bulb => ops::bulb_energy_daily(&host, year, mo).await?,
                 _ => ops::plug_energy_daily(&host, year, mo).await?,
             };
-            display::print_energy_daily(&resp, &month);
+            display::print_energy_daily(&resp, &month_str);
         }
 
         Command::EnergyMonthly { host, year } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
+            let year = year.unwrap_or_else(|| current_year_month().0);
             let json = ops::sysinfo(&host).await?;
             if let Some(p) = plug::parse(&json) {
                 if !p.has_energy_monitoring() {
@@ -542,25 +537,25 @@ async fn main() -> Result<()> {
         }
 
         Command::Specs { host } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             let resp = ops::bulb_specs(&host).await?;
             display::print_bulb_specs(&resp);
         }
 
         Command::Presets { host } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             let resp = ops::bulb_presets(&host).await?;
             display::print_bulb_presets(&resp);
         }
 
         Command::Schedules { host } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             let resp = ops::plug_schedules(&host).await?;
             display::print_schedules(&resp);
         }
 
         Command::Led { host, state } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             let on = matches!(state, LedAction::On);
             ops::plug_led(&host, on).await?;
             println!(
@@ -570,7 +565,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Clock { host } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             let resp = ops::plug_time(&host).await?;
             if let Some(t) = resp.pointer("/time/get_time") {
                 println!(
@@ -586,19 +581,19 @@ async fn main() -> Result<()> {
         }
 
         Command::Rename { host, name } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             ops::rename(&host, &name).await?;
             println!("Renamed to \"{}\"", name.bold());
         }
 
         Command::Restart { host } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             ops::restart(&host).await?;
             println!("{} rebooting...", host);
         }
 
         Command::Outlets { host } => {
-            let host = resolve_host(&host).await?;
+            let host = resolve(&host).await?.ip;
             let json = ops::sysinfo(&host).await?;
             match strip::parse(&json) {
                 Some(s) => display::print_strip_outlets(&s),
@@ -731,10 +726,15 @@ mod tests {
 
     #[test]
     fn alias_matching_is_case_and_punctuation_insensitive() {
-        assert!(alias_matches("Living Room Right Lamp", "living room"));
-        assert!(alias_matches("Coat-Rack Lights", "coat rack"));
-        assert!(alias_matches("Kitchen Wax Melter", "KITCHEN"));
-        assert!(!alias_matches("Back Porch Reading Lamp", "coat rack"));
+        fn matches(alias: &str, query: &str) -> bool {
+            let a = hosts::normalize(alias);
+            let q = hosts::normalize(query);
+            !q.is_empty() && (a == q || a.contains(&q))
+        }
+        assert!(matches("Living Room Right Lamp", "living room"));
+        assert!(matches("Coat-Rack Lights", "coat rack"));
+        assert!(matches("Kitchen Wax Melter", "KITCHEN"));
+        assert!(!matches("Back Porch Reading Lamp", "coat rack"));
     }
 
     #[test]
