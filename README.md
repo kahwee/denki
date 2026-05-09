@@ -35,17 +35,37 @@ cargo build --release
 
 The binary will be at `./target/release/denki`.
 
-### Put it on your PATH (optional)
+### Install with cargo
+
+```bash
+cargo install --path .
+```
+
+This places the binary in `~/.cargo/bin/denki`, which is already on your PATH if you installed Rust with rustup.
+
+### Or copy manually
 
 ```bash
 cp target/release/denki /usr/local/bin/
 ```
 
-Or on macOS with Homebrew's prefix:
+On macOS with Homebrew's prefix:
 
 ```bash
 cp target/release/denki /opt/homebrew/bin/
 ```
+
+## Project Structure
+
+| File | Purpose |
+|------|---------|
+| `src/main.rs` | CLI (clap) + command dispatch + device-type detection |
+| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, has length prefix) / `encode_raw` (UDP, no prefix) |
+| `src/transport.rs` | TCP `send()` + UDP `broadcast()` for discovery |
+| `src/bulb.rs` | KL135 sysinfo struct — handles on/off state difference (dft_on_state vs inline) |
+| `src/plug.rs` | Plug sysinfo struct + feature detection (supports KP115, HS110, HS105) |
+| `src/ops.rs` | All device operations, split into bulb/plug/shared namespaces |
+| `src/display.rs` | Colored terminal output for both device types |
 
 ## Usage
 
@@ -53,6 +73,7 @@ cp target/release/denki /opt/homebrew/bin/
 
 ```bash
 denki scan
+denki scan --timeout 5    # custom timeout in seconds
 ```
 
 This broadcasts a UDP discovery packet and lists everything it finds. Devices must be on the same network as your computer.
@@ -109,6 +130,45 @@ denki restart 192.168.1.42
 All legacy Kasa devices communicate over TCP port 9999 using a simple XOR autokey cipher. denki implements this cipher directly — no cloud, no account, no app required.
 
 Discovery uses UDP broadcast to the same port. The device responds with its full sysinfo JSON.
+
+### Protocol details
+
+- **Encrypt:** key starts at 171; each output byte = input XOR previous output
+- **TCP:** adds a 4-byte big-endian length prefix (`encode`)
+- **UDP:** no length prefix (`encode_raw` for send, `decode` for receive)
+- **Newer Tapo devices** (P125, L530) use KLAP on port 80 — not yet implemented
+
+### Device capabilities
+
+**KL135 Smart Bulb (`IOT.SMARTBULB`)**
+- Power: `smartlife.iot.smartbulb.lightingservice/transition_light_state`
+- Color: HSV or color temp (mutually exclusive — sat > 0 disables CCT mode)
+- Energy: `smartlife.iot.common.emeter` (not the standard `emeter` module)
+- No schedule/countdown/time support
+- HW 2.6 adds: `fade_on_off`, `get_default_behavior`, `re_power_type`
+
+**KP115 Smart Plug (`IOT.SMARTPLUGSWITCH`)**
+- Power: `system/set_relay_state`
+- Energy: standard `emeter` module — realtime, daily, monthly (full V/A/W data)
+- Supports: LED indicator, schedule, time
+
+**HS110 Smart Plug with Energy Monitoring**
+- Energy values in real units (W/V/A/kWh), not milli-units like KP115
+- Day/month stat field: `energy` (kWh), not `energy_wh`
+
+**HS105 Smart Plug Mini (no energy chip)**
+- Feature string: `TIM` only (no `ENE`) — energy commands will fail gracefully
+- Supports: countdown timer, away mode, schedule, time, LED, cloud info
+
+## Not Implemented
+
+- KLAP protocol (port 80) — needed for P125 and newer Tapo devices
+- Tapo account authentication
+- Away mode rule creation
+- Countdown timer creation
+- Schedule creation/deletion
+- Firmware updates (intentionally excluded)
+- Effect animations (not available via local API on KL135)
 
 ## License
 

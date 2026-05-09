@@ -33,6 +33,7 @@ pub struct Bulb {
     /// Wi-Fi signal strength in dBm. >= -50 excellent, >= -65 good, < -65 weak
     pub rssi: i32,
     /// Device health: "normal" when operating correctly
+    #[allow(dead_code)]
     pub dev_state: String,
     /// 1 if the bulb supports full RGB color, 0 otherwise
     #[serde(default)]
