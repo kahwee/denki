@@ -442,11 +442,6 @@ fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()> {
     }
 }
 
-fn device_alias(json: &serde_json::Value) -> Option<&str> {
-    json.pointer("/system/get_sysinfo/alias")
-        .and_then(|v| v.as_str())
-}
-
 /// Returns the current (year, month) using only std — no external date crate.
 /// Uses Howard Hinnant's civil_from_days algorithm.
 fn current_year_month() -> (u16, u8) {
@@ -477,42 +472,19 @@ struct Resolved {
 /// Resolution order:
 ///   1. Already an IP → Kasa (default)
 ///   2. Saved alias in hosts file → uses stored protocol
-///   3. Live UDP scan → Kasa
+///   3. Error — no UDP fallback (would block for seconds and miss KLAP devices)
 async fn resolve(input: &str) -> Result<Resolved> {
-    if input.parse::<IpAddr>().is_ok() || input.contains('.') {
+    if input.parse::<IpAddr>().is_ok() {
         return Ok(Resolved { ip: input.to_string(), protocol: hosts::Protocol::Kasa });
     }
     if let Some(entry) = hosts::lookup(input) {
         println!("{}", format!("Using alias \"{input}\" [{}]", entry.ip).dimmed());
         return Ok(Resolved { ip: entry.ip, protocol: entry.protocol });
     }
-    println!("{}", format!("Resolving \"{input}\"...").dimmed());
-    let found = transport::broadcast(3).await?;
-    let matches: Vec<_> = found
-        .iter()
-        .filter_map(|(ip, json)| {
-            let alias = device_alias(json)?;
-            let a = hosts::normalize(alias);
-            let q = hosts::normalize(input);
-            (!q.is_empty() && (a == q || a.contains(&q))).then_some((*ip, alias.to_string()))
-        })
-        .collect();
-
-    match matches.as_slice() {
-        [(ip, alias)] => {
-            println!("{}", format!("Using {alias} [{ip}]").dimmed());
-            Ok(Resolved { ip: ip.to_string(), protocol: hosts::Protocol::Kasa })
-        }
-        [] => bail!("No device named \"{input}\" found. Run `denki scan` to see available names."),
-        many => {
-            let names = many
-                .iter()
-                .map(|(ip, alias)| format!("{alias} [{ip}]"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            bail!("\"{input}\" matched multiple devices: {names}")
-        }
-    }
+    bail!(
+        "No device named \"{input}\" found in saved aliases.\n\
+         Run `denki scan` to discover devices, then `denki alias \"{input}\" <ip>` to save it."
+    )
 }
 
 #[tokio::main]
@@ -522,43 +494,42 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Scan { timeout } => {
             println!("{}", format!("Scanning network for {timeout}s...").dimmed());
-            let found = transport::broadcast(timeout).await?;
-            if found.is_empty() {
-                println!("No devices found.");
-            } else {
-                println!("Found {} device(s)\n", found.len());
-                for (ip, json) in &found {
-                    match detect_kind(json) {
-                        DeviceKind::Bulb => {
-                            if let Some(b) = bulb::parse(json) {
-                                display::print_bulb_summary(*ip, &b);
-                            }
-                        }
-                        DeviceKind::LightStrip => {
-                            if let Some(b) = bulb::parse(json) {
-                                display::print_lightstrip_summary(*ip, &b);
-                            }
-                        }
-                        DeviceKind::Dimmer => {
-                            if let Some(d) = dimmer::parse(json) {
-                                display::print_dimmer_summary(*ip, &d);
-                            }
-                        }
-                        DeviceKind::Strip => {
-                            if let Some(s) = strip::parse(json) {
-                                display::print_strip_summary(*ip, &s);
-                            }
-                        }
-                        DeviceKind::Plug => {
-                            if let Some(p) = plug::parse(json) {
-                                display::print_plug_summary(*ip, &p);
-                            }
-                        }
-                        DeviceKind::Unknown(t) => {
-                            println!("{ip} - unknown device type: {t}");
+            let count = transport::broadcast_each(timeout, |ip, json| {
+                match detect_kind(&json) {
+                    DeviceKind::Bulb => {
+                        if let Some(b) = bulb::parse(&json) {
+                            display::print_bulb_summary(ip, &b);
                         }
                     }
+                    DeviceKind::LightStrip => {
+                        if let Some(b) = bulb::parse(&json) {
+                            display::print_lightstrip_summary(ip, &b);
+                        }
+                    }
+                    DeviceKind::Dimmer => {
+                        if let Some(d) = dimmer::parse(&json) {
+                            display::print_dimmer_summary(ip, &d);
+                        }
+                    }
+                    DeviceKind::Strip => {
+                        if let Some(s) = strip::parse(&json) {
+                            display::print_strip_summary(ip, &s);
+                        }
+                    }
+                    DeviceKind::Plug => {
+                        if let Some(p) = plug::parse(&json) {
+                            display::print_plug_summary(ip, &p);
+                        }
+                    }
+                    DeviceKind::Unknown(t) => {
+                        println!("{ip} - unknown device type: {t}");
+                    }
                 }
+            }).await?;
+            if count == 0 {
+                println!("No devices found.");
+            } else {
+                println!("{}", format!("Found {count} device(s)").dimmed());
             }
         }
 
@@ -659,6 +630,9 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
             can_set_warmth(&detect_kind(&json))?;
+            if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
+                ops::bulb_on(&r.ip).await?;
+            }
             ops::set_warmth(&r.ip, kelvin).await?;
             println!("Color temperature -> {kelvin}K");
         }
@@ -672,6 +646,9 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
             can_set_color(&detect_kind(&json))?;
+            if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
+                ops::bulb_on(&r.ip).await?;
+            }
             ops::set_color(&r.ip, hue, saturation, value).await?;
             println!("Color -> hue:{hue} sat:{saturation} val:{value}");
         }
@@ -966,19 +943,6 @@ mod tests {
         assert!(matches("Coat-Rack Lights", "coat rack"));
         assert!(matches("Kitchen Wax Melter", "KITCHEN"));
         assert!(!matches("Back Porch Reading Lamp", "coat rack"));
-    }
-
-    #[test]
-    fn device_alias_reads_legacy_sysinfo_alias() {
-        let json = json!({
-            "system": {
-                "get_sysinfo": {
-                    "alias": "Coat Rack Lights"
-                }
-            }
-        });
-
-        assert_eq!(device_alias(&json), Some("Coat Rack Lights"));
     }
 
     // ── Command guard tests ───────────────────────────────────────────────────

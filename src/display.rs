@@ -245,12 +245,36 @@ pub fn print_schedules(json: &serde_json::Value) {
     {
         if rules.is_empty() {
             println!("No schedules configured.");
-        } else {
-            println!("{}", "Schedules:".bold());
-            for r in rules {
-                println!("  {:?}", r);
-            }
+            return;
         }
+        println!("{}", "Schedules:".bold());
+        for r in rules {
+            let enabled = r.get("enable").and_then(|v| v.as_u64()).unwrap_or(0) == 1;
+            let name = r.get("name").and_then(|v| v.as_str()).unwrap_or("(unnamed)");
+            let smin = r.get("smin").and_then(|v| v.as_u64()).unwrap_or(0);
+            let sact = r.get("sact").and_then(|v| v.as_i64()).unwrap_or(1);
+            let action = if sact == 1 { "on".green() } else { "off".red() };
+            let time = format!("{:02}:{:02}", smin / 60, smin % 60);
+            let days = format_wday(r.get("wday").and_then(|v| v.as_array()));
+            let status = if enabled { "".normal() } else { " (disabled)".dimmed() };
+            println!("  {} at {}  {}  {}{}", action, time, days, name.bold(), status);
+        }
+    }
+}
+
+fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
+    const LABELS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    let Some(days) = wday else { return "every day".to_string() };
+    let active: Vec<&str> = days
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| v.as_u64().unwrap_or(0) == 1)
+        .map(|(i, _)| LABELS[i])
+        .collect();
+    match active.len() {
+        0 => "no days".to_string(),
+        7 => "every day".to_string(),
+        _ => active.join(" "),
     }
 }
 

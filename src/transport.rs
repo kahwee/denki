@@ -47,10 +47,10 @@ pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::
     Ok(response)
 }
 
-/// Broadcast a `get_sysinfo` probe via UDP and collect all device responses
-/// within `timeout_secs` seconds.
+/// Send a UDP sysinfo broadcast and call `f` for each device response as it arrives.
 ///
-/// Returns a list of (IP address, raw sysinfo JSON) pairs, one per device.
+/// Returns the total number of valid responses received.
+/// Callers receive results immediately rather than waiting for the full timeout to elapse.
 ///
 /// Important differences from TCP:
 /// - No length prefix in either direction — UDP datagrams are self-delimiting
@@ -59,37 +59,39 @@ pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::
 ///
 /// Devices that don't respond (offline, wrong subnet, KLAP-only) are silently
 /// skipped. Malformed responses are also silently dropped.
-pub async fn broadcast(timeout_secs: u64) -> Result<Vec<(std::net::IpAddr, serde_json::Value)>> {
-    // Bind on all interfaces, ephemeral port — OS assigns the source port
+pub async fn broadcast_each<F>(timeout_secs: u64, mut f: F) -> Result<usize>
+where
+    F: FnMut(std::net::IpAddr, serde_json::Value),
+{
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
     socket.set_broadcast(true)?;
 
-    // Standard sysinfo probe — all Kasa devices respond to this
     let probe = serde_json::json!({"system": {"get_sysinfo": {}}});
-
-    // UDP: encode_raw (no length prefix). Using encode() here adds 4 garbage
-    // bytes that devices would try to decrypt as cipher text.
     let raw = serde_json::to_vec(&probe)?;
     let encoded = cipher::encode_raw(&raw);
     socket
         .send_to(&encoded, format!("255.255.255.255:{PORT}"))
         .await?;
 
-    let mut results = Vec::new();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
-
+    let mut count = 0usize;
     let mut buf = vec![0u8; 4096];
-    // Stop on timeout or socket error; silently drop malformed responses
     while let Ok(Ok((n, addr))) =
         tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await
     {
-        // UDP responses have no length prefix — decode raw from byte 0
         let decoded = cipher::decode(&buf[..n]);
-        // Silently skip any response that isn't valid JSON (e.g. KLAP devices)
         if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&decoded) {
-            results.push((addr.ip(), json));
+            f(addr.ip(), json);
+            count += 1;
         }
     }
+    Ok(count)
+}
 
+/// Broadcast a `get_sysinfo` probe and collect all responses within `timeout_secs`.
+/// Returns a list of (IP, sysinfo JSON) pairs. Prefer `broadcast_each` when streaming output.
+pub async fn broadcast(timeout_secs: u64) -> Result<Vec<(std::net::IpAddr, serde_json::Value)>> {
+    let mut results = Vec::new();
+    broadcast_each(timeout_secs, |ip, json| results.push((ip, json))).await?;
     Ok(results)
 }
