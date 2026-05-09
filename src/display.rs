@@ -20,6 +20,11 @@ fn header(name: &str) -> ColoredString {
     format!("== {name} ==").bold()
 }
 
+/// Trim firmware strings like "1.1.1 Build 250908 Rel.112945" to just "1.1.1".
+fn short_fw(fw: &str) -> &str {
+    fw.split_whitespace().next().unwrap_or(fw)
+}
+
 /// Extract Wh from a day/month energy entry.
 /// KP115/KL135 use `energy_wh` (integer Wh); HS110 uses `energy` (float kWh).
 fn wh_from(entry: &serde_json::Value) -> u64 {
@@ -40,12 +45,12 @@ fn print_light_color(ls: &LightState, indent: &str) {
     if ls.color_temp() > 0 {
         println!("{indent}Brightness: {}%  Warmth: {}K", ls.brightness(), ls.color_temp());
     } else {
+        // val == brightness in HSV — skip the redundant field, format hue with degree symbol
         println!(
-            "{indent}Brightness: {}%  Color: hue={} sat={} val={}",
+            "{indent}Brightness: {}%  Color: {}° hue  {} sat",
             ls.brightness(),
             ls.hue(),
             ls.saturation(),
-            ls.brightness()
         );
     }
 }
@@ -65,9 +70,19 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
         bulb.model,
         caps_label(bulb).dimmed(),
         bulb.hw_ver,
-        bulb.sw_ver
+        short_fw(&bulb.sw_ver),
     );
     print_light_color(&bulb.light_state, "   ");
+    let a = &bulb.alias;
+    let action = if bulb.light_state.is_on() { "off" } else { "on" };
+    let color_hint = if bulb.is_color == 1 {
+        format!("  ·  denki warmth \"{a}\" 2700  ·  denki dim \"{a}\" 80")
+    } else if bulb.is_dimmable == 1 {
+        format!("  ·  denki dim \"{a}\" 80")
+    } else {
+        String::new()
+    };
+    println!("   {}", format!("→ denki power \"{a}\" {action}{color_hint}").dimmed());
     println!();
 }
 
@@ -84,7 +99,7 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
-        println!("  Color:      hue={} sat={} val={}", ls.hue(), ls.saturation(), ls.brightness());
+        println!("  Color:      {}° hue  {} sat", ls.hue(), ls.saturation());
     }
     println!("  Features:   {}", caps_label(bulb));
     println!("  {}", "Energy:     use `denki energy <host>`".dimmed());
@@ -153,7 +168,7 @@ pub fn print_bulb_presets(json: &serde_json::Value) {
 
 pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
     let energy_tag = if plug.has_energy_monitoring() {
-        " energy-monitor".dimmed()
+        "  energy".dimmed()
     } else {
         "".normal()
     };
@@ -165,10 +180,18 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
         signal_label(plug.rssi),
         energy_tag,
     );
-    println!("   {} HW:{}  FW:{}", plug.model, plug.hw_ver, plug.sw_ver);
+    println!("   {} HW:{}  FW:{}", plug.model, plug.hw_ver, short_fw(&plug.sw_ver));
     if plug.is_on() {
         println!("   On for: {}", plug.on_time_fmt());
     }
+    let a = &plug.alias;
+    let action = if plug.is_on() { "off" } else { "on" };
+    let energy_hint = if plug.has_energy_monitoring() {
+        format!("  ·  denki energy \"{a}\"")
+    } else {
+        String::new()
+    };
+    println!("   {}", format!("→ denki power \"{a}\" {action}{energy_hint}").dimmed());
     println!();
 }
 
@@ -342,8 +365,9 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
         on_state(bulb.light_state.is_on()),
         signal_label(bulb.rssi),
     );
-    println!("   {} HW:{}  FW:{}", bulb.model, bulb.hw_ver, bulb.sw_ver);
+    println!("   {} HW:{}  FW:{}", bulb.model, bulb.hw_ver, short_fw(&bulb.sw_ver));
     print_light_color(&bulb.light_state, "   ");
+    println!("   {}", "→ power/color control not yet implemented for KL430".dimmed());
     println!();
 }
 
@@ -360,7 +384,7 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
-        println!("  Color:      hue={} sat={} val={}", ls.hue(), ls.saturation(), ls.brightness());
+        println!("  Color:      {}° hue  {} sat", ls.hue(), ls.saturation());
     }
     println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
@@ -376,7 +400,13 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
         on_state(d.is_on()),
         signal_label(d.rssi),
     );
-    println!("   {} HW:{}  FW:{}  {}%", d.model, d.hw_ver, d.sw_ver, d.brightness);
+    println!("   {} HW:{}  FW:{}  {}%", d.model, d.hw_ver, short_fw(&d.sw_ver), d.brightness);
+    let a = &d.alias;
+    let action = if d.is_on() { "off" } else { "on" };
+    println!(
+        "   {}",
+        format!("→ denki power \"{a}\" {action}  ·  denki dim \"{a}\" 80").dimmed()
+    );
     println!();
 }
 
@@ -396,8 +426,9 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
 
 pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     let on_count = s.children.iter().filter(|c| c.is_on()).count();
+    let total = s.children.len();
     let state = if on_count > 0 {
-        format!("{}/{} on", on_count, s.children.len()).green().bold()
+        format!("{on_count}/{total} on").green().bold()
     } else {
         "all off".dimmed().to_string().normal()
     };
@@ -408,7 +439,12 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
         format!("[{ip}]").dimmed(),
         state,
     );
-    println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, s.sw_ver);
+    println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
+    let a = &s.alias;
+    println!(
+        "   {}",
+        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off").dimmed()
+    );
     println!();
 }
 
@@ -441,7 +477,10 @@ pub fn print_tapo_summary(ip: IpAddr, d: &TapoDevice) {
         on_state(d.is_on()),
         tapo_signal_label(d.signal_level),
     );
-    println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, d.fw_ver);
+    println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, short_fw(&d.fw_ver));
+    let a = &d.nickname;
+    let action = if d.is_on() { "off" } else { "on" };
+    println!("   {}", format!("→ denki power \"{a}\" {action}").dimmed());
     println!();
 }
 
