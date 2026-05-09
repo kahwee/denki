@@ -27,7 +27,7 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 
 - **KL430 light strips** — scan/info only for now
 - **HS220 dimmers** — info, power, dimming, schedules, and clock
-- **HS300 / KP303 power strips** — info, outlet listing, per-outlet control, and outlet energy for ENE-capable models
+- **HS300 / KP303 / KP400 power strips** — info, outlet listing, per-outlet control, and outlet energy for ENE-capable models
 
 > **Energy note:** KP115 reports milli-units (`voltage_mv`, `current_ma`, `power_mw`), while HS110 reports real units (`voltage`, `current`, `power`). Both use the same `energy` command.
 
@@ -65,19 +65,31 @@ denki warmth "desk lamp" 2700
 denki color "desk lamp" 275 50 80
 ```
 
-### Energy and strip commands
+### Energy and power strip commands
 
 ```bash
 denki energy "desk plug"
 denki energy-daily "desk plug" 2025-03
 denki energy-monthly "desk plug" 2025
+```
+
+```bash
 denki outlets "power strip"
 denki outlet "power strip" 2 on
+denki outlet "power strip" 2 toggle
 denki outlet-energy "power strip" 2
 denki outlet-energy-daily "power strip" 2 2025-03
 denki outlet-energy-monthly "power strip" 2 2025
 denki outlet-rename "power strip" 2 "Coffee Maker"
 ```
+
+Notes:
+
+- `outlets` shows the strip's outlet numbers, names, and on/off state.
+- Outlet numbers are `1`-based and match the order shown by `outlets`.
+- `outlet`, `outlet-energy`, and the outlet energy history commands only work on strips with the `ENE` feature flag.
+- `outlet-rename` changes the name shown by `outlets` and `info`.
+- The regular `energy*` commands report whole-strip totals; the `outlet-energy*` commands report one outlet at a time.
 
 ### Tapo setup
 

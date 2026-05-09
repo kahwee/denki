@@ -159,14 +159,14 @@ enum Command {
         host: String,
     },
 
-    /// List all outlets on a power strip with their state (strips only)
+    /// List all outlets on a power strip, showing 1-based outlet numbers, names, and state (strips only)
     Outlets {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
-    /// Turn one outlet on a power strip on, off, or toggle it (strips only)
+    /// Turn one outlet on, off, or toggle it by its 1-based outlet number (strips only)
     Outlet {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -178,7 +178,7 @@ enum Command {
         state: PowerAction,
     },
 
-    /// Show real-time energy for one outlet on a power strip (strips with ENE feature only)
+    /// Show real-time energy for one outlet on a power strip (1-based outlet number; strips with ENE feature only)
     OutletEnergy {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -188,7 +188,7 @@ enum Command {
         outlet: u8,
     },
 
-    /// Show daily energy usage for one outlet (YYYY-MM, strips with ENE feature only)
+    /// Show daily energy usage for one outlet (YYYY-MM, 1-based outlet number; strips with ENE feature only)
     OutletEnergyDaily {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -200,7 +200,7 @@ enum Command {
         month: Option<String>,
     },
 
-    /// Show monthly energy totals for one outlet (strips with ENE feature only)
+    /// Show monthly energy totals for one outlet (1-based outlet number; strips with ENE feature only)
     OutletEnergyMonthly {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -211,7 +211,7 @@ enum Command {
         year: Option<u16>,
     },
 
-    /// Rename one outlet on a power strip
+    /// Rename one outlet on a power strip (1-based outlet number)
     OutletRename {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
