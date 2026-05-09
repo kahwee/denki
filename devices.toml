@@ -1,0 +1,422 @@
+# devices.toml — TP-Link device feature map
+#
+# Machine-readable source of truth for device capabilities and API endpoints.
+# Used to drive: documentation generation, capability guards in CLI, test fixtures.
+#
+# Verified by live packet probing on real hardware (2026-05-08).
+# Error code -2001 = "module not support", -1 = "not support"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Protocol
+# ─────────────────────────────────────────────────────────────────────────────
+
+[protocol.legacy]
+name        = "Kasa XOR"
+port        = 9999
+transport   = ["tcp", "udp"]
+cipher      = "xor-autokey"
+key_start   = 171
+tcp_framing = "4-byte-be-length-prefix"
+udp_framing = "none"  # no length prefix in UDP — raw cipher bytes only
+notes       = "All devices below use this protocol"
+
+[protocol.klap]
+name        = "KLAP / Tapo"
+port        = 80
+transport   = ["tcp"]
+cipher      = "aes-cbc"
+auth        = "sha256-handshake"
+notes       = "Newer Tapo devices (P125, L530). Not implemented in denki."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Devices
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "KL135"
+name        = "Smart Wi-Fi LED Bulb with Color Changing"
+mic_type    = "IOT.SMARTBULB"
+protocol    = "legacy"
+hw_versions = ["1.0", "2.6"]
+
+  [devices.hw_diff]
+  # Fields present in HW 2.6 sysinfo but absent in HW 1.0
+  hw_2_6_only = ["fade_on_off", "lnk_on", "re_power"]
+  # API commands available only on HW 2.6
+  hw_2_6_commands = ["smartlife.iot.smartbulb.lightingservice/get_default_behavior"]
+
+  [[devices.features]]
+  id          = "power"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["on_off"]
+  notes       = "on_off: 1=on, 0=off. transition_period: 0 for instant."
+
+  [[devices.features]]
+  id          = "brightness"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["brightness"]
+  range       = [0, 100]
+
+  [[devices.features]]
+  id          = "color_temp"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["color_temp", "hue", "saturation"]
+  range       = [2500, 9000]
+  notes       = "Set hue=0 and saturation=0 to fully activate CCT mode. Mutually exclusive with HSV color."
+
+  [[devices.features]]
+  id          = "color_hsv"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/transition_light_state"
+  fields      = ["hue", "saturation", "brightness", "color_temp"]
+  ranges      = {hue = [0, 360], saturation = [0, 100], brightness = [0, 100]}
+  notes       = "Set color_temp=0 to activate color mode. Mutually exclusive with CCT mode."
+
+  [[devices.features]]
+  id          = "energy_realtime"
+  supported   = true
+  command     = "smartlife.iot.common.emeter/get_realtime"
+  returns     = ["power_mw", "total_wh"]
+  missing     = ["voltage_mv", "current_ma"]
+  notes       = "Uses smartlife namespace. Bare 'emeter' returns -2001 on this device."
+
+  [[devices.features]]
+  id          = "energy_daily"
+  supported   = true
+  command     = "smartlife.iot.common.emeter/get_daystat"
+  params      = ["month", "year"]
+  returns     = ["day_list[].energy_wh"]
+
+  [[devices.features]]
+  id          = "energy_monthly"
+  supported   = true
+  command     = "smartlife.iot.common.emeter/get_monthstat"
+  params      = ["year"]
+  returns     = ["month_list[].energy_wh"]
+
+  [[devices.features]]
+  id          = "specs"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/get_light_details"
+  returns     = ["lamp_beam_angle", "wattage", "incandescent_equivalent", "max_lumens", "color_rendering_index", "min_voltage", "max_voltage"]
+  known_values = {lamp_beam_angle = 220, wattage = 10, incandescent_equivalent = 60, max_lumens = 800, color_rendering_index = 90, min_voltage = 100, max_voltage = 120}
+
+  [[devices.features]]
+  id          = "presets"
+  supported   = true
+  command     = "smartlife.iot.smartbulb.lightingservice/get_preferred_state"
+  returns     = ["states[].index", "states[].hue", "states[].saturation", "states[].color_temp", "states[].brightness"]
+  notes       = "4 preset slots (index 0–3). Default: warm white 2700K 50%, red, green, blue."
+
+  [[devices.features]]
+  id          = "default_behavior"
+  supported   = "hw_2_6_only"
+  command     = "smartlife.iot.smartbulb.lightingservice/get_default_behavior"
+  returns     = ["soft_on.mode", "hard_on.mode", "re_power_type"]
+
+  [[devices.features]]
+  id          = "schedule"
+  supported   = false
+  error_code  = -2001
+  notes       = "Schedule module not present on KL135."
+
+  [[devices.features]]
+  id          = "countdown"
+  supported   = false
+  error_code  = -2001
+
+  [[devices.features]]
+  id          = "time"
+  supported   = false
+  error_code  = -2001
+  notes       = "KL135 has no real-time clock module exposed via local API."
+
+  [[devices.features]]
+  id          = "effects"
+  supported   = false
+  error_code  = -2001
+  notes       = "The Kasa app shows effects but they are not available via local API."
+
+  [[devices.features]]
+  id          = "led_indicator"
+  supported   = false
+  notes       = "KL135 has no controllable status LED."
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+  fields      = ["alias"]
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+  fields      = ["delay"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "KP115"
+name        = "Smart Wi-Fi Plug Mini with Energy Monitoring"
+mic_type    = "IOT.SMARTPLUGSWITCH"
+protocol    = "legacy"
+feature_str = "TIM:ENE"  # timer + energy monitoring
+
+  [[devices.features]]
+  id          = "power"
+  supported   = true
+  command     = "system/set_relay_state"
+  fields      = ["state"]
+  notes       = "state: 1=on, 0=off. sysinfo field is relay_state."
+
+  [[devices.features]]
+  id          = "energy_realtime"
+  supported   = true
+  command     = "emeter/get_realtime"
+  returns     = ["current_ma", "voltage_mv", "power_mw", "total_wh"]
+  notes       = "Full sensor data including voltage and current. Uses bare 'emeter' namespace."
+
+  [[devices.features]]
+  id          = "energy_daily"
+  supported   = true
+  command     = "emeter/get_daystat"
+  params      = ["month", "year"]
+  returns     = ["day_list[].energy_wh"]
+
+  [[devices.features]]
+  id          = "energy_monthly"
+  supported   = true
+  command     = "emeter/get_monthstat"
+  params      = ["year"]
+  returns     = ["month_list[].energy_wh"]
+
+  [[devices.features]]
+  id          = "schedule"
+  supported   = true
+  command     = "schedule/get_rules"
+  returns     = ["rule_list", "version", "enable"]
+  notes       = "rule_list is empty if no schedules configured."
+
+  [[devices.features]]
+  id          = "time"
+  supported   = true
+  command     = "time/get_time"
+  returns     = ["year", "month", "mday", "hour", "min", "sec"]
+
+  [[devices.features]]
+  id          = "timezone"
+  supported   = true
+  command     = "time/get_timezone"
+  returns     = ["index"]
+  notes       = "index 6 = America/Los_Angeles (PST/PDT)"
+
+  [[devices.features]]
+  id          = "led_indicator"
+  supported   = true
+  command     = "system/set_led_off"
+  fields      = ["off"]
+  notes       = "Inverted: off=1 disables the LED, off=0 enables it. sysinfo field: led_off."
+
+  [[devices.features]]
+  id          = "countdown"
+  supported   = false
+  error_code  = -1
+
+  [[devices.features]]
+  id          = "brightness"
+  supported   = false
+  notes       = "Plug only — no dimming."
+
+  [[devices.features]]
+  id          = "color_hsv"
+  supported   = false
+
+  [[devices.features]]
+  id          = "color_temp"
+  supported   = false
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+  fields      = ["alias"]
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+  fields      = ["delay"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "HS105"
+name        = "Smart Wi-Fi Plug Mini"
+type_field  = "type"           # older firmware uses `type`, not `mic_type`
+type_value  = "IOT.SMARTPLUGSWITCH"
+protocol    = "legacy"
+feature_str = "TIM"            # timer only — NO energy monitoring chip
+
+  [[devices.features]]
+  id          = "power"
+  supported   = true
+  command     = "system/set_relay_state"
+  fields      = ["state"]
+
+  [[devices.features]]
+  id          = "energy_realtime"
+  supported   = false
+  error_code  = -1
+  notes       = "No energy monitoring chip. feature string is 'TIM' not 'TIM:ENE'. Returns err_code -1."
+
+  [[devices.features]]
+  id          = "energy_daily"
+  supported   = false
+
+  [[devices.features]]
+  id          = "energy_monthly"
+  supported   = false
+
+  [[devices.features]]
+  id          = "schedule"
+  supported   = true
+  command     = "schedule/get_rules"
+  notes       = "enable=1 by default even with no rules configured."
+
+  [[devices.features]]
+  id          = "time"
+  supported   = true
+  command     = "time/get_time"
+  returns     = ["year", "month", "mday", "wday", "hour", "min", "sec"]
+  notes       = "Includes wday (day of week 1-7), unlike KP115."
+
+  [[devices.features]]
+  id          = "countdown"
+  supported   = true
+  command     = "count_down/get_rules"
+  returns     = ["rule_list"]
+  notes       = "One-shot timer. rule_list is empty when no timer is set. (KP115 returns -1; HS105 supports it.)"
+
+  [[devices.features]]
+  id          = "anti_theft"
+  supported   = true
+  command     = "anti_theft/get_rules"
+  returns     = ["rule_list", "version", "enable"]
+  notes       = "Away Mode in Kasa app — randomly toggles plug on/off to simulate occupancy. enable=0 by default."
+
+  [[devices.features]]
+  id          = "schedule_next_action"
+  supported   = true
+  command     = "schedule/get_next_action"
+  returns     = ["type"]
+  notes       = "type=-1 means no upcoming scheduled event."
+
+  [[devices.features]]
+  id          = "wifi_info"
+  supported   = true
+  command     = "netif/get_stainfo"
+  returns     = ["ssid", "key_type", "rssi"]
+  notes       = "Wi-Fi connection details. key_type 3 = WPA2. Separate from sysinfo rssi."
+
+  [[devices.features]]
+  id          = "cloud"
+  supported   = true
+  command     = "cnCloud/get_info"
+  returns     = ["username", "server", "binded", "cld_connection"]
+  notes       = "Cloud account binding. Uses cnCloud namespace (NOT smartlife.iot.common.cloud which returns -1 on HS105)."
+
+  [[devices.features]]
+  id          = "gps_coords"
+  supported   = true
+  notes       = "Stored in sysinfo as longitude_i and latitude_i (multiply by 0.0001 for degrees). Set by Kasa app on first setup. Read-only via local API."
+
+  [[devices.features]]
+  id          = "led_indicator"
+  supported   = true
+  command     = "system/set_led_off"
+  fields      = ["off"]
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "HS110"
+name        = "Wi-Fi Smart Plug With Energy Monitoring"
+type_field  = "type"           # older firmware uses `type`, not `mic_type`
+type_value  = "IOT.SMARTPLUGSWITCH"
+protocol    = "legacy"
+feature_str = "TIM:ENE"
+
+  [[devices.features]]
+  id          = "power"
+  supported   = true
+  command     = "system/set_relay_state"
+
+  [[devices.features]]
+  id          = "energy_realtime"
+  supported   = true
+  command     = "emeter/get_realtime"
+  returns     = ["current", "voltage", "power", "total"]
+  units       = "real"     # actual V/A/W/kWh — NOT milli-units like KP115
+  notes       = "HS110 uses real units. KP115 uses milli-units (mv, ma, mw, wh). Both at same JSON path."
+
+  [[devices.features]]
+  id          = "energy_daily"
+  supported   = true
+  command     = "emeter/get_daystat"
+  returns     = ["day_list[].energy"]   # field is `energy` (kWh), NOT `energy_wh` (Wh) like KP115
+
+  [[devices.features]]
+  id          = "energy_monthly"
+  supported   = true
+  command     = "emeter/get_monthstat"
+  returns     = ["month_list[].energy"]  # same — `energy` not `energy_wh`
+
+  [[devices.features]]
+  id          = "schedule"
+  supported   = true
+  command     = "schedule/get_rules"
+
+  [[devices.features]]
+  id          = "time"
+  supported   = true
+  command     = "time/get_time"
+  returns     = ["year", "month", "mday", "wday", "hour", "min", "sec"]
+
+  [[devices.features]]
+  id          = "led_indicator"
+  supported   = true
+  command     = "system/set_led_off"
+
+  [[devices.features]]
+  id          = "rename"
+  supported   = true
+  command     = "system/set_dev_alias"
+
+  [[devices.features]]
+  id          = "restart"
+  supported   = true
+  command     = "system/reboot"
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[devices]]
+model       = "P125"
+name        = "Smart Wi-Fi Plug Mini"
+mic_type    = "IOT.SMARTPLUGSWITCH"
+protocol    = "klap"
+port        = 80
+notes       = "Uses KLAP protocol on port 80. Responds to UDP discovery but sysinfo JSON is in a different format. Not yet supported in denki."
