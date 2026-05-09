@@ -322,14 +322,16 @@ pub async fn restart(host: &str) -> Result<()> {
 /// Method: get_device_info (no params needed)
 pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
     session
-        .send(r#"{"method":"get_device_info","params":{}}"#)
+        .send(&serde_json::to_string(&json!({"method": "get_device_info", "params": {}}))?)
         .await
 }
 
 /// Turn a Tapo device on.
 pub async fn tapo_on(session: &mut KlapSession) -> Result<()> {
     let resp = session
-        .send(r#"{"method":"set_device_info","params":{"device_on":true}}"#)
+        .send(&serde_json::to_string(
+            &json!({"method": "set_device_info", "params": {"device_on": true}}),
+        )?)
         .await?;
     check_tapo_error(&resp)?;
     Ok(())
@@ -338,7 +340,9 @@ pub async fn tapo_on(session: &mut KlapSession) -> Result<()> {
 /// Turn a Tapo device off.
 pub async fn tapo_off(session: &mut KlapSession) -> Result<()> {
     let resp = session
-        .send(r#"{"method":"set_device_info","params":{"device_on":false}}"#)
+        .send(&serde_json::to_string(
+            &json!({"method": "set_device_info", "params": {"device_on": false}}),
+        )?)
         .await?;
     check_tapo_error(&resp)?;
     Ok(())

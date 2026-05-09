@@ -63,16 +63,7 @@ impl Plug {
         if self.on_time == 0 {
             return "off".to_string();
         }
-        let h = self.on_time / 3600;
-        let m = (self.on_time % 3600) / 60;
-        let s = self.on_time % 60;
-        if h > 0 {
-            format!("{h}h {m}m")
-        } else if m > 0 {
-            format!("{m}m {s}s")
-        } else {
-            format!("{s}s")
-        }
+        crate::fmt::duration(self.on_time)
     }
 }
 
@@ -169,23 +160,17 @@ mod tests {
     mod on_time_display {
         use super::*;
 
-        #[rstest]
-        #[case(0,    "off")]
-        #[case(1,    "1s")]
-        #[case(30,   "30s")]
-        #[case(59,   "59s")]
-        #[case(60,   "1m 0s")]
-        #[case(90,   "1m 30s")]
-        #[case(3599, "59m 59s")]
-        #[case(3600, "1h 0m")]
-        #[case(3661, "1h 1m")]
-        #[case(7322, "2h 2m")]
-        fn formats_duration(#[case] secs: u64, #[case] expected: &str) {
-            assert_eq!(
-                make_plug(secs, None).on_time_fmt(),
-                expected,
-                "on_time={secs}s"
-            );
+        #[test]
+        fn returns_off_when_zero() {
+            assert_eq!(make_plug(0, None).on_time_fmt(), "off");
+        }
+
+        #[test]
+        fn delegates_to_fmt_duration_when_nonzero() {
+            // Spot-check: the full range is tested in fmt::tests
+            assert_eq!(make_plug(3661, None).on_time_fmt(), "1h 1m");
+            assert_eq!(make_plug(90, None).on_time_fmt(), "1m 30s");
+            assert_eq!(make_plug(45, None).on_time_fmt(), "45s");
         }
     }
 

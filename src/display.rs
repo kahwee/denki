@@ -1,24 +1,63 @@
-use crate::bulb::Bulb;
+use crate::bulb::{Bulb, LightState};
 use crate::dimmer::Dimmer;
 use crate::plug::Plug;
 use crate::strip::Strip;
 use crate::tapo::TapoDevice;
-use colored::Colorize;
+use colored::{ColoredString, Colorize};
 use std::net::IpAddr;
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+fn on_state(is_on: bool) -> ColoredString {
+    if is_on { "on".green().bold() } else { "off".dimmed() }
+}
+
+fn on_state_detail(is_on: bool) -> ColoredString {
+    if is_on { "ON".green().bold() } else { "OFF".red() }
+}
+
+fn header(name: &str) -> ColoredString {
+    format!("== {name} ==").bold()
+}
+
+/// Extract Wh from a day/month energy entry.
+/// KP115/KL135 use `energy_wh` (integer Wh); HS110 uses `energy` (float kWh).
+fn wh_from(entry: &serde_json::Value) -> u64 {
+    entry
+        .get("energy_wh")
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            entry
+                .get("energy")
+                .and_then(|v| v.as_f64())
+                .map(|kwh| (kwh * 1000.0) as u64)
+        })
+        .unwrap_or(0)
+}
+
+/// Print the color/warmth line for a light state.
+fn print_light_color(ls: &LightState, indent: &str) {
+    if ls.color_temp() > 0 {
+        println!("{indent}Brightness: {}%  Warmth: {}K", ls.brightness(), ls.color_temp());
+    } else {
+        println!(
+            "{indent}Brightness: {}%  Color: hue={} sat={} val={}",
+            ls.brightness(),
+            ls.hue(),
+            ls.saturation(),
+            ls.brightness()
+        );
+    }
+}
 
 // ── Bulb display ─────────────────────────────────────────────────────────────
 
 pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
-    let state = if bulb.light_state.is_on() {
-        "on".green().bold()
-    } else {
-        "off".dimmed()
-    };
     println!(
         "{} {} {} {}",
-        format!("== {} ==", bulb.alias).bold(),
+        header(&bulb.alias),
         format!("[{ip}]").dimmed(),
-        state,
+        on_state(bulb.light_state.is_on()),
         signal_label(bulb.rssi),
     );
     println!(
@@ -28,53 +67,24 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
         bulb.hw_ver,
         bulb.sw_ver
     );
-    let ls = &bulb.light_state;
-    if ls.color_temp() > 0 {
-        println!(
-            "   Brightness: {}%  Warmth: {}K",
-            ls.brightness(),
-            ls.color_temp()
-        );
-    } else {
-        println!(
-            "   Brightness: {}%  Color: hue={} sat={} val={}",
-            ls.brightness(),
-            ls.hue(),
-            ls.saturation(),
-            ls.brightness()
-        );
-    }
+    print_light_color(&bulb.light_state, "   ");
     println!();
 }
 
 pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
-    let state = if bulb.light_state.is_on() {
-        "ON".green().bold()
-    } else {
-        "OFF".red()
-    };
-    println!("{}", format!("== {} ==", bulb.alias).bold());
+    println!("{}", header(&bulb.alias));
     println!("  Host:       {ip}");
-    println!("  State:      {state}");
+    println!("  State:      {}", on_state_detail(bulb.light_state.is_on()));
     println!("  Model:      {}", bulb.model);
     println!("  Hardware:   {}", bulb.hw_ver);
     println!("  Firmware:   {}", bulb.sw_ver);
-    println!(
-        "  Signal:     {} dBm  {}",
-        bulb.rssi,
-        signal_label(bulb.rssi)
-    );
+    println!("  Signal:     {} dBm  {}", bulb.rssi, signal_label(bulb.rssi));
     let ls = &bulb.light_state;
     println!("  Brightness: {}%", ls.brightness());
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
-        println!(
-            "  Color:      hue={} sat={} val={}",
-            ls.hue(),
-            ls.saturation(),
-            ls.brightness()
-        );
+        println!("  Color:      hue={} sat={} val={}", ls.hue(), ls.saturation(), ls.brightness());
     }
     println!("  Features:   {}", caps_label(bulb));
     println!("  {}", "Energy:     use `denki energy <host>`".dimmed());
@@ -142,11 +152,6 @@ pub fn print_bulb_presets(json: &serde_json::Value) {
 // ── Plug display ─────────────────────────────────────────────────────────────
 
 pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
-    let state = if plug.is_on() {
-        "on".green().bold()
-    } else {
-        "off".dimmed()
-    };
     let energy_tag = if plug.has_energy_monitoring() {
         " energy-monitor".dimmed()
     } else {
@@ -154,9 +159,9 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
     };
     println!(
         "{} {} {} {}{}",
-        format!("== {} ==", plug.alias).bold(),
+        header(&plug.alias),
         format!("[{ip}]").dimmed(),
-        state,
+        on_state(plug.is_on()),
         signal_label(plug.rssi),
         energy_tag,
     );
@@ -168,35 +173,21 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
 }
 
 pub fn print_plug_detail(ip: &str, plug: &Plug) {
-    let state = if plug.is_on() {
-        "ON".green().bold()
-    } else {
-        "OFF".red()
-    };
-    println!("{}", format!("== {} ==", plug.alias).bold());
+    println!("{}", header(&plug.alias));
     println!("  Host:     {ip}");
-    println!("  State:    {state}");
+    println!("  State:    {}", on_state_detail(plug.is_on()));
     println!("  Model:    {}", plug.model);
     println!("  Hardware: {}", plug.hw_ver);
     println!("  Firmware: {}", plug.sw_ver);
     println!("  Signal:   {} dBm  {}", plug.rssi, signal_label(plug.rssi));
-    println!(
-        "  LED:      {}",
-        if plug.led_off == 1 { "off" } else { "on" }
-    );
+    println!("  LED:      {}", if plug.led_off == 1 { "off" } else { "on" });
     if plug.is_on() {
         println!("  On for:   {}", plug.on_time_fmt());
     }
     if plug.has_energy_monitoring() {
         println!("  {}", "Energy:     use `denki energy <host>`".dimmed());
-        println!(
-            "  {}",
-            "Daily:      use `denki energy-daily <host>`".dimmed()
-        );
-        println!(
-            "  {}",
-            "Monthly:    use `denki energy-monthly <host>`".dimmed()
-        );
+        println!("  {}", "Daily:      use `denki energy-daily <host>`".dimmed());
+        println!("  {}", "Monthly:    use `denki energy-monthly <host>`".dimmed());
         println!("  {}", "Schedule:   use `denki schedules <host>`".dimmed());
     }
 }
@@ -288,17 +279,7 @@ pub fn print_energy_daily(json: &serde_json::Value, month: &str) {
         sorted.sort_by_key(|d| d["day"].as_u64().unwrap_or(0));
         for d in sorted {
             let day = d["day"].as_u64().unwrap_or(0);
-            // KP115/KL135 use energy_wh (integer Wh)
-            // HS110 uses energy (float kWh) — convert to Wh for consistent display
-            let wh = d
-                .get("energy_wh")
-                .and_then(|v| v.as_u64())
-                .or_else(|| {
-                    d.get("energy")
-                        .and_then(|v| v.as_f64())
-                        .map(|kwh| (kwh * 1000.0) as u64)
-                })
-                .unwrap_or(0);
+            let wh = wh_from(d);
             let bar = "#".repeat((wh / 10).min(40) as usize);
             println!("  Day {:2}: {:4} Wh  {}", day, wh, bar.yellow());
         }
@@ -315,16 +296,7 @@ pub fn print_energy_monthly(json: &serde_json::Value, year: u16) {
         println!("{}", format!("Monthly energy usage for {year}:").bold());
         for m in list {
             let month = m["month"].as_u64().unwrap_or(0);
-            // KP115/KL135: energy_wh (integer Wh) | HS110: energy (float kWh)
-            let wh = m
-                .get("energy_wh")
-                .and_then(|v| v.as_u64())
-                .or_else(|| {
-                    m.get("energy")
-                        .and_then(|v| v.as_f64())
-                        .map(|kwh| (kwh * 1000.0) as u64)
-                })
-                .unwrap_or(0);
+            let wh = wh_from(m);
             let bar = "#".repeat((wh / 100).min(40) as usize);
             println!("  Month {:2}: {:5} Wh  {}", month, wh, bar.yellow());
         }
@@ -362,122 +334,62 @@ fn caps_label(bulb: &Bulb) -> String {
 // smartlife.iot.lightStrip namespace instead of smartbulb.lightingservice.
 
 pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
-    let state = if bulb.light_state.is_on() {
-        "on".green().bold()
-    } else {
-        "off".dimmed()
-    };
     println!(
         "{} {} {} {} {}",
-        format!("== {} ==", bulb.alias).bold(),
+        header(&bulb.alias),
         "[light strip]".dimmed(),
         format!("[{ip}]").dimmed(),
-        state,
+        on_state(bulb.light_state.is_on()),
         signal_label(bulb.rssi),
     );
     println!("   {} HW:{}  FW:{}", bulb.model, bulb.hw_ver, bulb.sw_ver);
-    let ls = &bulb.light_state;
-    if ls.color_temp() > 0 {
-        println!(
-            "   Brightness: {}%  Warmth: {}K",
-            ls.brightness(),
-            ls.color_temp()
-        );
-    } else {
-        println!(
-            "   Brightness: {}%  Color: hue={} sat={}",
-            ls.brightness(),
-            ls.hue(),
-            ls.saturation()
-        );
-    }
+    print_light_color(&bulb.light_state, "   ");
     println!();
 }
 
 pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
-    let state = if bulb.light_state.is_on() {
-        "ON".green().bold()
-    } else {
-        "OFF".red()
-    };
-    println!(
-        "{} {}",
-        format!("== {} ==", bulb.alias).bold(),
-        "[light strip]".dimmed()
-    );
+    println!("{} {}", header(&bulb.alias), "[light strip]".dimmed());
     println!("  Host:       {ip}");
-    println!("  State:      {state}");
+    println!("  State:      {}", on_state_detail(bulb.light_state.is_on()));
     println!("  Model:      {}", bulb.model);
     println!("  Hardware:   {}", bulb.hw_ver);
     println!("  Firmware:   {}", bulb.sw_ver);
-    println!(
-        "  Signal:     {} dBm  {}",
-        bulb.rssi,
-        signal_label(bulb.rssi)
-    );
+    println!("  Signal:     {} dBm  {}", bulb.rssi, signal_label(bulb.rssi));
     let ls = &bulb.light_state;
     println!("  Brightness: {}%", ls.brightness());
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
-        println!(
-            "  Color:      hue={} sat={} val={}",
-            ls.hue(),
-            ls.saturation(),
-            ls.brightness()
-        );
+        println!("  Color:      hue={} sat={} val={}", ls.hue(), ls.saturation(), ls.brightness());
     }
-    println!(
-        "  {}",
-        "NOTE: unverified — not tested on live hardware".yellow()
-    );
+    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
 
 // ── Dimmer display ────────────────────────────────────────────────────────────
 
 pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
-    let state = if d.is_on() {
-        "on".green().bold()
-    } else {
-        "off".dimmed()
-    };
     println!(
         "{} {} {} {} {}",
-        format!("== {} ==", d.alias).bold(),
+        header(&d.alias),
         "[dimmer]".dimmed(),
         format!("[{ip}]").dimmed(),
-        state,
+        on_state(d.is_on()),
         signal_label(d.rssi),
     );
-    println!(
-        "   {} HW:{}  FW:{}  {}%",
-        d.model, d.hw_ver, d.sw_ver, d.brightness
-    );
+    println!("   {} HW:{}  FW:{}  {}%", d.model, d.hw_ver, d.sw_ver, d.brightness);
     println!();
 }
 
 pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
-    let state = if d.is_on() {
-        "ON".green().bold()
-    } else {
-        "OFF".red()
-    };
-    println!(
-        "{} {}",
-        format!("== {} ==", d.alias).bold(),
-        "[dimmer]".dimmed()
-    );
+    println!("{} {}", header(&d.alias), "[dimmer]".dimmed());
     println!("  Host:       {ip}");
-    println!("  State:      {state}");
+    println!("  State:      {}", on_state_detail(d.is_on()));
     println!("  Model:      {}", d.model);
     println!("  Hardware:   {}", d.hw_ver);
     println!("  Firmware:   {}", d.sw_ver);
     println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
     println!("  Brightness: {}%", d.brightness);
-    println!(
-        "  {}",
-        "NOTE: unverified — not tested on live hardware".yellow()
-    );
+    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
 
 // ── Strip display ─────────────────────────────────────────────────────────────
@@ -485,15 +397,13 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
 pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     let on_count = s.children.iter().filter(|c| c.is_on()).count();
     let state = if on_count > 0 {
-        format!("{}/{} on", on_count, s.children.len())
-            .green()
-            .bold()
+        format!("{}/{} on", on_count, s.children.len()).green().bold()
     } else {
         "all off".dimmed().to_string().normal()
     };
     println!(
         "{} {} {} {}",
-        format!("== {} ==", s.alias).bold(),
+        header(&s.alias),
         "[strip]".dimmed(),
         format!("[{ip}]").dimmed(),
         state,
@@ -504,11 +414,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
 
 pub fn print_strip_detail(ip: &str, s: &Strip) {
     let on_count = s.children.iter().filter(|c| c.is_on()).count();
-    println!(
-        "{} {}",
-        format!("== {} ==", s.alias).bold(),
-        "[strip]".dimmed()
-    );
+    println!("{} {}", header(&s.alias), "[strip]".dimmed());
     println!("  Host:     {ip}");
     println!("  Model:    {}", s.model);
     println!("  Hardware: {}", s.hw_ver);
@@ -516,36 +422,23 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
     println!("  Signal:   {} dBm  {}", s.rssi, signal_label(s.rssi));
     println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
-    println!(
-        "  {}",
-        "NOTE: unverified — not tested on live hardware".yellow()
-    );
+    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
 
 pub fn print_strip_outlets(s: &Strip) {
     for (i, child) in s.children.iter().enumerate() {
-        let state = if child.is_on() {
-            "on ".green().bold()
-        } else {
-            "off".dimmed()
-        };
-        println!("  Outlet {}: {}  {}", i + 1, state, child.alias);
+        println!("  Outlet {}: {}  {}", i + 1, on_state(child.is_on()), child.alias);
     }
 }
 
 // ── Tapo device display ───────────────────────────────────────────────────────
 
 pub fn print_tapo_summary(ip: IpAddr, d: &TapoDevice) {
-    let state = if d.is_on() {
-        "on".green().bold()
-    } else {
-        "off".dimmed()
-    };
     println!(
         "{} {} {} {}",
-        format!("== {} ==", d.nickname).bold(),
+        header(&d.nickname),
         format!("[{ip}]").dimmed(),
-        state,
+        on_state(d.is_on()),
         tapo_signal_label(d.signal_level),
     );
     println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, d.fw_ver);
@@ -553,24 +446,15 @@ pub fn print_tapo_summary(ip: IpAddr, d: &TapoDevice) {
 }
 
 pub fn print_tapo_detail(ip: &str, d: &TapoDevice) {
-    let state = if d.is_on() {
-        "ON".green().bold()
-    } else {
-        "OFF".red()
-    };
-    println!("{}", format!("== {} ==", d.nickname).bold());
+    println!("{}", header(&d.nickname));
     println!("  Host:      {ip}");
-    println!("  State:     {state}");
+    println!("  State:     {}", on_state_detail(d.is_on()));
     println!("  Model:     {}", d.model);
     println!("  Hardware:  {}", d.hw_ver);
     println!("  Firmware:  {}", d.fw_ver);
-    println!(
-        "  Signal:    {} dBm  {}",
-        d.rssi,
-        tapo_signal_label(d.signal_level)
-    );
+    println!("  Signal:    {} dBm  {}", d.rssi, tapo_signal_label(d.signal_level));
     if d.is_on() && d.on_time > 0 {
-        println!("  On for:    {}", fmt_duration(d.on_time));
+        println!("  On for:    {}", crate::fmt::duration(d.on_time));
     }
     if d.overheated {
         println!("  {}", "WARNING: device overheated".red().bold());
@@ -586,15 +470,3 @@ fn tapo_signal_label(level: u8) -> colored::ColoredString {
     }
 }
 
-fn fmt_duration(secs: u64) -> String {
-    let h = secs / 3600;
-    let m = (secs % 3600) / 60;
-    let s = secs % 60;
-    if h > 0 {
-        format!("{h}h {m}m")
-    } else if m > 0 {
-        format!("{m}m {s}s")
-    } else {
-        format!("{s}s")
-    }
-}

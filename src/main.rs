@@ -247,9 +247,27 @@ fn detect_kind(json: &serde_json::Value) -> DeviceKind {
     }
 }
 
-/// Load Tapo credentials — env vars first, then ~/.config/denki/credentials.json.
-fn tapo_creds() -> Result<(String, String)> {
-    creds::load()
+/// Open a KLAP session using saved or env-var credentials.
+async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
+    let (user, pass) = creds::load()?;
+    klap::handshake(ip, &user, &pass).await
+}
+
+/// Check that a plug sysinfo response indicates energy monitoring capability.
+/// Returns an error for plugs without the ENE feature (e.g. HS105).
+/// Bulbs always pass — they never parse as Plug.
+fn require_energy(json: &serde_json::Value) -> Result<()> {
+    if let Some(p) = plug::parse(json) {
+        if !p.has_energy_monitoring() {
+            anyhow::bail!(
+                "{} ({}) does not have energy monitoring (feature: {:?})",
+                p.alias,
+                p.model,
+                p.feature
+            );
+        }
+    }
+    Ok(())
 }
 
 fn device_alias(json: &serde_json::Value) -> Option<&str> {
@@ -376,8 +394,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             match r.protocol {
                 hosts::Protocol::Klap => {
-                    let (user, pass) = tapo_creds()?;
-                    let mut session = klap::handshake(&r.ip, &user, &pass).await?;
+                    let mut session = open_tapo(&r.ip).await?;
                     let json = ops::tapo_device_info(&mut session).await?;
                     match tapo::parse(&json) {
                         Some(d) => display::print_tapo_detail(&r.ip, &d),
@@ -417,8 +434,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             match r.protocol {
                 hosts::Protocol::Klap => {
-                    let (user, pass) = tapo_creds()?;
-                    let mut session = klap::handshake(&r.ip, &user, &pass).await?;
+                    let mut session = open_tapo(&r.ip).await?;
                     let now_on = match state {
                         PowerAction::On => { ops::tapo_on(&mut session).await?; true }
                         PowerAction::Off => { ops::tapo_off(&mut session).await?; false }
@@ -476,17 +492,7 @@ async fn main() -> Result<()> {
         Command::Energy { host } => {
             let host = resolve(&host).await?.ip;
             let json = ops::sysinfo(&host).await?;
-            // Check plug capability before calling — HS105 (TIM only) has no energy chip
-            if let Some(p) = plug::parse(&json) {
-                if !p.has_energy_monitoring() {
-                    bail!(
-                        "{} ({}) does not have energy monitoring (feature: {:?})",
-                        p.alias,
-                        p.model,
-                        p.feature
-                    );
-                }
-            }
+            require_energy(&json)?;
             let resp = match detect_kind(&json) {
                 DeviceKind::Bulb => ops::bulb_energy(&host).await?,
                 _ => ops::plug_energy(&host).await?,
@@ -511,11 +517,7 @@ async fn main() -> Result<()> {
             let mo: u8 = parts[1].parse()?;
 
             let json = ops::sysinfo(&host).await?;
-            if let Some(p) = plug::parse(&json) {
-                if !p.has_energy_monitoring() {
-                    bail!("{} ({}) does not have energy monitoring", p.alias, p.model);
-                }
-            }
+            require_energy(&json)?;
             let resp = match detect_kind(&json) {
                 DeviceKind::Bulb => ops::bulb_energy_daily(&host, year, mo).await?,
                 _ => ops::plug_energy_daily(&host, year, mo).await?,
@@ -527,11 +529,7 @@ async fn main() -> Result<()> {
             let host = resolve(&host).await?.ip;
             let year = year.unwrap_or_else(|| current_year_month().0);
             let json = ops::sysinfo(&host).await?;
-            if let Some(p) = plug::parse(&json) {
-                if !p.has_energy_monitoring() {
-                    bail!("{} ({}) does not have energy monitoring", p.alias, p.model);
-                }
-            }
+            require_energy(&json)?;
             let resp = match detect_kind(&json) {
                 DeviceKind::Bulb => ops::bulb_energy_monthly(&host, year).await?,
                 _ => ops::plug_energy_monthly(&host, year).await?,
