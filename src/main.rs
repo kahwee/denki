@@ -31,13 +31,25 @@ enum Command {
         host: String,
     },
 
-    /// Turn a device on, off, or toggle it
-    Power {
+    /// Turn a device on
+    On {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
-        #[arg(value_enum)]
-        state: PowerAction,
+    },
+
+    /// Turn a device off
+    Off {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
+
+    /// Toggle a device on/off
+    Toggle {
+        /// Device name from scan output, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
     },
 
     /// Set brightness 0-100 (bulbs only)
@@ -548,45 +560,62 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::Power { host, state } => {
+        Command::On { host } => {
             let r = resolve(&host).await?;
             match r.protocol {
                 hosts::Protocol::Klap => {
                     let mut session = open_tapo(&r.ip).await?;
-                    let now_on = match state {
-                        PowerAction::On => { ops::tapo_on(&mut session).await?; true }
-                        PowerAction::Off => { ops::tapo_off(&mut session).await?; false }
-                        PowerAction::Toggle => ops::tapo_toggle(&mut session).await?,
-                    };
-                    let label = if now_on { "on".green().bold() } else { "off".dimmed() };
-                    println!("{} {}", r.ip, label);
+                    ops::tapo_on(&mut session).await?;
                 }
                 hosts::Protocol::Kasa => {
                     let json = ops::sysinfo(&r.ip).await?;
                     let kind = detect_kind(&json);
-                    // LightStrip (KL430) uses smartlife.iot.lightStrip, not smartbulb.lightingservice.
-                    // Until that namespace is implemented, power control is unsupported.
                     if matches!(kind, DeviceKind::LightStrip) {
                         bail!("light strip power control is not yet implemented (KL430 uses smartlife.iot.lightStrip)");
                     }
-                    let use_bulb_ns = matches!(kind, DeviceKind::Bulb);
-                    match state {
-                        PowerAction::On => {
-                            if use_bulb_ns { ops::bulb_on(&r.ip).await? } else { ops::plug_on(&r.ip).await? }
-                            println!("{} {}", r.ip, "on".green().bold());
-                        }
-                        PowerAction::Off => {
-                            if use_bulb_ns { ops::bulb_off(&r.ip).await? } else { ops::plug_off(&r.ip).await? }
-                            println!("{} {}", r.ip, "off".dimmed());
-                        }
-                        PowerAction::Toggle => {
-                            let now_on = if use_bulb_ns { ops::bulb_toggle(&r.ip).await? } else { ops::plug_toggle(&r.ip).await? };
-                            let label = if now_on { "on".green().bold() } else { "off".dimmed() };
-                            println!("{} toggled -> {label}", r.ip);
-                        }
-                    }
+                    if matches!(kind, DeviceKind::Bulb) { ops::bulb_on(&r.ip).await? } else { ops::plug_on(&r.ip).await? }
                 }
             }
+            println!("{} {}", r.ip, "on".green().bold());
+        }
+
+        Command::Off { host } => {
+            let r = resolve(&host).await?;
+            match r.protocol {
+                hosts::Protocol::Klap => {
+                    let mut session = open_tapo(&r.ip).await?;
+                    ops::tapo_off(&mut session).await?;
+                }
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&r.ip).await?;
+                    let kind = detect_kind(&json);
+                    if matches!(kind, DeviceKind::LightStrip) {
+                        bail!("light strip power control is not yet implemented (KL430 uses smartlife.iot.lightStrip)");
+                    }
+                    if matches!(kind, DeviceKind::Bulb) { ops::bulb_off(&r.ip).await? } else { ops::plug_off(&r.ip).await? }
+                }
+            }
+            println!("{} {}", r.ip, "off".dimmed());
+        }
+
+        Command::Toggle { host } => {
+            let r = resolve(&host).await?;
+            let now_on = match r.protocol {
+                hosts::Protocol::Klap => {
+                    let mut session = open_tapo(&r.ip).await?;
+                    ops::tapo_toggle(&mut session).await?
+                }
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&r.ip).await?;
+                    let kind = detect_kind(&json);
+                    if matches!(kind, DeviceKind::LightStrip) {
+                        bail!("light strip power control is not yet implemented (KL430 uses smartlife.iot.lightStrip)");
+                    }
+                    if matches!(kind, DeviceKind::Bulb) { ops::bulb_toggle(&r.ip).await? } else { ops::plug_toggle(&r.ip).await? }
+                }
+            };
+            let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+            println!("{} -> {label}", r.ip);
         }
 
         Command::Dim { host, level } => {
@@ -595,8 +624,20 @@ async fn main() -> Result<()> {
             let kind = detect_kind(&json);
             can_dim(&kind)?;
             match kind {
-                DeviceKind::Bulb => ops::set_brightness(&r.ip, level).await?,
-                DeviceKind::Dimmer => ops::dimmer_set_brightness(&r.ip, level).await?,
+                DeviceKind::Bulb => {
+                    // Turn on first if currently off (setting brightness while off has no visible effect)
+                    if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
+                        ops::bulb_on(&r.ip).await?;
+                    }
+                    ops::set_brightness(&r.ip, level).await?;
+                }
+                DeviceKind::Dimmer => {
+                    // Turn on first if currently off and a non-zero level was requested
+                    if level > 0 && dimmer::parse(&json).is_some_and(|d| !d.is_on()) {
+                        ops::plug_on(&r.ip).await?;
+                    }
+                    ops::dimmer_set_brightness(&r.ip, level).await?;
+                }
                 _ => unreachable!(),
             }
             println!("Brightness -> {level}%");
@@ -1026,5 +1067,50 @@ mod tests {
         assert!(can_get_clock(&DeviceKind::Strip).is_ok());
         assert!(can_get_clock(&DeviceKind::Bulb).is_err());
         assert!(can_get_clock(&DeviceKind::LightStrip).is_err());
+    }
+
+    // ── CLI parsing tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn on_off_toggle_parse_as_top_level_commands() {
+        let on = Cli::try_parse_from(["denki", "on", "desk lamp"]).unwrap();
+        assert!(matches!(on.command, Command::On { host } if host == "desk lamp"));
+
+        let off = Cli::try_parse_from(["denki", "off", "desk lamp"]).unwrap();
+        assert!(matches!(off.command, Command::Off { host } if host == "desk lamp"));
+
+        let tog = Cli::try_parse_from(["denki", "toggle", "desk lamp"]).unwrap();
+        assert!(matches!(tog.command, Command::Toggle { host } if host == "desk lamp"));
+    }
+
+    #[test]
+    fn power_subcommand_no_longer_exists() {
+        // `power` was replaced by `on`/`off`/`toggle` — clap should reject it
+        assert!(Cli::try_parse_from(["denki", "power", "desk lamp", "on"]).is_err());
+    }
+
+    #[test]
+    fn dim_command_parses_host_and_level() {
+        let cli = Cli::try_parse_from(["denki", "dim", "desk lamp", "75"]).unwrap();
+        assert!(matches!(cli.command, Command::Dim { host, level } if host == "desk lamp" && level == 75));
+    }
+
+    #[test]
+    fn dim_rejects_level_above_100() {
+        assert!(Cli::try_parse_from(["denki", "dim", "desk lamp", "101"]).is_err());
+    }
+
+    #[test]
+    fn outlet_command_parses_host_outlet_and_state() {
+        let cli = Cli::try_parse_from(["denki", "outlet", "strip", "2", "on"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Outlet { host, outlet, state: PowerAction::On } if host == "strip" && outlet == 2
+        ));
+    }
+
+    #[test]
+    fn outlet_rejects_zero_index() {
+        assert!(Cli::try_parse_from(["denki", "outlet", "strip", "0", "on"]).is_err());
     }
 }

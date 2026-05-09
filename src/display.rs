@@ -107,7 +107,7 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
     } else {
         String::new()
     };
-    println!("   {}", format!("→ denki power \"{a}\" {action}{color_hint}").dimmed());
+    println!("   {}", format!("→ denki {action} \"{a}\"{color_hint}").dimmed());
     println!();
 }
 
@@ -217,7 +217,7 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
     } else {
         String::new()
     };
-    println!("   {}", format!("→ denki power \"{a}\" {action}{energy_hint}").dimmed());
+    println!("   {}", format!("→ denki {action} \"{a}\"{energy_hint}").dimmed());
     println!();
 }
 
@@ -437,7 +437,7 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
     let action = if d.is_on() { "off" } else { "on" };
     println!(
         "   {}",
-        format!("→ denki power \"{a}\" {action}  ·  denki dim \"{a}\" 80").dimmed()
+        format!("→ denki {action} \"{a}\"  ·  denki dim \"{a}\" 80").dimmed()
     );
     println!();
 }
@@ -513,7 +513,7 @@ pub fn print_tapo_summary(ip: IpAddr, d: &TapoDevice) {
     println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, short_fw(&d.fw_ver));
     let a = &d.nickname;
     let action = if d.is_on() { "off" } else { "on" };
-    println!("   {}", format!("→ denki power \"{a}\" {action}").dimmed());
+    println!("   {}", format!("→ denki {action} \"{a}\"").dimmed());
     println!();
 }
 
@@ -539,6 +539,53 @@ fn tapo_signal_label(level: u8) -> colored::ColoredString {
         2 => "good".yellow(),
         1 => "weak".red(),
         _ => "no signal".red(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    // ── short_fw ──────────────────────────────────────────────────────────────
+
+    #[rstest]
+    #[case("1.1.1 Build 250908 Rel.112945", "1.1.1")]
+    #[case("1.0.15 Build 240429 Rel.154143", "1.0.15")]
+    #[case("1.0.9 Build 250627 Rel.180045", "1.0.9")]
+    #[case("1.0.9", "1.0.9")]
+    #[case("", "")]
+    fn short_fw_strips_build_suffix(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(short_fw(input), expected);
+    }
+
+    // ── hsv_to_rgb ────────────────────────────────────────────────────────────
+
+    #[rstest]
+    #[case(  0, 100, 100, (255,   0,   0))]  // red
+    #[case( 60, 100, 100, (255, 255,   0))]  // yellow
+    #[case(120, 100, 100, (  0, 255,   0))]  // green
+    #[case(180, 100, 100, (  0, 255, 255))]  // cyan
+    #[case(240, 100, 100, (  0,   0, 255))]  // blue
+    #[case(300, 100, 100, (255,   0, 255))]  // magenta
+    #[case(  0,   0, 100, (255, 255, 255))]  // white (sat=0)
+    #[case(  0,   0,   0, (  0,   0,   0))]  // black (val=0)
+    fn hsv_to_rgb_primary_colors(
+        #[case] h: u16,
+        #[case] s: u8,
+        #[case] v: u8,
+        #[case] expected: (u8, u8, u8),
+    ) {
+        assert_eq!(hsv_to_rgb(h, s, v), expected, "hsv({h},{s},{v})");
+    }
+
+    #[test]
+    fn hsv_to_rgb_kl135_purple_hue_308() {
+        // hue=308 sat=65 val=100 is the default color on scanned bulbs
+        // Purple range: high red, low green, moderate-high blue
+        let (r, g, b) = hsv_to_rgb(308, 65, 100);
+        assert!(r > g, "expected red > green for purple: ({r},{g},{b})");
+        assert!(b > g, "expected blue > green for purple: ({r},{g},{b})");
     }
 }
 
