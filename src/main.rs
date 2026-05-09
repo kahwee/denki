@@ -166,22 +166,15 @@ enum Command {
         host: String,
     },
 
-    /// Show info about a Tapo device (uses TAPO_USER / TAPO_PASS env vars)
-    Tapo { host: String },
-
-    /// Turn a Tapo device on, off, or toggle (uses TAPO_USER / TAPO_PASS env vars)
-    TapoPower {
-        host: String,
-        #[arg(value_enum)]
-        state: PowerAction,
-    },
-
     /// Save a friendly name for a device IP (e.g. `denki alias "floor lamp" 192.168.7.254`)
     Alias {
         /// Friendly name to save
         name: String,
         /// IP address of the device
         ip: String,
+        /// Mark as a Tapo device (uses KLAP protocol on port 80)
+        #[arg(long)]
+        klap: bool,
     },
 
     /// Remove a saved device alias
@@ -326,21 +319,30 @@ async fn resolve_host(input: &str) -> Result<String> {
     }
 }
 
-/// Resolve a device name to IP. Checks the hosts file first, then UDP scan.
-/// Accepts an IP address, a saved alias, or a device alias from the network.
-async fn resolve_host_any(input: &str) -> Result<String> {
-    use std::net::IpAddr;
-    // Already an IP address
+/// Resolved device: IP + protocol to use.
+struct Resolved {
+    ip: String,
+    protocol: hosts::Protocol,
+}
+
+/// Resolve a name or IP to (ip, protocol).
+/// Resolution order:
+///   1. Already an IP → Kasa (default; save an alias with --klap for Tapo)
+///   2. Saved alias in hosts file → uses stored protocol
+///   3. Live UDP scan → Kasa
+async fn resolve(input: &str) -> Result<Resolved> {
+    // Already an IP or hostname with dots
     if input.parse::<IpAddr>().is_ok() || input.contains('.') {
-        return Ok(input.to_string());
+        return Ok(Resolved { ip: input.to_string(), protocol: hosts::Protocol::Kasa });
     }
-    // Check saved hosts file
-    if let Some(ip) = hosts::lookup(input) {
-        println!("{}", format!("Using saved alias \"{input}\" [{ip}]").dimmed());
-        return Ok(ip);
+    // Saved alias
+    if let Some(entry) = hosts::lookup(input) {
+        println!("{}", format!("Using alias \"{input}\" [{}]", entry.ip).dimmed());
+        return Ok(Resolved { ip: entry.ip, protocol: entry.protocol });
     }
-    // Fall back to live UDP scan (legacy Kasa only)
-    resolve_host(input).await
+    // UDP scan for legacy Kasa devices
+    let ip = resolve_host(input).await?;
+    Ok(Resolved { ip, protocol: hosts::Protocol::Kasa })
 }
 
 #[tokio::main]
@@ -391,71 +393,81 @@ async fn main() -> Result<()> {
         }
 
         Command::Info { host } => {
-            let host = resolve_host(&host).await?;
-            let json = ops::sysinfo(&host).await?;
-            match detect_kind(&json) {
-                DeviceKind::Bulb => match bulb::parse(&json) {
-                    Some(b) => display::print_bulb_detail(&host, &b),
-                    None => bail!("Could not parse bulb sysinfo from {host}"),
-                },
-                DeviceKind::LightStrip => match bulb::parse(&json) {
-                    Some(b) => display::print_lightstrip_detail(&host, &b),
-                    None => bail!("Could not parse light strip sysinfo from {host}"),
-                },
-                DeviceKind::Dimmer => match dimmer::parse(&json) {
-                    Some(d) => display::print_dimmer_detail(&host, &d),
-                    None => bail!("Could not parse dimmer sysinfo from {host}"),
-                },
-                DeviceKind::Strip => match strip::parse(&json) {
-                    Some(s) => display::print_strip_detail(&host, &s),
-                    None => bail!("Could not parse strip sysinfo from {host}"),
-                },
-                DeviceKind::Plug => match plug::parse(&json) {
-                    Some(p) => display::print_plug_detail(&host, &p),
-                    None => bail!("Could not parse plug sysinfo from {host}"),
-                },
-                DeviceKind::Unknown(t) => bail!("Unknown device type at {host}: {t}"),
+            let r = resolve(&host).await?;
+            match r.protocol {
+                hosts::Protocol::Klap => {
+                    let (user, pass) = tapo_creds()?;
+                    let mut session = klap::handshake(&r.ip, &user, &pass).await?;
+                    let json = ops::tapo_device_info(&mut session).await?;
+                    match tapo::parse(&json) {
+                        Some(d) => display::print_tapo_detail(&r.ip, &d),
+                        None => bail!("Could not parse Tapo device info from {}", r.ip),
+                    }
+                }
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&r.ip).await?;
+                    match detect_kind(&json) {
+                        DeviceKind::Bulb => match bulb::parse(&json) {
+                            Some(b) => display::print_bulb_detail(&r.ip, &b),
+                            None => bail!("Could not parse bulb sysinfo from {}", r.ip),
+                        },
+                        DeviceKind::LightStrip => match bulb::parse(&json) {
+                            Some(b) => display::print_lightstrip_detail(&r.ip, &b),
+                            None => bail!("Could not parse light strip sysinfo from {}", r.ip),
+                        },
+                        DeviceKind::Dimmer => match dimmer::parse(&json) {
+                            Some(d) => display::print_dimmer_detail(&r.ip, &d),
+                            None => bail!("Could not parse dimmer sysinfo from {}", r.ip),
+                        },
+                        DeviceKind::Strip => match strip::parse(&json) {
+                            Some(s) => display::print_strip_detail(&r.ip, &s),
+                            None => bail!("Could not parse strip sysinfo from {}", r.ip),
+                        },
+                        DeviceKind::Plug => match plug::parse(&json) {
+                            Some(p) => display::print_plug_detail(&r.ip, &p),
+                            None => bail!("Could not parse plug sysinfo from {}", r.ip),
+                        },
+                        DeviceKind::Unknown(t) => bail!("Unknown device type at {}: {t}", r.ip),
+                    }
+                }
             }
         }
 
         Command::Power { host, state } => {
-            let host = resolve_host(&host).await?;
-            let json = ops::sysinfo(&host).await?;
-            let kind = detect_kind(&json);
-            let use_bulb_ns = matches!(kind, DeviceKind::Bulb | DeviceKind::LightStrip);
-
-            let result = match state {
-                PowerAction::On => {
-                    if use_bulb_ns {
-                        ops::bulb_on(&host).await?
-                    } else {
-                        ops::plug_on(&host).await?
-                    }
-                    println!("{} {}", host, "on".green().bold());
-                }
-                PowerAction::Off => {
-                    if use_bulb_ns {
-                        ops::bulb_off(&host).await?
-                    } else {
-                        ops::plug_off(&host).await?
-                    }
-                    println!("{} {}", host, "off".dimmed());
-                }
-                PowerAction::Toggle => {
-                    let now_on = if use_bulb_ns {
-                        ops::bulb_toggle(&host).await?
-                    } else {
-                        ops::plug_toggle(&host).await?
+            let r = resolve(&host).await?;
+            match r.protocol {
+                hosts::Protocol::Klap => {
+                    let (user, pass) = tapo_creds()?;
+                    let mut session = klap::handshake(&r.ip, &user, &pass).await?;
+                    let now_on = match state {
+                        PowerAction::On => { ops::tapo_on(&mut session).await?; true }
+                        PowerAction::Off => { ops::tapo_off(&mut session).await?; false }
+                        PowerAction::Toggle => ops::tapo_toggle(&mut session).await?,
                     };
-                    let label = if now_on {
-                        "on".green().bold()
-                    } else {
-                        "off".dimmed()
-                    };
-                    println!("{} toggled -> {}", host, label);
+                    let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                    println!("{} {}", r.ip, label);
                 }
-            };
-            result
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&r.ip).await?;
+                    let kind = detect_kind(&json);
+                    let use_bulb_ns = matches!(kind, DeviceKind::Bulb | DeviceKind::LightStrip);
+                    match state {
+                        PowerAction::On => {
+                            if use_bulb_ns { ops::bulb_on(&r.ip).await? } else { ops::plug_on(&r.ip).await? }
+                            println!("{} {}", r.ip, "on".green().bold());
+                        }
+                        PowerAction::Off => {
+                            if use_bulb_ns { ops::bulb_off(&r.ip).await? } else { ops::plug_off(&r.ip).await? }
+                            println!("{} {}", r.ip, "off".dimmed());
+                        }
+                        PowerAction::Toggle => {
+                            let now_on = if use_bulb_ns { ops::bulb_toggle(&r.ip).await? } else { ops::plug_toggle(&r.ip).await? };
+                            let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                            println!("{} toggled -> {}", r.ip, label);
+                        }
+                    }
+                }
+            }
         }
 
         Command::Dim { host, level } => {
@@ -604,44 +616,11 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::Tapo { host } => {
-            let host = resolve_host_any(&host).await?;
-            let (user, pass) = tapo_creds()?;
-            let mut session = klap::handshake(&host, &user, &pass).await?;
-            let json = ops::tapo_device_info(&mut session).await?;
-            match tapo::parse(&json) {
-                Some(d) => display::print_tapo_detail(&host, &d),
-                None => bail!("Could not parse Tapo device info from {host}"),
-            }
-        }
-
-        Command::TapoPower { host, state } => {
-            let host = resolve_host_any(&host).await?;
-            let (user, pass) = tapo_creds()?;
-            let mut session = klap::handshake(&host, &user, &pass).await?;
-            match state {
-                PowerAction::On => {
-                    ops::tapo_on(&mut session).await?;
-                    println!("{} {}", host, "on".green().bold());
-                }
-                PowerAction::Off => {
-                    ops::tapo_off(&mut session).await?;
-                    println!("{} {}", host, "off".dimmed());
-                }
-                PowerAction::Toggle => {
-                    let now_on = ops::tapo_toggle(&mut session).await?;
-                    let label = if now_on {
-                        "on".green().bold()
-                    } else {
-                        "off".dimmed()
-                    };
-                    println!("{} toggled -> {}", host, label);
-                }
-            }
-        }
-        Command::Alias { name, ip } => {
-            hosts::set(&name, &ip)?;
-            println!("Saved: {} → {}", name.bold(), ip);
+        Command::Alias { name, ip, klap } => {
+            let protocol = if klap { hosts::Protocol::Klap } else { hosts::Protocol::Kasa };
+            hosts::set(&name, &ip, protocol)?;
+            let tag = if klap { " (klap)".dimmed() } else { "".normal() };
+            println!("Saved: {} → {}{}", name.bold(), ip, tag);
         }
 
         Command::Unalias { name } => {
@@ -655,13 +634,13 @@ async fn main() -> Result<()> {
         Command::Aliases => {
             let list = hosts::list()?;
             if list.is_empty() {
-                println!("No saved aliases. Use `denki alias <name> <ip>` to add one.");
+                println!("No saved aliases. Use `denki alias <name> <ip> [--klap]` to add one.");
                 println!("File: {}", hosts::path_display());
             } else {
-                println!("{:<30} {}", "Name".bold(), "IP".bold());
-                println!("{}", "─".repeat(50).dimmed());
-                for (name, ip) in &list {
-                    println!("{:<30} {}", name, ip);
+                println!("{:<30} {:<18} {}", "Name".bold(), "IP".bold(), "Protocol".bold());
+                println!("{}", "─".repeat(58).dimmed());
+                for (name, entry) in &list {
+                    println!("{:<30} {:<18} {}", name, entry.ip, entry.protocol);
                 }
                 println!("{}", format!("({} aliases in {})", list.len(), hosts::path_display()).dimmed());
             }
