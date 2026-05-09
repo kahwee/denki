@@ -291,11 +291,53 @@ async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
     klap::handshake(ip, &user, &pass).await
 }
 
+/// Execute a power action on a Kasa device using an already-fetched sysinfo blob.
+///
+/// `target_on`:
+///   - `Some(true)`  → turn on
+///   - `Some(false)` → turn off
+///   - `None`        → toggle (reads current state from `json`, no extra network call)
+///
+/// Returns the new power state (true = on).
+async fn kasa_exec_power(
+    ip: &str,
+    kind: &DeviceKind,
+    json: &serde_json::Value,
+    target_on: Option<bool>,
+) -> Result<bool> {
+    can_control_power(kind)?;
+    let on = target_on.unwrap_or_else(|| {
+        // Determine target by inverting current state — avoids a second sysinfo round trip
+        let cur = if matches!(kind, DeviceKind::Bulb) {
+            json.pointer("/system/get_sysinfo/light_state/on_off")
+        } else {
+            json.pointer("/system/get_sysinfo/relay_state")
+        };
+        cur.and_then(|v| v.as_u64()).unwrap_or(0) == 0 // 0 = currently off → turn on
+    });
+    if matches!(kind, DeviceKind::Bulb) {
+        if on { ops::bulb_on(ip).await? } else { ops::bulb_off(ip).await? }
+    } else {
+        if on { ops::plug_on(ip).await? } else { ops::plug_off(ip).await? }
+    }
+    Ok(on)
+}
+
 // ── Command compatibility guards ──────────────────────────────────────────────
 // Pure synchronous functions: take a DeviceKind, return Ok or a clear error.
 // Handlers call these before issuing any network request so the user always
 // gets a command-level message ("dim is not supported on plug") rather than
 // a raw protocol error from the device.
+
+fn can_control_power(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::LightStrip => anyhow::bail!(
+            "light strip power control is not yet implemented \
+             (KL430 uses smartlife.iot.lightStrip)"
+        ),
+        _ => Ok(()),
+    }
+}
 
 fn can_dim(kind: &DeviceKind) -> Result<()> {
     match kind {
@@ -563,18 +605,8 @@ async fn main() -> Result<()> {
         Command::On { host } => {
             let r = resolve(&host).await?;
             match r.protocol {
-                hosts::Protocol::Klap => {
-                    let mut session = open_tapo(&r.ip).await?;
-                    ops::tapo_on(&mut session).await?;
-                }
-                hosts::Protocol::Kasa => {
-                    let json = ops::sysinfo(&r.ip).await?;
-                    let kind = detect_kind(&json);
-                    if matches!(kind, DeviceKind::LightStrip) {
-                        bail!("light strip power control is not yet implemented (KL430 uses smartlife.iot.lightStrip)");
-                    }
-                    if matches!(kind, DeviceKind::Bulb) { ops::bulb_on(&r.ip).await? } else { ops::plug_on(&r.ip).await? }
-                }
+                hosts::Protocol::Klap => { let mut s = open_tapo(&r.ip).await?; ops::tapo_on(&mut s).await?; }
+                hosts::Protocol::Kasa => { let json = ops::sysinfo(&r.ip).await?; kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(true)).await?; }
             }
             println!("{} {}", r.ip, "on".green().bold());
         }
@@ -582,18 +614,8 @@ async fn main() -> Result<()> {
         Command::Off { host } => {
             let r = resolve(&host).await?;
             match r.protocol {
-                hosts::Protocol::Klap => {
-                    let mut session = open_tapo(&r.ip).await?;
-                    ops::tapo_off(&mut session).await?;
-                }
-                hosts::Protocol::Kasa => {
-                    let json = ops::sysinfo(&r.ip).await?;
-                    let kind = detect_kind(&json);
-                    if matches!(kind, DeviceKind::LightStrip) {
-                        bail!("light strip power control is not yet implemented (KL430 uses smartlife.iot.lightStrip)");
-                    }
-                    if matches!(kind, DeviceKind::Bulb) { ops::bulb_off(&r.ip).await? } else { ops::plug_off(&r.ip).await? }
-                }
+                hosts::Protocol::Klap => { let mut s = open_tapo(&r.ip).await?; ops::tapo_off(&mut s).await?; }
+                hosts::Protocol::Kasa => { let json = ops::sysinfo(&r.ip).await?; kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(false)).await?; }
             }
             println!("{} {}", r.ip, "off".dimmed());
         }
@@ -601,18 +623,8 @@ async fn main() -> Result<()> {
         Command::Toggle { host } => {
             let r = resolve(&host).await?;
             let now_on = match r.protocol {
-                hosts::Protocol::Klap => {
-                    let mut session = open_tapo(&r.ip).await?;
-                    ops::tapo_toggle(&mut session).await?
-                }
-                hosts::Protocol::Kasa => {
-                    let json = ops::sysinfo(&r.ip).await?;
-                    let kind = detect_kind(&json);
-                    if matches!(kind, DeviceKind::LightStrip) {
-                        bail!("light strip power control is not yet implemented (KL430 uses smartlife.iot.lightStrip)");
-                    }
-                    if matches!(kind, DeviceKind::Bulb) { ops::bulb_toggle(&r.ip).await? } else { ops::plug_toggle(&r.ip).await? }
-                }
+                hosts::Protocol::Klap => { let mut s = open_tapo(&r.ip).await?; ops::tapo_toggle(&mut s).await? }
+                hosts::Protocol::Kasa => { let json = ops::sysinfo(&r.ip).await?; kasa_exec_power(&r.ip, &detect_kind(&json), &json, None).await? }
             };
             let label = if now_on { "on".green().bold() } else { "off".dimmed() };
             println!("{} -> {label}", r.ip);

@@ -128,9 +128,8 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
         println!("  Color:      {} {}° hue  {} sat", "██".truecolor(r, g, b), ls.hue(), ls.saturation());
     }
     println!("  Features:   {}", caps_label(bulb));
-    println!("  {}", "Energy:     use `denki energy <host>`".dimmed());
-    println!("  {}", "Specs:      use `denki specs <host>`".dimmed());
-    println!("  {}", "Presets:    use `denki presets <host>`".dimmed());
+    let a = &bulb.alias;
+    println!("  {}", format!("→ denki energy \"{a}\"  ·  denki specs \"{a}\"  ·  denki presets \"{a}\"").dimmed());
 }
 
 pub fn print_bulb_specs(json: &serde_json::Value) {
@@ -233,11 +232,9 @@ pub fn print_plug_detail(ip: &str, plug: &Plug) {
     if plug.is_on() {
         println!("  On for:   {}", plug.on_time_fmt());
     }
+    let a = &plug.alias;
     if plug.has_energy_monitoring() {
-        println!("  {}", "Energy:     use `denki energy <host>`".dimmed());
-        println!("  {}", "Daily:      use `denki energy-daily <host>`".dimmed());
-        println!("  {}", "Monthly:    use `denki energy-monthly <host>`".dimmed());
-        println!("  {}", "Schedule:   use `denki schedules <host>`".dimmed());
+        println!("  {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki schedules \"{a}\"").dimmed());
     }
 }
 

@@ -38,30 +38,23 @@ pub async fn sysinfo(host: &str) -> Result<serde_json::Value> {
 
 // ── Bulb (KL135) — power ─────────────────────────────────────────────────────
 
-/// Turn the bulb on. Uses transition_period: 0 for instant change.
-/// The lightingservice namespace is KL135-specific — do not use on plugs.
-pub async fn bulb_on(host: &str) -> Result<()> {
+async fn bulb_set_power(host: &str, on: bool) -> Result<()> {
     transport::send(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
-            "transition_light_state": {"on_off": 1, "transition_period": 0}
+            "transition_light_state": {"on_off": u8::from(on), "transition_period": 0}
         }}),
     )
     .await?;
     Ok(())
 }
 
+/// Turn the bulb on. Uses transition_period: 0 for instant change.
+/// The lightingservice namespace is KL135-specific — do not use on plugs.
+pub async fn bulb_on(host: &str) -> Result<()> { bulb_set_power(host, true).await }
+
 /// Turn the bulb off.
-pub async fn bulb_off(host: &str) -> Result<()> {
-    transport::send(
-        host,
-        json!({"smartlife.iot.smartbulb.lightingservice": {
-            "transition_light_state": {"on_off": 0, "transition_period": 0}
-        }}),
-    )
-    .await?;
-    Ok(())
-}
+pub async fn bulb_off(host: &str) -> Result<()> { bulb_set_power(host, false).await }
 
 /// Toggle the bulb. Reads current state first, then flips it.
 /// Returns true if the bulb ended up on, false if it ended up off.
@@ -330,30 +323,26 @@ pub async fn plug_time(host: &str) -> Result<serde_json::Value> {
 // The child_id comes from sysinfo.children[i].id (callers must fetch sysinfo
 // first to resolve the outlet number to the correct id).
 
-/// Turn on one outlet on a power strip by its child id.
-pub async fn strip_outlet_on(host: &str, child_id: &str) -> Result<()> {
+async fn strip_outlet_set(host: &str, child_id: &str, on: bool) -> Result<()> {
     transport::send(
         host,
         json!({
             "context": {"child_ids": [child_id]},
-            "system": {"set_relay_state": {"state": 1}}
+            "system": {"set_relay_state": {"state": u8::from(on)}}
         }),
     )
     .await?;
     Ok(())
 }
 
+/// Turn on one outlet on a power strip by its child id.
+pub async fn strip_outlet_on(host: &str, child_id: &str) -> Result<()> {
+    strip_outlet_set(host, child_id, true).await
+}
+
 /// Turn off one outlet on a power strip by its child id.
 pub async fn strip_outlet_off(host: &str, child_id: &str) -> Result<()> {
-    transport::send(
-        host,
-        json!({
-            "context": {"child_ids": [child_id]},
-            "system": {"set_relay_state": {"state": 0}}
-        }),
-    )
-    .await?;
-    Ok(())
+    strip_outlet_set(host, child_id, false).await
 }
 
 // ── Shared — works on all device types ───────────────────────────────────────
@@ -381,26 +370,23 @@ pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::V
         .await
 }
 
-/// Turn a Tapo device on.
-pub async fn tapo_on(session: &mut KlapSession) -> Result<()> {
+async fn tapo_set_power(session: &mut KlapSession, on: bool) -> Result<()> {
     let resp = session
         .send(&serde_json::to_string(
-            &json!({"method": "set_device_info", "params": {"device_on": true}}),
+            &json!({"method": "set_device_info", "params": {"device_on": on}}),
         )?)
         .await?;
-    check_tapo_error(&resp)?;
-    Ok(())
+    check_tapo_error(&resp)
+}
+
+/// Turn a Tapo device on.
+pub async fn tapo_on(session: &mut KlapSession) -> Result<()> {
+    tapo_set_power(session, true).await
 }
 
 /// Turn a Tapo device off.
 pub async fn tapo_off(session: &mut KlapSession) -> Result<()> {
-    let resp = session
-        .send(&serde_json::to_string(
-            &json!({"method": "set_device_info", "params": {"device_on": false}}),
-        )?)
-        .await?;
-    check_tapo_error(&resp)?;
-    Ok(())
+    tapo_set_power(session, false).await
 }
 
 /// Toggle a Tapo device. Returns true if now on, false if now off.
