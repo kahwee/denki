@@ -184,6 +184,16 @@ fn detect_kind(json: &serde_json::Value) -> DeviceKind {
     }
 }
 
+/// Read Tapo credentials from environment variables.
+/// Set TAPO_USER and TAPO_PASS before running Tapo commands.
+fn tapo_creds() -> Result<(String, String)> {
+    let user = std::env::var("TAPO_USER")
+        .map_err(|_| anyhow::anyhow!("TAPO_USER env var not set"))?;
+    let pass = std::env::var("TAPO_PASS")
+        .map_err(|_| anyhow::anyhow!("TAPO_PASS env var not set"))?;
+    Ok((user, pass))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -402,6 +412,36 @@ async fn main() -> Result<()> {
             match strip::parse(&json) {
                 Some(s) => display::print_strip_outlets(&s),
                 None => bail!("{host} does not appear to be a power strip"),
+            }
+        }
+
+        Command::Tapo { host } => {
+            let (user, pass) = tapo_creds()?;
+            let mut session = klap::handshake(&host, &user, &pass).await?;
+            let json = ops::tapo_device_info(&mut session).await?;
+            match tapo::parse(&json) {
+                Some(d) => display::print_tapo_detail(&host, &d),
+                None => bail!("Could not parse Tapo device info from {host}"),
+            }
+        }
+
+        Command::TapoPower { host, state } => {
+            let (user, pass) = tapo_creds()?;
+            let mut session = klap::handshake(&host, &user, &pass).await?;
+            match state {
+                PowerAction::On => {
+                    ops::tapo_on(&mut session).await?;
+                    println!("{} {}", host, "on".green().bold());
+                }
+                PowerAction::Off => {
+                    ops::tapo_off(&mut session).await?;
+                    println!("{} {}", host, "off".dimmed());
+                }
+                PowerAction::Toggle => {
+                    let now_on = ops::tapo_toggle(&mut session).await?;
+                    let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                    println!("{} toggled -> {}", host, label);
+                }
             }
         }
     }

@@ -3,6 +3,12 @@ name = "denki"
 version = "0.1.0"
 edition = "2021"
 description = "CLI for controlling TP-Link smart home devices — denki (電気) means electricity in Japanese"
+license = "MIT"
+repository = "https://github.com/kahwee/denki"
+homepage = "https://github.com/kahwee/denki"
+readme = "README.md"
+keywords = ["tplink", "kasa", "tapo", "smarthome", "cli"]
+categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

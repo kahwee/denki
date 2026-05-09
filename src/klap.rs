@@ -39,7 +39,7 @@ use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvI
 use rand::RngCore;
 use reqwest::Client;
 use sha1::{Digest as Sha1Digest, Sha1};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 type Aes128CbcEnc = cbc::Encryptor<Aes128>;
 type Aes128CbcDec = cbc::Decryptor<Aes128>;
