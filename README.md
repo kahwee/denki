@@ -19,8 +19,8 @@ The parser can identify a few more Kasa device families, but their controls are 
 | Model | Current limitation |
 |-------|--------------------|
 | KL430 light strip | Scan/info only. Power, color, effects, and energy need the `smartlife.iot.lightStrip` namespace and are not implemented yet. |
-| HS220 dimmer | Scan/info and basic relay-style power may work. Brightness control is not implemented yet. |
-| HS300/KP303 power strip | Scan/info/outlet listing. Per-outlet control and strip-specific energy behavior are not implemented yet. |
+| HS220 dimmer | Info, power, and brightness (`denki dim`) via `smartlife.iot.dimmer`. Schedules and clock work. |
+| HS300/KP303 power strip | Info, outlet listing (`denki outlets`), and per-outlet control (`denki outlet N on\|off`). Strip-level energy not implemented. |
 
 > **Note on energy units:** KP115 returns milli-units (`voltage_mv`, `current_ma`, `power_mw`). HS110 returns real units (`voltage`, `current`, `power` in V/A/W). Both share the same command.
 
@@ -104,12 +104,12 @@ Name matching is case-insensitive and partial — `"desk"` resolves `"Desk Lamp"
 ### KL135 Bulb Controls
 
 ```bash
-denki dim "desk lamp" 50           # brightness 0–100%
-denki warmth "desk lamp" 2700      # color temperature 2500–9000 K
-denki color "desk lamp" 275 50 80  # hue (0–360) saturation (0–100) value (0–100)
+denki dim "desk lamp" 50           # brightness 0–100% (KL135 bulbs and HS220 dimmers)
+denki warmth "desk lamp" 2700      # color temperature 2500–9000 K (KL135 bulbs only)
+denki color "desk lamp" 275 50 80  # hue (0–360) saturation (0–100) value (0–100) (KL135 bulbs only)
 ```
 
-Setting saturation > 0 activates color mode and disables color temperature mode (they are mutually exclusive on the device). These controls are currently implemented for the smartbulb namespace used by KL135-style bulbs, not KL430 light strips or HS220 dimmers.
+`denki dim` works for both KL135-style bulbs (via `smartlife.iot.smartbulb.lightingservice`) and HS220 dimmers (via `smartlife.iot.dimmer`). Color temperature and HSV color are KL135-only — running them on a non-bulb device prints a clear error naming the command and supported models. Setting saturation > 0 activates color mode and disables color temperature mode (they are mutually exclusive on the device).
 
 ### Device info
 
@@ -136,6 +136,8 @@ denki schedules "desk plug"        # scheduled on/off rules (plugs)
 denki led "desk plug" off          # turn off the status LED (plugs)
 denki clock "desk plug"            # show device clock (plugs)
 denki outlets "power strip"        # list outlets and their state (strips)
+denki outlet "power strip" 2 on    # turn outlet 2 on (strips)
+denki outlet "power strip" 2 off   # turn outlet 2 off (strips)
 denki rename "desk plug" "new name"
 denki restart "desk lamp"
 ```
@@ -232,7 +234,7 @@ ops::tapo_on(&mut session).await?;
 - Schedule creation and deletion
 - Firmware updates (intentionally excluded)
 - KL430 light-strip control/effects routing
-- HS220 dimmer brightness routing
+- Strip-level energy monitoring for HS300/KP303
 
 ## License
 
