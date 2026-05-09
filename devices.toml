@@ -166,7 +166,8 @@ name        = "Smart Wi-Fi Plug Mini with Energy Monitoring"
 mic_type    = "IOT.SMARTPLUGSWITCH"
 protocol    = "legacy"
 feature_str = "TIM:ENE"  # timer + energy monitoring
-verified    = true   # personally owned and live-tested
+verified    = true   # personally owned and live-tested (unit: "Hummer" @ 192.168.4.36)
+# Energy monitoring confirmed live: voltage_mv + current_ma + power_mw + total_wh all returned
 
   [[devices.features]]
   id          = "power"
