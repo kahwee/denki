@@ -224,8 +224,8 @@ enum Command {
     Login {
         /// Tapo account email address
         email: String,
-        /// Tapo account password
-        password: String,
+        /// Tapo account password (omit to be prompted; never pass on command line in scripts)
+        password: Option<String>,
     },
 }
 
@@ -1018,6 +1018,11 @@ async fn main() -> Result<()> {
         }
 
         Command::Login { email, password } => {
+            let password = match password {
+                Some(p) => p,
+                None => rpassword::prompt_password("Tapo password: ")
+                    .map_err(|e| anyhow::anyhow!("Failed to read password: {e}"))?,
+            };
             creds::save(&email, &password)?;
             println!("Tapo credentials saved to {}", creds::path_display());
             println!(

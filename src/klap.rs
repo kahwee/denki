@@ -41,6 +41,10 @@ use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time::{timeout, Duration};
+
+/// Timeout for each KLAP TCP connect + read + write operation.
+const KLAP_TIMEOUT: Duration = Duration::from_secs(10);
 
 type Aes128CbcEnc = cbc::Encryptor<Aes128>;
 type Aes128CbcDec = cbc::Decryptor<Aes128>;
@@ -106,7 +110,10 @@ async fn http_post(
     extra_headers: &[(&str, &str)],
     body: &[u8],
 ) -> Result<(u16, String, Vec<u8>)> {
-    let mut stream = TcpStream::connect(format!("{host}:80")).await?;
+    let mut stream = timeout(KLAP_TIMEOUT, TcpStream::connect(format!("{host}:80")))
+        .await
+        .map_err(|_| anyhow::anyhow!("Timed out connecting to {host}:80"))?
+        .map_err(|e| anyhow::anyhow!("Cannot connect to {host}:80: {e}"))?;
     stream.set_nodelay(true)?;
 
     let mut req = format!(
@@ -118,11 +125,17 @@ async fn http_post(
     }
     req.push_str("\r\n");
 
-    stream.write_all(req.as_bytes()).await?;
-    stream.write_all(body).await?;
+    timeout(KLAP_TIMEOUT, stream.write_all(req.as_bytes()))
+        .await
+        .map_err(|_| anyhow::anyhow!("Timed out sending request to {host}"))??;
+    timeout(KLAP_TIMEOUT, stream.write_all(body))
+        .await
+        .map_err(|_| anyhow::anyhow!("Timed out sending request body to {host}"))??;
 
     // Read headers byte by byte until \r\n\r\n
-    let header_bytes = read_headers(&mut stream).await?;
+    let header_bytes = timeout(KLAP_TIMEOUT, read_headers(&mut stream))
+        .await
+        .map_err(|_| anyhow::anyhow!("Timed out reading response headers from {host}"))??;
     let headers_str = String::from_utf8_lossy(&header_bytes).into_owned();
 
     // Parse status code from first line: "HTTP/1.1 200 OK"
@@ -148,7 +161,9 @@ async fn http_post(
 
     let mut resp_body = vec![0u8; content_length];
     if content_length > 0 {
-        stream.read_exact(&mut resp_body).await?;
+        timeout(KLAP_TIMEOUT, stream.read_exact(&mut resp_body))
+            .await
+            .map_err(|_| anyhow::anyhow!("Timed out reading response body from {host}"))??;
     }
 
     Ok((status, headers_str, resp_body))
@@ -283,5 +298,35 @@ impl KlapSession {
             .decrypt_padded_vec_mut::<Pkcs7>(&data[32..])
             .map_err(|e| anyhow::anyhow!("AES decrypt error: {e:?}"))?;
         Ok(String::from_utf8(plaintext)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn klap_timeout_is_positive() {
+        assert!(KLAP_TIMEOUT.as_secs() > 0);
+    }
+
+    #[test]
+    fn auth_hash_is_32_bytes() {
+        let h = auth_hash("user@example.com", "secret");
+        assert_eq!(h.len(), 32);
+    }
+
+    #[test]
+    fn auth_hash_differs_by_credential() {
+        let h1 = auth_hash("user@example.com", "pass1");
+        let h2 = auth_hash("user@example.com", "pass2");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn auth_hash_is_deterministic() {
+        let h1 = auth_hash("u@x.com", "pw");
+        let h2 = auth_hash("u@x.com", "pw");
+        assert_eq!(h1, h2);
     }
 }

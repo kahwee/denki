@@ -55,19 +55,26 @@ fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
     }
 
     // Fall back: v1 plain-string values → Kasa protocol
-    let v1: BTreeMap<String, String> = serde_json::from_str(&data).unwrap_or_default();
-    Ok(v1
-        .into_iter()
-        .map(|(k, ip)| {
-            (
-                k,
-                HostEntry {
-                    ip,
-                    protocol: Protocol::Kasa,
-                },
-            )
-        })
-        .collect())
+    if let Ok(v1) = serde_json::from_str::<BTreeMap<String, String>>(&data) {
+        return Ok(v1
+            .into_iter()
+            .map(|(k, ip)| {
+                (
+                    k,
+                    HostEntry {
+                        ip,
+                        protocol: Protocol::Kasa,
+                    },
+                )
+            })
+            .collect());
+    }
+
+    anyhow::bail!(
+        "{} is corrupt (not valid v1 or v2 JSON).\n\
+         Fix or delete the file to continue using aliases.",
+        path.display()
+    )
 }
 
 fn save_map(path: &Path, map: &BTreeMap<String, HostEntry>) -> Result<()> {
@@ -193,6 +200,28 @@ mod tests {
     fn load_returns_empty_when_file_missing() {
         let (_dir, path) = temp_hosts();
         assert!(load_map(&path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn load_errors_on_corrupt_json() {
+        let (_dir, path) = temp_hosts();
+        std::fs::write(&path, "this is not json at all").unwrap();
+        let result = load_map(&path);
+        assert!(result.is_err(), "corrupt file should return an error");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("corrupt"),
+            "error should mention corruption: {msg}"
+        );
+    }
+
+    #[test]
+    fn load_errors_on_wrong_json_shape() {
+        let (_dir, path) = temp_hosts();
+        // Valid JSON but neither v2 objects nor v1 plain strings
+        std::fs::write(&path, r#"{"key": 42}"#).unwrap();
+        let result = load_map(&path);
+        assert!(result.is_err(), "wrong-shaped JSON should return an error");
     }
 
     #[test]

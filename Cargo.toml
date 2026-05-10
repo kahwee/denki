@@ -36,6 +36,7 @@ base64 = "0.22"
 
 toml = "0.8"
 if-addrs = "0"
+rpassword = "7"
 
 [dev-dependencies]
 rstest = "0.25"
