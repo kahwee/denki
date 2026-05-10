@@ -179,10 +179,10 @@ mod tests {
 
         #[rstest]
         #[case(Some("TIM:ENE"), true)]
-        #[case(Some("ENE"),     true)]
-        #[case(Some("TIM"),     false)]
-        #[case(Some(""),        false)]
-        #[case(None,            false)]
+        #[case(Some("ENE"), true)]
+        #[case(Some("TIM"), false)]
+        #[case(Some(""), false)]
+        #[case(None, false)]
         fn detected_from_feature_string(#[case] feature: Option<&str>, #[case] expected: bool) {
             assert_eq!(
                 make_plug(0, feature).has_energy_monitoring(),

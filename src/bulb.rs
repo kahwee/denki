@@ -127,7 +127,13 @@ mod tests {
     use serde_json::json;
 
     /// Minimal valid sysinfo JSON for a KL135 bulb.
-    fn bulb_json(on_off: u8, brightness: u8, color_temp: u16, hue: u16, sat: u8) -> serde_json::Value {
+    fn bulb_json(
+        on_off: u8,
+        brightness: u8,
+        color_temp: u16,
+        hue: u16,
+        sat: u8,
+    ) -> serde_json::Value {
         json!({
             "system": { "get_sysinfo": {
                 "alias": "Test Bulb", "model": "KL135(US)",

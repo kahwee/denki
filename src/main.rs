@@ -364,9 +364,17 @@ async fn kasa_exec_power(
         cur.and_then(|v| v.as_u64()).unwrap_or(0) == 0 // 0 = currently off → turn on
     });
     if matches!(kind, DeviceKind::Bulb) {
-        if on { ops::bulb_on(ip).await? } else { ops::bulb_off(ip).await? }
+        if on {
+            ops::bulb_on(ip).await?
+        } else {
+            ops::bulb_off(ip).await?
+        }
     } else {
-        if on { ops::relay_on(ip).await? } else { ops::relay_off(ip).await? }
+        if on {
+            ops::relay_on(ip).await?
+        } else {
+            ops::relay_off(ip).await?
+        }
     }
     Ok(on)
 }
@@ -421,18 +429,14 @@ fn can_set_color(kind: &DeviceKind) -> Result<()> {
 fn can_get_specs(kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!(
-            "`specs` is only supported on KL135-style bulbs, not {other}"
-        ),
+        other => anyhow::bail!("`specs` is only supported on KL135-style bulbs, not {other}"),
     }
 }
 
 fn can_get_presets(kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!(
-            "`presets` is only supported on KL135-style bulbs, not {other}"
-        ),
+        other => anyhow::bail!("`presets` is only supported on KL135-style bulbs, not {other}"),
     }
 }
 
@@ -536,11 +540,20 @@ struct Resolved {
 ///   3. Error — no UDP fallback (would block for seconds and miss KLAP devices)
 async fn resolve(input: &str) -> Result<Resolved> {
     if input.parse::<IpAddr>().is_ok() {
-        return Ok(Resolved { ip: input.to_string(), protocol: hosts::Protocol::Kasa });
+        return Ok(Resolved {
+            ip: input.to_string(),
+            protocol: hosts::Protocol::Kasa,
+        });
     }
     if let Some(entry) = hosts::lookup(input) {
-        println!("{}", format!("Using alias \"{input}\" [{}]", entry.ip).dimmed());
-        return Ok(Resolved { ip: entry.ip, protocol: entry.protocol });
+        println!(
+            "{}",
+            format!("Using alias \"{input}\" [{}]", entry.ip).dimmed()
+        );
+        return Ok(Resolved {
+            ip: entry.ip,
+            protocol: entry.protocol,
+        });
     }
     bail!(
         "No device named \"{input}\" found in saved aliases.\n\
@@ -567,38 +580,37 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Scan { timeout } => {
             println!("{}", format!("Scanning network for {timeout}s...").dimmed());
-            let count = transport::broadcast_each(timeout, |ip, json| {
-                match detect_kind(&json) {
-                    DeviceKind::Bulb => {
-                        if let Some(b) = bulb::parse(&json) {
-                            display::print_bulb_summary(ip, &b);
-                        }
-                    }
-                    DeviceKind::LightStrip => {
-                        if let Some(b) = bulb::parse(&json) {
-                            display::print_lightstrip_summary(ip, &b);
-                        }
-                    }
-                    DeviceKind::Dimmer => {
-                        if let Some(d) = dimmer::parse(&json) {
-                            display::print_dimmer_summary(ip, &d);
-                        }
-                    }
-                    DeviceKind::Strip => {
-                        if let Some(s) = strip::parse(&json) {
-                            display::print_strip_summary(ip, &s);
-                        }
-                    }
-                    DeviceKind::Plug => {
-                        if let Some(p) = plug::parse(&json) {
-                            display::print_plug_summary(ip, &p);
-                        }
-                    }
-                    DeviceKind::Unknown(t) => {
-                        display::print_unknown_summary(ip, &json, &t);
+            let count = transport::broadcast_each(timeout, |ip, json| match detect_kind(&json) {
+                DeviceKind::Bulb => {
+                    if let Some(b) = bulb::parse(&json) {
+                        display::print_bulb_summary(ip, &b);
                     }
                 }
-            }).await?;
+                DeviceKind::LightStrip => {
+                    if let Some(b) = bulb::parse(&json) {
+                        display::print_lightstrip_summary(ip, &b);
+                    }
+                }
+                DeviceKind::Dimmer => {
+                    if let Some(d) = dimmer::parse(&json) {
+                        display::print_dimmer_summary(ip, &d);
+                    }
+                }
+                DeviceKind::Strip => {
+                    if let Some(s) = strip::parse(&json) {
+                        display::print_strip_summary(ip, &s);
+                    }
+                }
+                DeviceKind::Plug => {
+                    if let Some(p) = plug::parse(&json) {
+                        display::print_plug_summary(ip, &p);
+                    }
+                }
+                DeviceKind::Unknown(t) => {
+                    display::print_unknown_summary(ip, &json, &t);
+                }
+            })
+            .await?;
             if count == 0 {
                 println!("No devices found.");
             } else {
@@ -643,7 +655,11 @@ async fn main() -> Result<()> {
                         DeviceKind::Unknown(t) => {
                             eprintln!("{}", format!("Unsupported device type: {t}").yellow());
                             eprintln!("Raw sysinfo from {}:", r.ip);
-                            println!("{}", serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string()));
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&json)
+                                    .unwrap_or_else(|_| json.to_string())
+                            );
                         }
                     }
                 }
@@ -653,8 +669,14 @@ async fn main() -> Result<()> {
         Command::On { host } => {
             let r = resolve(&host).await?;
             match r.protocol {
-                hosts::Protocol::Klap => { let mut s = open_tapo(&r.ip).await?; ops::tapo_on(&mut s).await?; }
-                hosts::Protocol::Kasa => { let json = ops::sysinfo(&r.ip).await?; kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(true)).await?; }
+                hosts::Protocol::Klap => {
+                    let mut s = open_tapo(&r.ip).await?;
+                    ops::tapo_on(&mut s).await?;
+                }
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&r.ip).await?;
+                    kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(true)).await?;
+                }
             }
             println!("{} {}", r.ip, "on".green().bold());
         }
@@ -662,8 +684,14 @@ async fn main() -> Result<()> {
         Command::Off { host } => {
             let r = resolve(&host).await?;
             match r.protocol {
-                hosts::Protocol::Klap => { let mut s = open_tapo(&r.ip).await?; ops::tapo_off(&mut s).await?; }
-                hosts::Protocol::Kasa => { let json = ops::sysinfo(&r.ip).await?; kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(false)).await?; }
+                hosts::Protocol::Klap => {
+                    let mut s = open_tapo(&r.ip).await?;
+                    ops::tapo_off(&mut s).await?;
+                }
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&r.ip).await?;
+                    kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(false)).await?;
+                }
             }
             println!("{} {}", r.ip, "off".dimmed());
         }
@@ -671,10 +699,20 @@ async fn main() -> Result<()> {
         Command::Toggle { host } => {
             let r = resolve(&host).await?;
             let now_on = match r.protocol {
-                hosts::Protocol::Klap => { let mut s = open_tapo(&r.ip).await?; ops::tapo_toggle(&mut s).await? }
-                hosts::Protocol::Kasa => { let json = ops::sysinfo(&r.ip).await?; kasa_exec_power(&r.ip, &detect_kind(&json), &json, None).await? }
+                hosts::Protocol::Klap => {
+                    let mut s = open_tapo(&r.ip).await?;
+                    ops::tapo_toggle(&mut s).await?
+                }
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&r.ip).await?;
+                    kasa_exec_power(&r.ip, &detect_kind(&json), &json, None).await?
+                }
             };
-            let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+            let label = if now_on {
+                "on".green().bold()
+            } else {
+                "off".dimmed()
+            };
             println!("{} -> {label}", r.ip);
         }
 
@@ -815,7 +853,10 @@ async fn main() -> Result<()> {
             can_control_led(&detect_kind(&json))?;
             let on = matches!(state, LedAction::On);
             ops::device_led(&r.ip, on).await?;
-            println!("LED indicator {}", if on { "on".green() } else { "off".dimmed() });
+            println!(
+                "LED indicator {}",
+                if on { "on".green() } else { "off".dimmed() }
+            );
         }
 
         Command::Clock { host } => {
@@ -857,7 +898,11 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::Outlet { host, outlet, state } => {
+        Command::Outlet {
+            host,
+            outlet,
+            state,
+        } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
             let s = strip::parse(&json)
@@ -882,7 +927,11 @@ async fn main() -> Result<()> {
                     }
                 }
             };
-            let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+            let label = if now_on {
+                "on".green().bold()
+            } else {
+                "off".dimmed()
+            };
             println!("Outlet {} ({}) -> {}", outlet, child.alias, label);
         }
 
@@ -900,7 +949,11 @@ async fn main() -> Result<()> {
             display::print_energy_realtime(&resp);
         }
 
-        Command::OutletEnergyDaily { host, outlet, month } => {
+        Command::OutletEnergyDaily {
+            host,
+            outlet,
+            month,
+        } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
             let s = strip::parse(&json)
@@ -911,10 +964,15 @@ async fn main() -> Result<()> {
             let child = resolve_outlet(&s, outlet)?;
             let month_str = match month {
                 Some(m) => m,
-                None => { let (y, m) = current_year_month(); format!("{y}-{m:02}") }
+                None => {
+                    let (y, m) = current_year_month();
+                    format!("{y}-{m:02}")
+                }
             };
             let parts: Vec<&str> = month_str.split('-').collect();
-            if parts.len() != 2 { bail!("Month must be in YYYY-MM format"); }
+            if parts.len() != 2 {
+                bail!("Month must be in YYYY-MM format");
+            }
             let year: u16 = parts[0].parse()?;
             let mo: u8 = parts[1].parse()?;
             let resp = ops::strip_outlet_energy_daily(&r.ip, &child.id, year, mo).await?;
@@ -949,9 +1007,17 @@ async fn main() -> Result<()> {
         }
 
         Command::Alias { name, ip, klap } => {
-            let protocol = if klap { hosts::Protocol::Klap } else { hosts::Protocol::Kasa };
+            let protocol = if klap {
+                hosts::Protocol::Klap
+            } else {
+                hosts::Protocol::Kasa
+            };
             hosts::set(&name, &ip, protocol)?;
-            let tag = if klap { " (klap)".dimmed() } else { "".normal() };
+            let tag = if klap {
+                " (klap)".dimmed()
+            } else {
+                "".normal()
+            };
             println!("Saved: {} → {}{}", name.bold(), ip, tag);
         }
 
@@ -969,19 +1035,29 @@ async fn main() -> Result<()> {
                 println!("No saved aliases. Use `denki alias <name> <ip> [--klap]` to add one.");
                 println!("File: {}", hosts::path_display());
             } else {
-                println!("{:<30} {:<18} {}", "Name".bold(), "IP".bold(), "Protocol".bold());
+                println!(
+                    "{:<30} {:<18} {}",
+                    "Name".bold(),
+                    "IP".bold(),
+                    "Protocol".bold()
+                );
                 println!("{}", "─".repeat(58).dimmed());
                 for (name, entry) in &list {
                     println!("{:<30} {:<18} {}", name, entry.ip, entry.protocol);
                 }
-                println!("{}", format!("({} aliases in {})", list.len(), hosts::path_display()).dimmed());
+                println!(
+                    "{}",
+                    format!("({} aliases in {})", list.len(), hosts::path_display()).dimmed()
+                );
             }
         }
 
         Command::Login { email, password } => {
             creds::save(&email, &password)?;
             println!("Tapo credentials saved to {}", creds::path_display());
-            println!("(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)");
+            println!(
+                "(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)"
+            );
         }
     }
 
@@ -1096,7 +1172,10 @@ mod tests {
     #[test]
     fn can_dim_error_names_the_command() {
         let err = can_dim(&DeviceKind::Plug).unwrap_err();
-        assert!(err.to_string().contains("`dim`"), "error should name the command: {err}");
+        assert!(
+            err.to_string().contains("`dim`"),
+            "error should name the command: {err}"
+        );
     }
 
     #[test]
@@ -1134,9 +1213,17 @@ mod tests {
 
     #[test]
     fn can_get_specs_and_presets_accept_bulb_only() {
-        for kind in [DeviceKind::Dimmer, DeviceKind::Plug, DeviceKind::Strip, DeviceKind::LightStrip] {
+        for kind in [
+            DeviceKind::Dimmer,
+            DeviceKind::Plug,
+            DeviceKind::Strip,
+            DeviceKind::LightStrip,
+        ] {
             assert!(can_get_specs(&kind).is_err(), "specs should reject {kind}");
-            assert!(can_get_presets(&kind).is_err(), "presets should reject {kind}");
+            assert!(
+                can_get_presets(&kind).is_err(),
+                "presets should reject {kind}"
+            );
         }
         assert!(can_get_specs(&DeviceKind::Bulb).is_ok());
         assert!(can_get_presets(&DeviceKind::Bulb).is_ok());
@@ -1156,7 +1243,10 @@ mod tests {
         let err = can_get_schedules(&DeviceKind::Bulb).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("`schedules`"), "{msg}");
-        assert!(msg.contains("KP115") || msg.contains("HS220") || msg.contains("HS300"), "{msg}");
+        assert!(
+            msg.contains("KP115") || msg.contains("HS220") || msg.contains("HS300"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -1200,7 +1290,9 @@ mod tests {
     #[test]
     fn dim_command_parses_host_and_level() {
         let cli = Cli::try_parse_from(["denki", "dim", "desk lamp", "75"]).unwrap();
-        assert!(matches!(cli.command, Command::Dim { host, level } if host == "desk lamp" && level == 75));
+        assert!(
+            matches!(cli.command, Command::Dim { host, level } if host == "desk lamp" && level == 75)
+        );
     }
 
     #[test]
@@ -1220,5 +1312,155 @@ mod tests {
     #[test]
     fn outlet_rejects_zero_index() {
         assert!(Cli::try_parse_from(["denki", "outlet", "strip", "0", "on"]).is_err());
+    }
+}
+
+// ── devices.toml capability tests ────────────────────────────────────────────
+//
+// devices.toml is the source of truth for what each device supports.
+// These tests verify the file is valid and that it matches the can_* guards:
+//
+//   1. Every feature listed in devices.toml must be permitted by the guard.
+//   2. Every guarded feature NOT listed must be denied by the guard.
+//
+// Both directions are tested so drift in either direction fails a test.
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+    use serde::Deserialize;
+
+    const DEVICES_TOML: &str = include_str!("../devices.toml");
+
+    #[derive(Deserialize)]
+    struct DeviceEntry {
+        model: String,
+        kind: String,
+        #[serde(default)]
+        supports: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct DevicesFile {
+        device: Vec<DeviceEntry>,
+    }
+
+    fn parse() -> DevicesFile {
+        toml::from_str(DEVICES_TOML).expect("devices.toml failed to parse")
+    }
+
+    /// Map the `kind` string in devices.toml to a DeviceKind.
+    /// Returns None for "Tapo" — those use protocol-level guards, not DeviceKind guards.
+    fn kind_from_str(s: &str) -> Option<DeviceKind> {
+        match s {
+            "Bulb" => Some(DeviceKind::Bulb),
+            "LightStrip" => Some(DeviceKind::LightStrip),
+            "Dimmer" => Some(DeviceKind::Dimmer),
+            "Plug" => Some(DeviceKind::Plug),
+            "Strip" => Some(DeviceKind::Strip),
+            "Tapo" => None,
+            other => panic!("devices.toml: unknown kind '{other}' — add it to kind_from_str()"),
+        }
+    }
+
+    /// The set of features that have a corresponding can_* guard in main.rs.
+    /// These are the features we can test statically from devices.toml.
+    const GUARDED: &[&str] = &[
+        "power",
+        "dim",
+        "color_temp",
+        "color",
+        "specs",
+        "presets",
+        "schedules",
+        "led",
+        "clock",
+    ];
+
+    /// Invoke the can_* guard for a feature name.
+    /// Returns Ok if permitted, Err if denied.
+    /// Panics on unknown feature names so devices.toml stays honest.
+    fn check(kind: &DeviceKind, feature: &str) -> anyhow::Result<()> {
+        match feature {
+            "power" => can_control_power(kind),
+            "dim" => can_dim(kind),
+            "color_temp" => can_set_color_temp(kind),
+            "color" => can_set_color(kind),
+            "specs" => can_get_specs(kind),
+            "presets" => can_get_presets(kind),
+            "schedules" => can_get_schedules(kind),
+            "led" => can_control_led(kind),
+            "clock" => can_get_clock(kind),
+            // Informational — no static guard to call
+            "energy" | "outlets" => Ok(()),
+            other => panic!(
+                "devices.toml: unknown feature '{other}' — add it to check() or to the comment \
+                 block explaining why it has no guard"
+            ),
+        }
+    }
+
+    #[test]
+    fn devices_toml_parses() {
+        parse();
+    }
+
+    #[test]
+    fn all_kinds_are_known() {
+        let file = parse();
+        for dev in &file.device {
+            // kind_from_str panics on unknown kinds — that's the assertion
+            let _ = kind_from_str(&dev.kind);
+        }
+    }
+
+    /// Every (model, feature) pair in devices.toml must pass the guard.
+    /// Failure means devices.toml claims a capability the code doesn't allow.
+    #[test]
+    fn listed_features_are_permitted_by_guards() {
+        let file = parse();
+        for dev in &file.device {
+            let Some(kind) = kind_from_str(&dev.kind) else {
+                continue; // Tapo: protocol-level, skip
+            };
+            for feature in &dev.supports {
+                let result = check(&kind, feature);
+                assert!(
+                    result.is_ok(),
+                    "devices.toml: {} ({}) lists '{}' but the guard rejects it: {}",
+                    dev.model,
+                    dev.kind,
+                    feature,
+                    result.unwrap_err(),
+                );
+            }
+        }
+    }
+
+    /// For every guarded feature NOT listed for a device, the guard must deny it.
+    /// Failure means the code allows something devices.toml doesn't document —
+    /// add the feature to the `supports` list or restrict the guard.
+    #[test]
+    fn unlisted_guarded_features_are_denied() {
+        let file = parse();
+        for dev in &file.device {
+            let Some(kind) = kind_from_str(&dev.kind) else {
+                continue; // Tapo: protocol-level, skip
+            };
+            for &feature in GUARDED {
+                if dev.supports.iter().any(|f| f == feature) {
+                    continue; // listed as supported — tested by the other test
+                }
+                let result = check(&kind, feature);
+                assert!(
+                    result.is_err(),
+                    "devices.toml: {} ({}) does NOT list '{}' but the guard permits it — \
+                     add it to 'supports' or tighten the guard",
+                    dev.model,
+                    dev.kind,
+                    feature,
+                );
+            }
+        }
     }
 }

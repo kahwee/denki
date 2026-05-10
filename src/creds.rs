@@ -37,8 +37,9 @@ pub fn load() -> Result<(String, String)> {
         )
     })?;
 
-    let creds: CredFile = serde_json::from_str(&data)
-        .context("credentials.json is malformed — run `denki login <email> <password>` to reset it")?;
+    let creds: CredFile = serde_json::from_str(&data).context(
+        "credentials.json is malformed — run `denki login <email> <password>` to reset it",
+    )?;
 
     Ok((creds.tapo_user, creds.tapo_pass))
 }

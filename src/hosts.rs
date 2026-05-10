@@ -58,7 +58,15 @@ fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
     let v1: BTreeMap<String, String> = serde_json::from_str(&data).unwrap_or_default();
     Ok(v1
         .into_iter()
-        .map(|(k, ip)| (k, HostEntry { ip, protocol: Protocol::Kasa }))
+        .map(|(k, ip)| {
+            (
+                k,
+                HostEntry {
+                    ip,
+                    protocol: Protocol::Kasa,
+                },
+            )
+        })
         .collect())
 }
 
@@ -73,7 +81,13 @@ fn save_map(path: &Path, map: &BTreeMap<String, HostEntry>) -> Result<()> {
 /// Normalize a name: lowercase, collapse non-alphanumeric to spaces.
 pub fn normalize(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -110,7 +124,13 @@ pub fn lookup(name: &str) -> Option<HostEntry> {
 pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
     let path = hosts_path();
     let mut map = load_map(&path)?;
-    map.insert(name.to_string(), HostEntry { ip: ip.to_string(), protocol });
+    map.insert(
+        name.to_string(),
+        HostEntry {
+            ip: ip.to_string(),
+            protocol,
+        },
+    );
     save_map(&path, &map)
 }
 
@@ -149,17 +169,20 @@ mod tests {
     }
 
     fn entry(ip: &str, protocol: Protocol) -> HostEntry {
-        HostEntry { ip: ip.to_string(), protocol }
+        HostEntry {
+            ip: ip.to_string(),
+            protocol,
+        }
     }
 
     // ── normalize ─────────────────────────────────────────────────────────────
 
     #[rstest]
-    #[case("Office Bulb",        "office bulb")]
-    #[case("Coat-Rack Lights",   "coat rack lights")]
+    #[case("Office Bulb", "office bulb")]
+    #[case("Coat-Rack Lights", "coat rack lights")]
     #[case("  MULTIPLE   SPACES  ", "multiple spaces")]
-    #[case("123Abc!@#",          "123abc")]
-    #[case("",                   "")]
+    #[case("123Abc!@#", "123abc")]
+    #[case("", "")]
     fn normalize_cases(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(normalize(input), expected);
     }
@@ -188,13 +211,19 @@ mod tests {
     fn save_and_load_preserves_kasa_and_klap_entries() {
         let (_dir, path) = temp_hosts();
         let mut map = BTreeMap::new();
-        map.insert("floor lamp".to_string(), entry("192.168.1.10", Protocol::Kasa));
-        map.insert("tapo plug".to_string(),  entry("192.168.7.254", Protocol::Klap));
+        map.insert(
+            "floor lamp".to_string(),
+            entry("192.168.1.10", Protocol::Kasa),
+        );
+        map.insert(
+            "tapo plug".to_string(),
+            entry("192.168.7.254", Protocol::Klap),
+        );
         save_map(&path, &map).unwrap();
 
         let loaded = load_map(&path).unwrap();
         assert_eq!(loaded["floor lamp"].protocol, Protocol::Kasa);
-        assert_eq!(loaded["tapo plug"].protocol,  Protocol::Klap);
+        assert_eq!(loaded["tapo plug"].protocol, Protocol::Klap);
         assert_eq!(loaded["tapo plug"].ip, "192.168.7.254");
     }
 
@@ -230,13 +259,16 @@ mod tests {
     fn substring_match_is_unambiguous_when_only_one_entry_matches() {
         let (_dir, path) = temp_hosts();
         let mut map = BTreeMap::new();
-        map.insert("floor lamp".to_string(),  entry("10.0.0.1", Protocol::Kasa));
+        map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
         map.insert("ceiling fan".to_string(), entry("10.0.0.2", Protocol::Kasa));
         save_map(&path, &map).unwrap();
 
         let loaded = load_map(&path).unwrap();
         let needle = normalize("floor");
-        let hits: Vec<_> = loaded.keys().filter(|k| normalize(k).contains(&needle)).collect();
+        let hits: Vec<_> = loaded
+            .keys()
+            .filter(|k| normalize(k).contains(&needle))
+            .collect();
         assert_eq!(hits.len(), 1);
     }
 
@@ -245,12 +277,15 @@ mod tests {
         let (_dir, path) = temp_hosts();
         let mut map = BTreeMap::new();
         map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
-        map.insert("desk lamp".to_string(),  entry("10.0.0.2", Protocol::Kasa));
+        map.insert("desk lamp".to_string(), entry("10.0.0.2", Protocol::Kasa));
         save_map(&path, &map).unwrap();
 
         let loaded = load_map(&path).unwrap();
         let needle = normalize("lamp");
-        let hits: Vec<_> = loaded.keys().filter(|k| normalize(k).contains(&needle)).collect();
+        let hits: Vec<_> = loaded
+            .keys()
+            .filter(|k| normalize(k).contains(&needle))
+            .collect();
         // Both match "lamp" — lookup should return None in this case
         assert_eq!(hits.len(), 2);
     }

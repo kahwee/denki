@@ -22,11 +22,11 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case(0,    "0s")]
-    #[case(1,    "1s")]
-    #[case(59,   "59s")]
-    #[case(60,   "1m 0s")]
-    #[case(90,   "1m 30s")]
+    #[case(0, "0s")]
+    #[case(1, "1s")]
+    #[case(59, "59s")]
+    #[case(60, "1m 0s")]
+    #[case(90, "1m 30s")]
     #[case(3599, "59m 59s")]
     #[case(3600, "1h 0m")]
     #[case(3661, "1h 1m")]

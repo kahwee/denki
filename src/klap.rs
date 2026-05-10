@@ -211,15 +211,13 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
     }
 
     // ── Key derivation ────────────────────────────────────────────────────────
-    let key: [u8; 16] = sha256_multi(&[b"lsk", &local_seed, &remote_seed, &ah])[..16]
-        .try_into()?;
+    let key: [u8; 16] = sha256_multi(&[b"lsk", &local_seed, &remote_seed, &ah])[..16].try_into()?;
 
     let iv_full = sha256_multi(&[b"iv", &local_seed, &remote_seed, &ah]);
     let iv_base: [u8; 12] = iv_full[..12].try_into()?;
     let seq = i32::from_be_bytes(iv_full[28..32].try_into()?);
 
-    let sig: [u8; 28] = sha256_multi(&[b"ldk", &local_seed, &remote_seed, &ah])[..28]
-        .try_into()?;
+    let sig: [u8; 28] = sha256_multi(&[b"ldk", &local_seed, &remote_seed, &ah])[..28].try_into()?;
 
     Ok(KlapSession {
         key,

@@ -9,11 +9,19 @@ use std::net::IpAddr;
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 fn on_state(is_on: bool) -> ColoredString {
-    if is_on { "on".green().bold() } else { "off".dimmed() }
+    if is_on {
+        "on".green().bold()
+    } else {
+        "off".dimmed()
+    }
 }
 
 fn on_state_detail(is_on: bool) -> ColoredString {
-    if is_on { "ON".green().bold() } else { "OFF".red() }
+    if is_on {
+        "ON".green().bold()
+    } else {
+        "OFF".red()
+    }
 }
 
 fn header(name: &str) -> ColoredString {
@@ -66,7 +74,11 @@ fn hsv_to_rgb(h: u16, s: u8, v: u8) -> (u8, u8, u8) {
 /// Print the color/warmth line for a light state.
 fn print_light_color(ls: &LightState, indent: &str) {
     if ls.color_temp() > 0 {
-        println!("{indent}Brightness: {}%  Warmth: {}K", ls.brightness(), ls.color_temp());
+        println!(
+            "{indent}Brightness: {}%  Warmth: {}K",
+            ls.brightness(),
+            ls.color_temp()
+        );
     } else {
         let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
         let swatch = "██".truecolor(r, g, b);
@@ -99,7 +111,11 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
     );
     print_light_color(&bulb.light_state, "   ");
     let a = &bulb.alias;
-    let action = if bulb.light_state.is_on() { "off" } else { "on" };
+    let action = if bulb.light_state.is_on() {
+        "off"
+    } else {
+        "on"
+    };
     let color_hint = if bulb.is_color == 1 {
         format!("  ·  denki color-temp \"{a}\" 2700  ·  denki dim \"{a}\" 80")
     } else if bulb.is_dimmable == 1 {
@@ -107,29 +123,48 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
     } else {
         String::new()
     };
-    println!("   {}", format!("→ denki {action} \"{a}\"{color_hint}").dimmed());
+    println!(
+        "   {}",
+        format!("→ denki {action} \"{a}\"{color_hint}").dimmed()
+    );
     println!();
 }
 
 pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
     println!("{}", header(&bulb.alias));
     println!("  Host:       {ip}");
-    println!("  State:      {}", on_state_detail(bulb.light_state.is_on()));
+    println!(
+        "  State:      {}",
+        on_state_detail(bulb.light_state.is_on())
+    );
     println!("  Model:      {}", bulb.model);
     println!("  Hardware:   {}", bulb.hw_ver);
     println!("  Firmware:   {}", bulb.sw_ver);
-    println!("  Signal:     {} dBm  {}", bulb.rssi, signal_label(bulb.rssi));
+    println!(
+        "  Signal:     {} dBm  {}",
+        bulb.rssi,
+        signal_label(bulb.rssi)
+    );
     let ls = &bulb.light_state;
     println!("  Brightness: {}%", ls.brightness());
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
         let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
-        println!("  Color:      {} {}° hue  {} sat", "██".truecolor(r, g, b), ls.hue(), ls.saturation());
+        println!(
+            "  Color:      {} {}° hue  {} sat",
+            "██".truecolor(r, g, b),
+            ls.hue(),
+            ls.saturation()
+        );
     }
     println!("  Features:   {}", caps_label(bulb));
     let a = &bulb.alias;
-    let action = if bulb.light_state.is_on() { "off" } else { "on" };
+    let action = if bulb.light_state.is_on() {
+        "off"
+    } else {
+        "on"
+    };
     let mut hints = vec![
         format!("denki {action} \"{a}\""),
         format!("denki dim \"{a}\" 80"),
@@ -219,7 +254,12 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
         signal_summary(plug.rssi),
         energy_tag,
     );
-    println!("   {} HW:{}  FW:{}", plug.model, plug.hw_ver, short_fw(&plug.sw_ver));
+    println!(
+        "   {} HW:{}  FW:{}",
+        plug.model,
+        plug.hw_ver,
+        short_fw(&plug.sw_ver)
+    );
     if plug.is_on() {
         println!("   On for: {}", plug.on_time_fmt());
     }
@@ -230,7 +270,10 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
     } else {
         String::new()
     };
-    println!("   {}", format!("→ denki {action} \"{a}\"{energy_hint}").dimmed());
+    println!(
+        "   {}",
+        format!("→ denki {action} \"{a}\"{energy_hint}").dimmed()
+    );
     println!();
 }
 
@@ -242,7 +285,10 @@ pub fn print_plug_detail(ip: &str, plug: &Plug) {
     println!("  Hardware: {}", plug.hw_ver);
     println!("  Firmware: {}", plug.sw_ver);
     println!("  Signal:   {} dBm  {}", plug.rssi, signal_label(plug.rssi));
-    println!("  LED:      {}", if plug.led_off == 1 { "off" } else { "on" });
+    println!(
+        "  LED:      {}",
+        if plug.led_off == 1 { "off" } else { "on" }
+    );
     if plug.is_on() {
         println!("  On for:   {}", plug.on_time_fmt());
     }
@@ -273,21 +319,37 @@ pub fn print_schedules(json: &serde_json::Value) {
         println!("{}", "Schedules:".bold());
         for r in rules {
             let enabled = r.get("enable").and_then(|v| v.as_u64()).unwrap_or(0) == 1;
-            let name = r.get("name").and_then(|v| v.as_str()).unwrap_or("(unnamed)");
+            let name = r
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("(unnamed)");
             let smin = r.get("smin").and_then(|v| v.as_u64()).unwrap_or(0);
             let sact = r.get("sact").and_then(|v| v.as_i64()).unwrap_or(1);
             let action = if sact == 1 { "on".green() } else { "off".red() };
             let time = format!("{:02}:{:02}", smin / 60, smin % 60);
             let days = format_wday(r.get("wday").and_then(|v| v.as_array()));
-            let status = if enabled { "".normal() } else { " (disabled)".dimmed() };
-            println!("  {} at {}  {}  {}{}", action, time, days, name.bold(), status);
+            let status = if enabled {
+                "".normal()
+            } else {
+                " (disabled)".dimmed()
+            };
+            println!(
+                "  {} at {}  {}  {}{}",
+                action,
+                time,
+                days,
+                name.bold(),
+                status
+            );
         }
     }
 }
 
 fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
     const LABELS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    let Some(days) = wday else { return "every day".to_string() };
+    let Some(days) = wday else {
+        return "every day".to_string();
+    };
     let active: Vec<&str> = days
         .iter()
         .enumerate()
@@ -440,7 +502,12 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
         on_state(bulb.light_state.is_on()),
         signal_summary(bulb.rssi),
     );
-    println!("   {} HW:{}  FW:{}", bulb.model, bulb.hw_ver, short_fw(&bulb.sw_ver));
+    println!(
+        "   {} HW:{}  FW:{}",
+        bulb.model,
+        bulb.hw_ver,
+        short_fw(&bulb.sw_ver)
+    );
     print_light_color(&bulb.light_state, "   ");
     let a = &bulb.alias;
     println!("   {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  power/color control not yet implemented for KL430").dimmed());
@@ -450,21 +517,39 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
 pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
     println!("{} {}", header(&bulb.alias), "[light strip]".dimmed());
     println!("  Host:       {ip}");
-    println!("  State:      {}", on_state_detail(bulb.light_state.is_on()));
+    println!(
+        "  State:      {}",
+        on_state_detail(bulb.light_state.is_on())
+    );
     println!("  Model:      {}", bulb.model);
     println!("  Hardware:   {}", bulb.hw_ver);
     println!("  Firmware:   {}", bulb.sw_ver);
-    println!("  Signal:     {} dBm  {}", bulb.rssi, signal_label(bulb.rssi));
+    println!(
+        "  Signal:     {} dBm  {}",
+        bulb.rssi,
+        signal_label(bulb.rssi)
+    );
     let ls = &bulb.light_state;
     println!("  Brightness: {}%", ls.brightness());
     if ls.color_temp() > 0 {
         println!("  Warmth:     {}K", ls.color_temp());
     } else {
         let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
-        println!("  Color:      {} {}° hue  {} sat", "██".truecolor(r, g, b), ls.hue(), ls.saturation());
+        println!(
+            "  Color:      {} {}° hue  {} sat",
+            "██".truecolor(r, g, b),
+            ls.hue(),
+            ls.saturation()
+        );
     }
-    println!("  {}", "→ power and color control not yet implemented for KL430".dimmed());
-    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
+    println!(
+        "  {}",
+        "→ power and color control not yet implemented for KL430".dimmed()
+    );
+    println!(
+        "  {}",
+        "NOTE: unverified — not tested on live hardware".yellow()
+    );
 }
 
 // ── Dimmer display ────────────────────────────────────────────────────────────
@@ -478,7 +563,13 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
         on_state(d.is_on()),
         signal_summary(d.rssi),
     );
-    println!("   {} HW:{}  FW:{}  {}%", d.model, d.hw_ver, short_fw(&d.sw_ver), d.brightness);
+    println!(
+        "   {} HW:{}  FW:{}  {}%",
+        d.model,
+        d.hw_ver,
+        short_fw(&d.sw_ver),
+        d.brightness
+    );
     let a = &d.alias;
     let action = if d.is_on() { "off" } else { "on" };
     println!(
@@ -506,7 +597,10 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
         )
         .dimmed()
     );
-    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
+    println!(
+        "  {}",
+        "NOTE: unverified — not tested on live hardware".yellow()
+    );
 }
 
 // ── Strip display ─────────────────────────────────────────────────────────────
@@ -564,18 +658,28 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
         hints.push(format!("denki outlet-energy-daily \"{a}\" 1"));
     }
     println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
-    println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
+    println!(
+        "  {}",
+        "NOTE: unverified — not tested on live hardware".yellow()
+    );
 }
 
 pub fn print_strip_outlets(s: &Strip) {
     for (i, child) in s.children.iter().enumerate() {
         let n = i + 1;
         let on_time = if child.is_on() && child.on_time > 0 {
-            format!("  (on for {})", child.on_time_fmt()).dimmed().to_string()
+            format!("  (on for {})", child.on_time_fmt())
+                .dimmed()
+                .to_string()
         } else {
             String::new()
         };
-        println!("  Outlet {n}: {}  {}{}", on_state(child.is_on()), child.alias, on_time);
+        println!(
+            "  Outlet {n}: {}  {}{}",
+            on_state(child.is_on()),
+            child.alias,
+            on_time
+        );
     }
 }
 
@@ -624,7 +728,11 @@ pub fn print_tapo_detail(ip: &str, d: &TapoDevice) {
     println!("  Model:     {}", d.model);
     println!("  Hardware:  {}", d.hw_ver);
     println!("  Firmware:  {}", d.fw_ver);
-    println!("  Signal:    {} dBm  {}", d.rssi, tapo_signal_label(d.signal_level));
+    println!(
+        "  Signal:    {} dBm  {}",
+        d.rssi,
+        tapo_signal_label(d.signal_level)
+    );
     if d.is_on() && d.on_time > 0 {
         println!("  On for:    {}", crate::fmt::duration(d.on_time));
     }
@@ -665,14 +773,14 @@ mod tests {
     // ── hsv_to_rgb ────────────────────────────────────────────────────────────
 
     #[rstest]
-    #[case(  0, 100, 100, (255,   0,   0))]  // red
-    #[case( 60, 100, 100, (255, 255,   0))]  // yellow
-    #[case(120, 100, 100, (  0, 255,   0))]  // green
-    #[case(180, 100, 100, (  0, 255, 255))]  // cyan
-    #[case(240, 100, 100, (  0,   0, 255))]  // blue
-    #[case(300, 100, 100, (255,   0, 255))]  // magenta
-    #[case(  0,   0, 100, (255, 255, 255))]  // white (sat=0)
-    #[case(  0,   0,   0, (  0,   0,   0))]  // black (val=0)
+    #[case(  0, 100, 100, (255,   0,   0))] // red
+    #[case( 60, 100, 100, (255, 255,   0))] // yellow
+    #[case(120, 100, 100, (  0, 255,   0))] // green
+    #[case(180, 100, 100, (  0, 255, 255))] // cyan
+    #[case(240, 100, 100, (  0,   0, 255))] // blue
+    #[case(300, 100, 100, (255,   0, 255))] // magenta
+    #[case(  0,   0, 100, (255, 255, 255))] // white (sat=0)
+    #[case(  0,   0,   0, (  0,   0,   0))] // black (val=0)
     fn hsv_to_rgb_primary_colors(
         #[case] h: u16,
         #[case] s: u8,
@@ -691,4 +799,3 @@ mod tests {
         assert!(b > g, "expected blue > green for purple: ({r},{g},{b})");
     }
 }
-

@@ -51,10 +51,14 @@ async fn bulb_set_power(host: &str, on: bool) -> Result<()> {
 
 /// Turn the bulb on. Uses transition_period: 0 for instant change.
 /// The lightingservice namespace is KL135-specific — do not use on plugs.
-pub async fn bulb_on(host: &str) -> Result<()> { bulb_set_power(host, true).await }
+pub async fn bulb_on(host: &str) -> Result<()> {
+    bulb_set_power(host, true).await
+}
 
 /// Turn the bulb off.
-pub async fn bulb_off(host: &str) -> Result<()> { bulb_set_power(host, false).await }
+pub async fn bulb_off(host: &str) -> Result<()> {
+    bulb_set_power(host, false).await
+}
 
 // ── Bulb (KL135) — light settings ────────────────────────────────────────────
 
@@ -396,7 +400,9 @@ pub async fn restart(host: &str) -> Result<()> {
 /// Method: get_device_info (no params needed)
 pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
     session
-        .send(&serde_json::to_string(&json!({"method": "get_device_info", "params": {}}))?)
+        .send(&serde_json::to_string(
+            &json!({"method": "get_device_info", "params": {}}),
+        )?)
         .await
 }
 

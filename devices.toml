@@ -1,0 +1,106 @@
+# devices.toml — source of truth for device capabilities
+#
+# Each entry maps a real device model to a DeviceKind and the set of
+# features denki supports on that kind.
+#
+# Tests in src/main.rs parse this file and verify that:
+#   1. Every feature listed here is permitted by the corresponding can_* guard.
+#   2. Every guarded feature NOT listed here is denied by the guard.
+#
+# When you add or change a guard in main.rs, update this file to match.
+# When you add a new device model, add an entry here.
+#
+# Guarded features (each maps to a can_* function in main.rs):
+#   power      — can_control_power(kind)
+#   dim        — can_dim(kind)
+#   color_temp — can_set_color_temp(kind)
+#   color      — can_set_color(kind)
+#   specs      — can_get_specs(kind)
+#   presets    — can_get_presets(kind)
+#   schedules  — can_get_schedules(kind)
+#   led        — can_control_led(kind)
+#   clock      — can_get_clock(kind)
+#
+# Informational features (not guarded by a can_* function):
+#   energy     — available on Bulb always; Plug only when ENE flag is set
+#   outlets    — Strip kind only
+
+# ── Bulbs ─────────────────────────────────────────────────────────────────────
+
+[[device]]
+model    = "KL135"
+kind     = "Bulb"
+verified = true
+supports = ["power", "dim", "color_temp", "color", "energy", "specs", "presets"]
+# schedules / led / clock not present on KL135
+
+[[device]]
+model    = "LB130"
+kind     = "Bulb"
+verified = false
+supports = ["power", "dim", "color_temp", "color", "energy", "specs", "presets"]
+# older generation; same guard profile as KL135
+
+# ── Light strips ──────────────────────────────────────────────────────────────
+
+[[device]]
+model    = "KL430"
+kind     = "LightStrip"
+verified = false
+supports = ["energy"]
+# power / dim / color_temp / color not yet wired up in denki
+# (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)
+
+# ── Dimmers ───────────────────────────────────────────────────────────────────
+
+[[device]]
+model    = "HS220"
+kind     = "Dimmer"
+verified = false
+supports = ["power", "dim", "schedules", "led", "clock"]
+
+# ── Plugs ─────────────────────────────────────────────────────────────────────
+
+[[device]]
+model    = "KP115"
+kind     = "Plug"
+verified = true
+supports = ["power", "energy", "schedules", "led", "clock"]
+
+[[device]]
+model    = "HS110"
+kind     = "Plug"
+verified = true
+supports = ["power", "energy", "schedules", "led", "clock"]
+
+[[device]]
+model    = "HS105"
+kind     = "Plug"
+verified = true
+supports = ["power", "schedules", "led", "clock"]
+# no energy chip — feature string is "TIM", not "TIM:ENE"
+
+# ── Power strips ──────────────────────────────────────────────────────────────
+
+[[device]]
+model    = "HS300"
+kind     = "Strip"
+verified = false
+supports = ["power", "energy", "schedules", "led", "clock", "outlets"]
+
+[[device]]
+model    = "KP303"
+kind     = "Strip"
+verified = false
+supports = ["power", "schedules", "led", "clock", "outlets"]
+# KP303 typically lacks energy monitoring (feature string is "TIM", not "TIM:ENE")
+
+# ── Tapo devices (KLAP protocol) ──────────────────────────────────────────────
+
+[[device]]
+model    = "P125"
+kind     = "Tapo"
+protocol = "klap"
+verified = true
+supports = ["power"]
+# Tapo devices use the KLAP protocol; guards are protocol-level, not kind-level
