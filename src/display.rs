@@ -363,9 +363,9 @@ fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
 
 pub fn print_energy_realtime(json: &serde_json::Value) {
     // Three possible response paths depending on device generation:
-    //   KP115 (newer plug):  /emeter/get_realtime           — milli-units (mv, ma, mw, wh)
-    //   HS110 (older plug):  /emeter/get_realtime           — real units (V, A, W, kWh)
-    //   KL135 (bulb):        /smartlife.iot.common.emeter/get_realtime — milli-units, no V/A
+    //   KL135 (bulb):        /smartlife.iot.common.emeter/get_realtime — milli-units (power_mw, total_wh)
+    //   KP115 (newer plug):  /emeter/get_realtime                      — milli-units (mv, ma, mw, wh)
+    //   HS110 (older plug):  /emeter/get_realtime                      — real units (V, A, W, kWh)
     let data = json
         .pointer("/emeter/get_realtime")
         .or_else(|| json.pointer("/smartlife.iot.common.emeter/get_realtime"));

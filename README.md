@@ -29,7 +29,7 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 - **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
 - **HS300 / KP303 / KP400 power strips** — info, outlet listing, per-outlet power control, per-outlet energy, outlet rename, LED, schedules, and clock for ENE-capable models
 
-> **Energy note:** KP115 reports milli-units (`voltage_mv`, `current_ma`, `power_mw`), while HS110 reports real units (`voltage`, `current`, `power`). Both use the same `energy` command.
+> **Energy note:** KL135 reports `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`). All use the same `energy` command.
 
 Devices listed above have been tested on real hardware.
 

@@ -1,4 +1,4 @@
-//! Sysinfo types for TP-Link KL135 smart bulbs (mic_type: IOT.SMARTBULB).
+//! Sysinfo types for TP-Link KL135 smart bulbs and KL430 light strips (mic_type: IOT.SMARTBULB).
 //!
 //! The KL135 comes in two hardware revisions with different capabilities:
 //!
