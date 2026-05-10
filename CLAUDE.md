@@ -20,6 +20,7 @@ cargo clippy -- -D warnings
 - `src/transport.rs` — Kasa TCP/UDP transport
 - `src/klap.rs` — Tapo KLAP handshake/session logic
 - `src/hosts.rs` — alias storage and lookup
+- `src/fmt.rs` — shared formatting helpers
 - `src/display.rs` — terminal formatting
 - `src/*` device modules — parsing and per-device helpers
 
@@ -38,7 +39,7 @@ The CLI surface is:
 - `dim`, `warmth`, `color`
 - `energy`, `energy-daily`, `energy-monthly`
 - `specs`, `presets`, `schedules`, `led`, `clock`
-- `outlets`, `outlet`, `rename`, `restart`
+- `outlets`, `outlet`, `outlet-energy`, `outlet-energy-daily`, `outlet-energy-monthly`, `outlet-rename`, `rename`, `restart`
 - `alias`, `unalias`, `aliases`, `login`
 
 ## Docs to update together

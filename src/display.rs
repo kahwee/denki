@@ -129,7 +129,7 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
     }
     println!("  Features:   {}", caps_label(bulb));
     let a = &bulb.alias;
-    println!("  {}", format!("→ denki energy \"{a}\"  ·  denki specs \"{a}\"  ·  denki presets \"{a}\"").dimmed());
+    println!("  {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  denki specs \"{a}\"  ·  denki presets \"{a}\"").dimmed());
 }
 
 pub fn print_bulb_specs(json: &serde_json::Value) {
@@ -234,7 +234,7 @@ pub fn print_plug_detail(ip: &str, plug: &Plug) {
     }
     let a = &plug.alias;
     if plug.has_energy_monitoring() {
-        println!("  {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki schedules \"{a}\"").dimmed());
+        println!("  {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  denki schedules \"{a}\"").dimmed());
     }
 }
 
@@ -419,7 +419,8 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
     );
     println!("   {} HW:{}  FW:{}", bulb.model, bulb.hw_ver, short_fw(&bulb.sw_ver));
     print_light_color(&bulb.light_state, "   ");
-    println!("   {}", "→ power/color control not yet implemented for KL430".dimmed());
+    let a = &bulb.alias;
+    println!("   {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  power/color control not yet implemented for KL430").dimmed());
     println!();
 }
 
@@ -496,13 +497,13 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
     let a = &s.alias;
     let energy_hint = if s.has_energy_monitoring() {
-        format!("  ·  denki outlet-energy \"{a}\" 1")
+        format!("  ·  denki outlet-energy \"{a}\" 1  ·  denki outlet-energy-daily \"{a}\" 1  ·  denki outlet-energy-monthly \"{a}\" 1")
     } else {
         String::new()
     };
     println!(
         "   {}",
-        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off{energy_hint}").dimmed()
+        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off  ·  denki outlet-rename \"{a}\" 1 <name>{energy_hint}").dimmed()
     );
     println!();
 }

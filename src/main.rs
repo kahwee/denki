@@ -102,7 +102,7 @@ enum Command {
         month: Option<String>,
     },
 
-    /// Show monthly energy usage for a year (plugs, bulbs, and ENE-capable strips)
+    /// Show monthly energy usage for a year (bulbs, light strips, and energy-monitoring plugs)
     EnergyMonthly {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -124,14 +124,14 @@ enum Command {
         host: String,
     },
 
-    /// Show scheduled rules (plugs, dimmers, and strips)
+    /// Show scheduled rules (plugs, dimmers, and power strips)
     Schedules {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
-    /// Control the status LED indicator (plugs, dimmers, and strips)
+    /// Control the LED indicator (plugs, dimmers, and power strips)
     Led {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -140,7 +140,7 @@ enum Command {
         state: LedAction,
     },
 
-    /// Show device clock
+    /// Show device clock (plugs, dimmers, and power strips)
     Clock {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]

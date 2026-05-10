@@ -19,15 +19,15 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 
 - **KL135 smart bulbs** — power, dimming, color temperature, HSV color, energy, specs, presets
 - **KP115 smart plugs** — power, energy, schedules, clock, LED
-- **HS110 smart plugs** — power and energy
+- **HS110 smart plugs** — power, energy, schedules, clock, LED
 - **HS105 smart plugs** — power, schedules, clock, LED; no energy chip
 - **P125 / P125M Tapo plugs** — experimental info and power through a saved `--klap` alias
 
 ### Partial support
 
-- **KL430 light strips** — scan/info only for now
-- **HS220 dimmers** — info, power, dimming, schedules, and clock
-- **HS300 / KP303 / KP400 power strips** — info, outlet listing, per-outlet control, and outlet energy for ENE-capable models
+- **KL430 light strips** — scan/info plus energy monitoring; power/color control not yet implemented
+- **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
+- **HS300 / KP303 / KP400 power strips** — info, outlet listing, per-outlet power control, per-outlet energy, outlet rename, LED, schedules, and clock for ENE-capable models
 
 > **Energy note:** KP115 reports milli-units (`voltage_mv`, `current_ma`, `power_mw`), while HS110 reports real units (`voltage`, `current`, `power`). Both use the same `energy` command.
 
@@ -120,6 +120,7 @@ This repo is a good fit for local-network device development because it has a na
 - `src/klap.rs` — Tapo handshake and encrypted session
 - `src/hosts.rs` — alias storage and lookup
 - `src/creds.rs` — Tapo credential loading/saving
+- `src/fmt.rs` — shared formatting helpers
 - `src/bulb.rs` — bulb-specific parsing
 - `src/plug.rs` — plug-specific parsing
 - `src/dimmer.rs` — HS220 dimmer parsing
