@@ -640,7 +640,11 @@ async fn main() -> Result<()> {
                             Some(p) => display::print_plug_detail(&r.ip, &p),
                             None => bail!("Could not parse plug sysinfo from {}", r.ip),
                         },
-                        DeviceKind::Unknown(t) => bail!("Unknown device type at {}: {t}", r.ip),
+                        DeviceKind::Unknown(t) => {
+                            eprintln!("{}", format!("Unsupported device type: {t}").yellow());
+                            eprintln!("Raw sysinfo from {}:", r.ip);
+                            println!("{}", serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string()));
+                        }
                     }
                 }
             }

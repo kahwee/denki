@@ -29,7 +29,6 @@ cargo build --release
 | `src/ops.rs` | All API calls — `bulb_set_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
 | `src/display.rs` | Colored terminal output for all device types |
 | `src/lib.rs` | Re-exports all modules as pub for library use |
-| `devices.toml` | Machine-readable device capability map — commands, verified hardware |
 
 ## Protocols
 

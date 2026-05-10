@@ -31,7 +31,7 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 
 > **Energy note:** KP115 reports milli-units (`voltage_mv`, `current_ma`, `power_mw`), while HS110 reports real units (`voltage`, `current`, `power`). Both use the same `energy` command.
 
-Devices marked `verified = true` in `devices.toml` have been tested on real hardware.
+Devices listed above have been tested on real hardware.
 
 ## Quick start
 
@@ -129,7 +129,6 @@ This repo is a good fit for local-network device development because it has a na
 - `src/ops.rs` — device operations
 - `src/display.rs` — terminal output formatting
 - `src/lib.rs` — library exports
-- `devices.toml` — machine-readable device capability map
 
 ### How to extend it
 
