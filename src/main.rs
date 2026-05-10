@@ -1318,39 +1318,17 @@ mod tests {
 // ── devices.toml capability tests ────────────────────────────────────────────
 //
 // devices.toml is the source of truth for what each device supports.
-// These tests verify the file is valid and that it matches the can_* guards:
+// These tests go through devices::all() — the same production path used at
+// runtime — and verify it matches the can_* guards in both directions:
 //
 //   1. Every feature listed in devices.toml must be permitted by the guard.
 //   2. Every guarded feature NOT listed must be denied by the guard.
-//
-// Both directions are tested so drift in either direction fails a test.
 
 #[cfg(test)]
 mod capability_tests {
     use super::*;
-    use serde::Deserialize;
+    use denki::devices;
 
-    const DEVICES_TOML: &str = include_str!("../devices.toml");
-
-    #[derive(Deserialize)]
-    struct DeviceEntry {
-        model: String,
-        kind: String,
-        #[serde(default)]
-        supports: Vec<String>,
-    }
-
-    #[derive(Deserialize)]
-    struct DevicesFile {
-        device: Vec<DeviceEntry>,
-    }
-
-    fn parse() -> DevicesFile {
-        toml::from_str(DEVICES_TOML).expect("devices.toml failed to parse")
-    }
-
-    /// Map the `kind` string in devices.toml to a DeviceKind.
-    /// Returns None for "Tapo" — those use protocol-level guards, not DeviceKind guards.
     fn kind_from_str(s: &str) -> Option<DeviceKind> {
         match s {
             "Bulb" => Some(DeviceKind::Bulb),
@@ -1358,13 +1336,11 @@ mod capability_tests {
             "Dimmer" => Some(DeviceKind::Dimmer),
             "Plug" => Some(DeviceKind::Plug),
             "Strip" => Some(DeviceKind::Strip),
-            "Tapo" => None,
+            "Tapo" => None, // protocol-level guards, not kind-based
             other => panic!("devices.toml: unknown kind '{other}' — add it to kind_from_str()"),
         }
     }
 
-    /// The set of features that have a corresponding can_* guard in main.rs.
-    /// These are the features we can test statically from devices.toml.
     const GUARDED: &[&str] = &[
         "power",
         "dim",
@@ -1377,9 +1353,6 @@ mod capability_tests {
         "clock",
     ];
 
-    /// Invoke the can_* guard for a feature name.
-    /// Returns Ok if permitted, Err if denied.
-    /// Panics on unknown feature names so devices.toml stays honest.
     fn check(kind: &DeviceKind, feature: &str) -> anyhow::Result<()> {
         match feature {
             "power" => can_control_power(kind),
@@ -1391,37 +1364,27 @@ mod capability_tests {
             "schedules" => can_get_schedules(kind),
             "led" => can_control_led(kind),
             "clock" => can_get_clock(kind),
-            // Informational — no static guard to call
-            "energy" | "outlets" => Ok(()),
+            "energy" | "outlets" => Ok(()), // runtime-checked, no static guard
             other => panic!(
-                "devices.toml: unknown feature '{other}' — add it to check() or to the comment \
-                 block explaining why it has no guard"
+                "devices.toml: unknown feature '{other}' — add it to check() or explain \
+                 why it has no guard"
             ),
         }
     }
 
     #[test]
-    fn devices_toml_parses() {
-        parse();
-    }
-
-    #[test]
     fn all_kinds_are_known() {
-        let file = parse();
-        for dev in &file.device {
-            // kind_from_str panics on unknown kinds — that's the assertion
-            let _ = kind_from_str(&dev.kind);
+        for dev in devices::all() {
+            let _ = kind_from_str(&dev.kind); // panics on unknown kind
         }
     }
 
-    /// Every (model, feature) pair in devices.toml must pass the guard.
-    /// Failure means devices.toml claims a capability the code doesn't allow.
+    /// Every (model, feature) in devices.toml must pass the corresponding guard.
     #[test]
     fn listed_features_are_permitted_by_guards() {
-        let file = parse();
-        for dev in &file.device {
+        for dev in devices::all() {
             let Some(kind) = kind_from_str(&dev.kind) else {
-                continue; // Tapo: protocol-level, skip
+                continue;
             };
             for feature in &dev.supports {
                 let result = check(&kind, feature);
@@ -1437,19 +1400,16 @@ mod capability_tests {
         }
     }
 
-    /// For every guarded feature NOT listed for a device, the guard must deny it.
-    /// Failure means the code allows something devices.toml doesn't document —
-    /// add the feature to the `supports` list or restrict the guard.
+    /// Every guarded feature NOT listed for a device must be denied by the guard.
     #[test]
     fn unlisted_guarded_features_are_denied() {
-        let file = parse();
-        for dev in &file.device {
+        for dev in devices::all() {
             let Some(kind) = kind_from_str(&dev.kind) else {
-                continue; // Tapo: protocol-level, skip
+                continue;
             };
             for &feature in GUARDED {
                 if dev.supports.iter().any(|f| f == feature) {
-                    continue; // listed as supported — tested by the other test
+                    continue;
                 }
                 let result = check(&kind, feature);
                 assert!(

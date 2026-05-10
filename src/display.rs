@@ -1,4 +1,5 @@
 use crate::bulb::{Bulb, LightState};
+use crate::devices;
 use crate::dimmer::Dimmer;
 use crate::plug::Plug;
 use crate::strip::Strip;
@@ -160,24 +161,13 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
     }
     println!("  Features:   {}", caps_label(bulb));
     let a = &bulb.alias;
-    let action = if bulb.light_state.is_on() {
-        "off"
-    } else {
-        "on"
-    };
-    let mut hints = vec![
-        format!("denki {action} \"{a}\""),
-        format!("denki dim \"{a}\" 80"),
-    ];
-    if bulb.is_color == 1 {
-        hints.push(format!("denki color-temp \"{a}\" 2700"));
-        hints.push(format!("denki color \"{a}\" --hue 120 --sat 80 --val 100"));
-    } else if bulb.is_variable_color_temp == 1 {
-        hints.push(format!("denki color-temp \"{a}\" 2700"));
-    }
-    hints.push(format!("denki energy \"{a}\""));
-    hints.push(format!("denki specs \"{a}\""));
-    hints.push(format!("denki presets \"{a}\""));
+    let is_on = bulb.light_state.is_on();
+    let hints = devices::lookup(&bulb.model)
+        .map(|e| devices::hints(e, a, is_on))
+        .unwrap_or_else(|| {
+            let action = if is_on { "off" } else { "on" };
+            vec![format!("denki {action} \"{a}\"")]
+        });
     println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
 }
 
@@ -293,17 +283,23 @@ pub fn print_plug_detail(ip: &str, plug: &Plug) {
         println!("  On for:   {}", plug.on_time_fmt());
     }
     let a = &plug.alias;
-    let action = if plug.is_on() { "off" } else { "on" };
-    let mut hints = vec![
-        format!("denki {action} \"{a}\""),
-        format!("denki schedules \"{a}\""),
-        format!("denki led \"{a}\" on|off"),
-        format!("denki clock \"{a}\""),
-    ];
-    if plug.has_energy_monitoring() {
-        hints.push(format!("denki energy \"{a}\""));
-        hints.push(format!("denki energy-daily \"{a}\""));
-    }
+    let is_on = plug.is_on();
+    // Use devices.toml for model-accurate hints (HS105 omits energy; KP115 includes it).
+    // Fall back to a minimal hint if the model isn't in the registry yet.
+    let hints = devices::lookup(&plug.model)
+        .map(|e| {
+            // Runtime ENE flag overrides the static devices.toml entry:
+            // if the sysinfo says no energy chip, drop the energy hint.
+            let mut h = devices::hints(e, a, is_on);
+            if !plug.has_energy_monitoring() {
+                h.retain(|s| !s.contains("energy"));
+            }
+            h
+        })
+        .unwrap_or_else(|| {
+            let action = if is_on { "off" } else { "on" };
+            vec![format!("denki {action} \"{a}\"")]
+        });
     println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
 }
 
@@ -589,14 +585,14 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
     println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
     println!("  Brightness: {}%", d.brightness);
     let a = &d.alias;
-    let action = if d.is_on() { "off" } else { "on" };
-    println!(
-        "  {}",
-        format!(
-            "→ denki {action} \"{a}\"  ·  denki dim \"{a}\" 80  ·  denki schedules \"{a}\"  ·  denki led \"{a}\" on|off  ·  denki clock \"{a}\""
-        )
-        .dimmed()
-    );
+    let is_on = d.is_on();
+    let hints = devices::lookup(&d.model)
+        .map(|e| devices::hints(e, a, is_on))
+        .unwrap_or_else(|| {
+            let action = if is_on { "off" } else { "on" };
+            vec![format!("denki {action} \"{a}\"")]
+        });
+    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
     println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()
@@ -646,16 +642,21 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
     println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
     let a = &s.alias;
-    let mut hints = vec![
-        format!("denki outlets \"{a}\""),
-        format!("denki outlet \"{a}\" 1 on|off|toggle"),
-        format!("denki outlet-rename \"{a}\" 1 \"Name\""),
-        format!("denki schedules \"{a}\""),
-        format!("denki clock \"{a}\""),
-    ];
+    // Start with model-derived hints from devices.toml, then append
+    // outlet-specific commands that aren't in the generic feature list.
+    let mut hints = devices::lookup(&s.model)
+        .map(|e| {
+            let mut h = devices::hints(e, a, s.children.iter().any(|c| c.is_on()));
+            if !s.has_energy_monitoring() {
+                h.retain(|s| !s.contains("energy"));
+            }
+            h
+        })
+        .unwrap_or_default();
+    hints.push(format!("denki outlet \"{a}\" 1 on|off|toggle"));
+    hints.push(format!("denki outlet-rename \"{a}\" 1 \"Name\""));
     if s.has_energy_monitoring() {
         hints.push(format!("denki outlet-energy \"{a}\" 1"));
-        hints.push(format!("denki outlet-energy-daily \"{a}\" 1"));
     }
     println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
     println!(

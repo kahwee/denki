@@ -23,6 +23,7 @@
 pub mod bulb;
 pub mod cipher;
 pub mod creds;
+pub mod devices;
 pub mod dimmer;
 pub mod fmt;
 pub mod hosts;
