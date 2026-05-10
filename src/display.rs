@@ -72,7 +72,7 @@ fn hsv_to_rgb(h: u16, s: u8, v: u8) -> (u8, u8, u8) {
     )
 }
 
-/// Print the color/warmth line for a light state.
+/// Print the color temperature or RGB color line for a light state.
 fn print_light_color(ls: &LightState, indent: &str) {
     if ls.color_temp() > 0 {
         println!(
