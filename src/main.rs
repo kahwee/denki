@@ -595,7 +595,7 @@ async fn main() -> Result<()> {
                         }
                     }
                     DeviceKind::Unknown(t) => {
-                        println!("{ip} - unknown device type: {t}");
+                        display::print_unknown_summary(ip, &json, &t);
                     }
                 }
             }).await?;

@@ -129,7 +129,21 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
     }
     println!("  Features:   {}", caps_label(bulb));
     let a = &bulb.alias;
-    println!("  {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  denki specs \"{a}\"  ·  denki presets \"{a}\"").dimmed());
+    let action = if bulb.light_state.is_on() { "off" } else { "on" };
+    let mut hints = vec![
+        format!("denki {action} \"{a}\""),
+        format!("denki dim \"{a}\" 80"),
+    ];
+    if bulb.is_color == 1 {
+        hints.push(format!("denki color-temp \"{a}\" 2700"));
+        hints.push(format!("denki color \"{a}\" --hue 120 --sat 80 --val 100"));
+    } else if bulb.is_variable_color_temp == 1 {
+        hints.push(format!("denki color-temp \"{a}\" 2700"));
+    }
+    hints.push(format!("denki energy \"{a}\""));
+    hints.push(format!("denki specs \"{a}\""));
+    hints.push(format!("denki presets \"{a}\""));
+    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
 }
 
 pub fn print_bulb_specs(json: &serde_json::Value) {
@@ -233,9 +247,18 @@ pub fn print_plug_detail(ip: &str, plug: &Plug) {
         println!("  On for:   {}", plug.on_time_fmt());
     }
     let a = &plug.alias;
+    let action = if plug.is_on() { "off" } else { "on" };
+    let mut hints = vec![
+        format!("denki {action} \"{a}\""),
+        format!("denki schedules \"{a}\""),
+        format!("denki led \"{a}\" on|off"),
+        format!("denki clock \"{a}\""),
+    ];
     if plug.has_energy_monitoring() {
-        println!("  {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  denki schedules \"{a}\"").dimmed());
+        hints.push(format!("denki energy \"{a}\""));
+        hints.push(format!("denki energy-daily \"{a}\""));
     }
+    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
 }
 
 pub fn print_schedules(json: &serde_json::Value) {
@@ -440,6 +463,7 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
         let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
         println!("  Color:      {} {}° hue  {} sat", "██".truecolor(r, g, b), ls.hue(), ls.saturation());
     }
+    println!("  {}", "→ power and color control not yet implemented for KL430".dimmed());
     println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
 
@@ -473,6 +497,15 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
     println!("  Firmware:   {}", d.sw_ver);
     println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
     println!("  Brightness: {}%", d.brightness);
+    let a = &d.alias;
+    let action = if d.is_on() { "off" } else { "on" };
+    println!(
+        "  {}",
+        format!(
+            "→ denki {action} \"{a}\"  ·  denki dim \"{a}\" 80  ·  denki schedules \"{a}\"  ·  denki led \"{a}\" on|off  ·  denki clock \"{a}\""
+        )
+        .dimmed()
+    );
     println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
 
@@ -518,6 +551,19 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
     println!("  Signal:   {} dBm  {}", s.rssi, signal_label(s.rssi));
     println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
+    let a = &s.alias;
+    let mut hints = vec![
+        format!("denki outlets \"{a}\""),
+        format!("denki outlet \"{a}\" 1 on|off|toggle"),
+        format!("denki outlet-rename \"{a}\" 1 \"Name\""),
+        format!("denki schedules \"{a}\""),
+        format!("denki clock \"{a}\""),
+    ];
+    if s.has_energy_monitoring() {
+        hints.push(format!("denki outlet-energy \"{a}\" 1"));
+        hints.push(format!("denki outlet-energy-daily \"{a}\" 1"));
+    }
+    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
     println!("  {}", "NOTE: unverified — not tested on live hardware".yellow());
 }
 
@@ -531,6 +577,27 @@ pub fn print_strip_outlets(s: &Strip) {
         };
         println!("  Outlet {n}: {}  {}{}", on_state(child.is_on()), child.alias, on_time);
     }
+}
+
+// ── Unknown device display ────────────────────────────────────────────────────
+
+pub fn print_unknown_summary(ip: IpAddr, json: &serde_json::Value, type_str: &str) {
+    let alias = json
+        .pointer("/system/get_sysinfo/alias")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(unnamed)");
+    let model = json
+        .pointer("/system/get_sysinfo/model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    println!(
+        "{} {} [{}]",
+        format!("== {alias} ==").bold(),
+        format!("[{ip}]").dimmed(),
+        type_str.dimmed(),
+    );
+    println!("   {} {}", model, "— unsupported device type".dimmed());
+    println!();
 }
 
 // ── Tapo device display ───────────────────────────────────────────────────────
@@ -564,6 +631,9 @@ pub fn print_tapo_detail(ip: &str, d: &TapoDevice) {
     if d.overheated {
         println!("  {}", "WARNING: device overheated".red().bold());
     }
+    let a = &d.nickname;
+    let action = if d.is_on() { "off" } else { "on" };
+    println!("  {}", format!("→ denki {action} \"{a}\"").dimmed());
 }
 
 fn tapo_signal_label(level: u8) -> colored::ColoredString {
