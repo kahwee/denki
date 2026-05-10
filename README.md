@@ -62,7 +62,7 @@ denki off "desk lamp"
 denki toggle "desk lamp"
 denki dim "desk lamp" 50
 denki warmth "desk lamp" 2700
-denki color "desk lamp" 275 50 80
+denki color "desk lamp" --hue 275 --sat 50 --val 80
 ```
 
 ### Energy and power strip commands

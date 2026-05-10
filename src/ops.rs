@@ -58,6 +58,10 @@ pub async fn bulb_off(host: &str) -> Result<()> { bulb_set_power(host, false).aw
 
 /// Toggle the bulb. Reads current state first, then flips it.
 /// Returns true if the bulb ended up on, false if it ended up off.
+///
+/// **Note:** this makes two round trips (sysinfo + set). The CLI avoids this
+/// by reusing an already-fetched sysinfo blob via `kasa_exec_power`. Prefer
+/// that pattern when you already have sysinfo in hand.
 pub async fn bulb_toggle(host: &str) -> Result<bool> {
     let info = sysinfo(host).await?;
     let on = info
@@ -76,7 +80,7 @@ pub async fn bulb_toggle(host: &str) -> Result<bool> {
 // ── Bulb (KL135) — light settings ────────────────────────────────────────────
 
 /// Set brightness 0–100. Does not change color or color temperature.
-pub async fn set_brightness(host: &str, level: u8) -> Result<()> {
+pub async fn bulb_set_brightness(host: &str, level: u8) -> Result<()> {
     transport::send(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
@@ -90,7 +94,7 @@ pub async fn set_brightness(host: &str, level: u8) -> Result<()> {
 /// Set color temperature in Kelvin (2500–9000).
 /// This puts the bulb into CCT mode. Setting hue/saturation to 0 is required
 /// to clear any previous color mode state on the device.
-pub async fn set_warmth(host: &str, kelvin: u16) -> Result<()> {
+pub async fn bulb_set_warmth(host: &str, kelvin: u16) -> Result<()> {
     transport::send(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
@@ -111,7 +115,7 @@ pub async fn set_warmth(host: &str, kelvin: u16) -> Result<()> {
 /// Setting saturation > 0 activates color mode and disables CCT mode.
 /// color_temp must be set to 0 explicitly, otherwise the device may
 /// ignore the hue/saturation values on some firmware versions.
-pub async fn set_color(host: &str, hue: u16, saturation: u8, value: u8) -> Result<()> {
+pub async fn bulb_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> Result<()> {
     transport::send(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
@@ -238,6 +242,10 @@ pub async fn plug_off(host: &str) -> Result<()> {
 
 /// Toggle the plug. Reads relay_state first, then flips it.
 /// Returns true if the relay ended up on, false if off.
+///
+/// **Note:** this makes two round trips (sysinfo + set). The CLI avoids this
+/// by reusing an already-fetched sysinfo blob via `kasa_exec_power`. Prefer
+/// that pattern when you already have sysinfo in hand.
 pub async fn plug_toggle(host: &str) -> Result<bool> {
     let info = sysinfo(host).await?;
     // relay_state is in sysinfo root, not inside a light_state sub-object

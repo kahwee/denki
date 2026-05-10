@@ -52,7 +52,7 @@ enum Command {
         host: String,
     },
 
-    /// Set brightness 0-100 (bulbs only)
+    /// Set brightness 0-100 (KL135 bulbs and HS220 dimmers)
     Dim {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -61,7 +61,7 @@ enum Command {
         level: u8,
     },
 
-    /// Set color temperature in Kelvin 2500-9000 (bulbs only)
+    /// Set color temperature in Kelvin 2500-9000 (KL135 bulbs only)
     Warmth {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -70,16 +70,19 @@ enum Command {
         kelvin: u16,
     },
 
-    /// Set color in HSV — hue 0-360, saturation 0-100, value 0-100 (bulbs only)
+    /// Set HSV color (KL135 bulbs only)
     Color {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
-        #[arg(value_parser = clap::value_parser!(u16).range(0..=360))]
+        /// Hue 0-360°
+        #[arg(long, short = 'H', value_parser = clap::value_parser!(u16).range(0..=360))]
         hue: u16,
-        #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
+        /// Saturation 0-100%
+        #[arg(long, short = 's', value_parser = clap::value_parser!(u8).range(0..=100))]
         saturation: u8,
-        #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
+        /// Value (brightness) 0-100%
+        #[arg(long, short = 'v', value_parser = clap::value_parser!(u8).range(0..=100))]
         value: u8,
     },
 
@@ -99,7 +102,7 @@ enum Command {
         month: Option<String>,
     },
 
-    /// Show monthly energy usage for a year (plugs only)
+    /// Show monthly energy usage for a year (plugs, bulbs, and ENE-capable strips)
     EnergyMonthly {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -121,14 +124,14 @@ enum Command {
         host: String,
     },
 
-    /// Show scheduled rules (plugs only)
+    /// Show scheduled rules (plugs, dimmers, and strips)
     Schedules {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
-    /// Control the plug's LED indicator (plugs only)
+    /// Control the status LED indicator (plugs, dimmers, and strips)
     Led {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -682,7 +685,7 @@ async fn main() -> Result<()> {
                     if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                         ops::bulb_on(&r.ip).await?;
                     }
-                    ops::set_brightness(&r.ip, level).await?;
+                    ops::bulb_set_brightness(&r.ip, level).await?;
                 }
                 DeviceKind::Dimmer => {
                     // Turn on first if currently off and a non-zero level was requested
@@ -703,7 +706,7 @@ async fn main() -> Result<()> {
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                 ops::bulb_on(&r.ip).await?;
             }
-            ops::set_warmth(&r.ip, kelvin).await?;
+            ops::bulb_set_warmth(&r.ip, kelvin).await?;
             println!("Color temperature -> {kelvin}K");
         }
 
@@ -719,7 +722,7 @@ async fn main() -> Result<()> {
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                 ops::bulb_on(&r.ip).await?;
             }
-            ops::set_color(&r.ip, hue, saturation, value).await?;
+            ops::bulb_set_color(&r.ip, hue, saturation, value).await?;
             println!("Color -> hue:{hue} sat:{saturation} val:{value}");
         }
 
