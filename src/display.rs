@@ -648,7 +648,10 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     };
     println!(
         "   {}",
-        format!("→ denki outlets \"{a}\"  ·  denki on \"{a}\" 1  ·  denki off \"{a}\" 1{energy_hint}").dimmed()
+        format!(
+            "→ denki outlets \"{a}\"  ·  denki on \"{a}\" 1  ·  denki off \"{a}\" 1{energy_hint}"
+        )
+        .dimmed()
     );
     println!();
 }

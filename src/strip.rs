@@ -159,16 +159,19 @@ mod tests {
     #[test]
     fn parse_hs300_hw2_outlet_states() {
         let s = parse(&hs300_hw2_sysinfo()).unwrap();
-        assert!(s.children[0].is_on(),  "Eero should be on");
+        assert!(s.children[0].is_on(), "Eero should be on");
         assert!(!s.children[1].is_on(), "Plug 2 should be off");
-        assert!(s.children[4].is_on(),  "Printer should be on");
-        assert!(s.children[5].is_on(),  "Ugreen NAS should be on");
+        assert!(s.children[4].is_on(), "Printer should be on");
+        assert!(s.children[5].is_on(), "Ugreen NAS should be on");
     }
 
     #[test]
     fn parse_hs300_hw2_energy_monitoring_detected() {
         let s = parse(&hs300_hw2_sysinfo()).unwrap();
-        assert!(s.has_energy_monitoring(), "HS300 with TIM:ENE should report energy monitoring");
+        assert!(
+            s.has_energy_monitoring(),
+            "HS300 with TIM:ENE should report energy monitoring"
+        );
     }
 
     #[test]
@@ -194,6 +197,9 @@ mod tests {
             }
         });
         let s = parse(&json).unwrap();
-        assert_eq!(s.children[0].id, full_id, "full ID must not be prefixed again");
+        assert_eq!(
+            s.children[0].id, full_id,
+            "full ID must not be prefixed again"
+        );
     }
 }

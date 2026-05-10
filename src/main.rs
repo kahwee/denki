@@ -303,19 +303,19 @@ async fn kasa_exec_power(
         // Determine target by inverting current state — avoids a second sysinfo round trip.
         // Strip: relay_state is absent on HS300 HW 2.0; derive from child outlet states instead.
         match kind {
-            DeviceKind::Bulb => json
-                .pointer("/system/get_sysinfo/light_state/on_off")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                == 0,
-            DeviceKind::Strip => {
-                !strip::parse(json).map(|s| s.is_any_on()).unwrap_or(false)
+            DeviceKind::Bulb => {
+                json.pointer("/system/get_sysinfo/light_state/on_off")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+                    == 0
             }
-            _ => json
-                .pointer("/system/get_sysinfo/relay_state")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                == 0,
+            DeviceKind::Strip => !strip::parse(json).map(|s| s.is_any_on()).unwrap_or(false),
+            _ => {
+                json.pointer("/system/get_sysinfo/relay_state")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+                    == 0
+            }
         }
     });
     if matches!(kind, DeviceKind::Bulb) {
@@ -440,8 +440,8 @@ fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
         DeviceKind::Plug => {
-            let p = plug::parse(json)
-                .ok_or_else(|| anyhow::anyhow!("could not parse plug sysinfo"))?;
+            let p =
+                plug::parse(json).ok_or_else(|| anyhow::anyhow!("could not parse plug sysinfo"))?;
             if !p.has_energy_monitoring() {
                 anyhow::bail!(
                     "{} ({}) does not have energy monitoring (feature: {:?})",
@@ -657,11 +657,17 @@ async fn main() -> Result<()> {
                     bail!("outlet control requires Kasa protocol; save the alias without --klap");
                 }
                 let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let s = strip::parse(&json).ok_or_else(|| {
+                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
+                })?;
                 let child = resolve_outlet(&s, outlet_num)?;
                 ops::strip_outlet_on(&r.ip, &child.id).await?;
-                println!("Outlet {} ({}) {}", outlet_num, child.alias, "on".green().bold());
+                println!(
+                    "Outlet {} ({}) {}",
+                    outlet_num,
+                    child.alias,
+                    "on".green().bold()
+                );
             } else {
                 match r.protocol {
                     hosts::Protocol::Klap => {
@@ -684,8 +690,9 @@ async fn main() -> Result<()> {
                     bail!("outlet control requires Kasa protocol; save the alias without --klap");
                 }
                 let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let s = strip::parse(&json).ok_or_else(|| {
+                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
+                })?;
                 let child = resolve_outlet(&s, outlet_num)?;
                 ops::strip_outlet_off(&r.ip, &child.id).await?;
                 println!("Outlet {} ({}) {}", outlet_num, child.alias, "off".dimmed());
@@ -711,8 +718,9 @@ async fn main() -> Result<()> {
                     bail!("outlet control requires Kasa protocol; save the alias without --klap");
                 }
                 let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let s = strip::parse(&json).ok_or_else(|| {
+                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
+                })?;
                 let child = resolve_outlet(&s, outlet_num)?;
                 let now_on = if child.is_on() {
                     ops::strip_outlet_off(&r.ip, &child.id).await?;
@@ -721,7 +729,11 @@ async fn main() -> Result<()> {
                     ops::strip_outlet_on(&r.ip, &child.id).await?;
                     true
                 };
-                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                let label = if now_on {
+                    "on".green().bold()
+                } else {
+                    "off".dimmed()
+                };
                 println!("Outlet {} ({}) -> {label}", outlet_num, child.alias);
             } else {
                 let now_on = match r.protocol {
@@ -734,7 +746,11 @@ async fn main() -> Result<()> {
                         kasa_exec_power(&r.ip, &detect_kind(&json), &json, None).await?
                     }
                 };
-                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                let label = if now_on {
+                    "on".green().bold()
+                } else {
+                    "off".dimmed()
+                };
                 println!("{} -> {label}", r.ip);
             }
         }
@@ -796,8 +812,9 @@ async fn main() -> Result<()> {
             let json = ops::sysinfo(&r.ip).await?;
             let kind = detect_kind(&json);
             if let Some(outlet_num) = outlet {
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let s = strip::parse(&json).ok_or_else(|| {
+                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
+                })?;
                 if !s.has_energy_monitoring() {
                     bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
                 }
@@ -815,7 +832,11 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::EnergyDaily { host, month, outlet } => {
+        Command::EnergyDaily {
+            host,
+            month,
+            outlet,
+        } => {
             let host = resolve(&host).await?.ip;
             let month_str = match month {
                 Some(m) => m,
@@ -864,8 +885,9 @@ async fn main() -> Result<()> {
             let json = ops::sysinfo(&r.ip).await?;
             let kind = detect_kind(&json);
             if let Some(outlet_num) = outlet {
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let s = strip::parse(&json).ok_or_else(|| {
+                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
+                })?;
                 if !s.has_energy_monitoring() {
                     bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
                 }
@@ -1328,9 +1350,15 @@ mod tests {
         assert_eq!(s.relay_state, 0, "relay_state absent → deserialized as 0");
         // relay_state is 0 (absent/defaulted) but outlet 1 is on:
         // is_any_on() must return true; relay_state alone would give the wrong answer
-        assert!(s.is_any_on(), "is_any_on should be true when any child state == 1");
+        assert!(
+            s.is_any_on(),
+            "is_any_on should be true when any child state == 1"
+        );
         // toggle target = !is_any_on() = false → strip would be turned off
-        assert!(s.is_any_on(), "toggle should target off because strip is partially on");
+        assert!(
+            s.is_any_on(),
+            "toggle should target off because strip is partially on"
+        );
     }
 
     // ── CLI parsing tests ─────────────────────────────────────────────────────
@@ -1432,8 +1460,7 @@ mod tests {
 
     #[test]
     fn energy_daily_with_outlet_flag() {
-        let cli =
-            Cli::try_parse_from(["denki", "energy-daily", "strip", "--outlet", "2"]).unwrap();
+        let cli = Cli::try_parse_from(["denki", "energy-daily", "strip", "--outlet", "2"]).unwrap();
         assert!(matches!(
             cli.command,
             Command::EnergyDaily { ref host, outlet: Some(2), .. } if host == "strip"
@@ -1455,37 +1482,32 @@ mod tests {
     #[test]
     fn energy_daily_rejects_month_zero() {
         // mo=0 is invalid; must fail before any network I/O
-        let result = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(async {
-                // Simulate the month parsing path directly
-                let month_str = "2025-00".to_string();
-                let parts: Vec<&str> = month_str.split('-').collect();
-                let mo: u8 = parts[1].parse().unwrap();
-                if !(1..=12).contains(&mo) {
-                    anyhow::bail!("Month must be 01–12, got {mo:02}");
-                }
-                Ok::<(), anyhow::Error>(())
-            });
+        let result = tokio::runtime::Runtime::new().unwrap().block_on(async {
+            // Simulate the month parsing path directly
+            let month_str = "2025-00".to_string();
+            let parts: Vec<&str> = month_str.split('-').collect();
+            let mo: u8 = parts[1].parse().unwrap();
+            if !(1..=12).contains(&mo) {
+                anyhow::bail!("Month must be 01–12, got {mo:02}");
+            }
+            Ok::<(), anyhow::Error>(())
+        });
         assert!(result.is_err());
     }
 
     #[test]
     fn energy_daily_rejects_month_13() {
-        let result = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(async {
-                let month_str = "2025-13".to_string();
-                let parts: Vec<&str> = month_str.split('-').collect();
-                let mo: u8 = parts[1].parse().unwrap();
-                if !(1..=12).contains(&mo) {
-                    anyhow::bail!("Month must be 01–12, got {mo:02}");
-                }
-                Ok::<(), anyhow::Error>(())
-            });
+        let result = tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let month_str = "2025-13".to_string();
+            let parts: Vec<&str> = month_str.split('-').collect();
+            let mo: u8 = parts[1].parse().unwrap();
+            if !(1..=12).contains(&mo) {
+                anyhow::bail!("Month must be 01–12, got {mo:02}");
+            }
+            Ok::<(), anyhow::Error>(())
+        });
         assert!(result.is_err());
     }
-
 }
 
 // ── devices.toml capability tests ────────────────────────────────────────────
