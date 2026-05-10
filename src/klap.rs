@@ -133,12 +133,12 @@ async fn http_post(
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow::anyhow!("Could not parse HTTP status"))?;
 
-    // Parse Content-Length to read exactly that many body bytes
+    // Parse Content-Length to read exactly that many body bytes.
+    // Absent on responses with no body (e.g. handshake2 200 OK); treat those as 0.
     let content_length: usize = headers_str
         .lines()
         .find_map(|l| {
-            let lower = l.to_lowercase();
-            if lower.starts_with("content-length:") {
+            if l.to_lowercase().starts_with("content-length:") {
                 l[15..].trim().parse().ok()
             } else {
                 None
@@ -242,6 +242,9 @@ impl KlapSession {
 
         if status != 200 {
             bail!("Request failed: HTTP {status}");
+        }
+        if resp_body.is_empty() {
+            bail!("Tapo request returned empty body (missing Content-Length in response)");
         }
 
         let plaintext = self.decrypt(&resp_body)?;

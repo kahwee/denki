@@ -100,7 +100,7 @@ where
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
     let mut seen = std::collections::HashSet::new();
     let mut count = 0usize;
-    let mut buf = vec![0u8; 4096];
+    let mut buf = vec![0u8; 16384];
     while let Ok(Ok((n, addr))) =
         tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await
     {

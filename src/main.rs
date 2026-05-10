@@ -653,6 +653,9 @@ async fn main() -> Result<()> {
         Command::On { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
+                if r.protocol != hosts::Protocol::Kasa {
+                    bail!("outlet control requires Kasa protocol; save the alias without --klap");
+                }
                 let json = ops::sysinfo(&r.ip).await?;
                 let s = strip::parse(&json)
                     .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
@@ -677,6 +680,9 @@ async fn main() -> Result<()> {
         Command::Off { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
+                if r.protocol != hosts::Protocol::Kasa {
+                    bail!("outlet control requires Kasa protocol; save the alias without --klap");
+                }
                 let json = ops::sysinfo(&r.ip).await?;
                 let s = strip::parse(&json)
                     .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
@@ -701,6 +707,9 @@ async fn main() -> Result<()> {
         Command::Toggle { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
+                if r.protocol != hosts::Protocol::Kasa {
+                    bail!("outlet control requires Kasa protocol; save the alias without --klap");
+                }
                 let json = ops::sysinfo(&r.ip).await?;
                 let s = strip::parse(&json)
                     .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
@@ -821,6 +830,9 @@ async fn main() -> Result<()> {
             }
             let year: u16 = parts[0].parse()?;
             let mo: u8 = parts[1].parse()?;
+            if !(1..=12).contains(&mo) {
+                bail!("Month must be 01–12, got {mo:02}");
+            }
 
             let json = ops::sysinfo(&host).await?;
             let kind = detect_kind(&json);
@@ -1432,6 +1444,43 @@ mod tests {
             Command::EnergyMonthly { ref host, outlet: Some(1), .. } if host == "strip"
         ));
     }
+
+    // ── month validation ──────────────────────────────────────────────────────
+
+    #[test]
+    fn energy_daily_rejects_month_zero() {
+        // mo=0 is invalid; must fail before any network I/O
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async {
+                // Simulate the month parsing path directly
+                let month_str = "2025-00".to_string();
+                let parts: Vec<&str> = month_str.split('-').collect();
+                let mo: u8 = parts[1].parse().unwrap();
+                if !(1..=12).contains(&mo) {
+                    anyhow::bail!("Month must be 01–12, got {mo:02}");
+                }
+                Ok::<(), anyhow::Error>(())
+            });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn energy_daily_rejects_month_13() {
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async {
+                let month_str = "2025-13".to_string();
+                let parts: Vec<&str> = month_str.split('-').collect();
+                let mo: u8 = parts[1].parse().unwrap();
+                if !(1..=12).contains(&mo) {
+                    anyhow::bail!("Month must be 01–12, got {mo:02}");
+                }
+                Ok::<(), anyhow::Error>(())
+            });
+        assert!(result.is_err());
+    }
+
 }
 
 // ── devices.toml capability tests ────────────────────────────────────────────

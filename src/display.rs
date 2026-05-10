@@ -44,7 +44,7 @@ fn wh_from(entry: &serde_json::Value) -> u64 {
             entry
                 .get("energy")
                 .and_then(|v| v.as_f64())
-                .map(|kwh| (kwh * 1000.0) as u64)
+                .map(|kwh| (kwh * 1000.0).round() as u64)
         })
         .unwrap_or(0)
 }
@@ -381,35 +381,35 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
             println!("{}", format!("Energy not supported: {msg}").yellow());
             return;
         }
-        // KP115 reports in milli-units: power_mw, voltage_mv, current_ma, total_wh
-        if let Some(mw) = d.get("power_mw").and_then(|v| v.as_f64()) {
-            println!("Power:   {:.2} W", mw / 1000.0);
+        if d.get("power_mw").is_some() {
+            // KP115 / KL135 — milli-unit fields: power_mw, voltage_mv, current_ma, total_wh
+            if let Some(mw) = d.get("power_mw").and_then(|v| v.as_f64()) {
+                println!("Power:   {:.2} W", mw / 1000.0);
+            }
+            if let Some(mv) = d.get("voltage_mv").and_then(|v| v.as_f64()) {
+                println!("Voltage: {:.1} V", mv / 1000.0);
+            }
+            if let Some(ma) = d.get("current_ma").and_then(|v| v.as_f64()) {
+                println!("Current: {:.3} A", ma / 1000.0);
+            }
+            if let Some(wh) = d.get("total_wh").and_then(|v| v.as_u64()) {
+                println!("Total:   {} Wh", wh);
+            }
+        } else {
+            // HS110 (older firmware) — real-unit fields: power (W), voltage (V), current (A), total (kWh)
+            if let Some(w) = d.get("power").and_then(|v| v.as_f64()) {
+                println!("Power:   {:.2} W", w);
+            }
+            if let Some(v) = d.get("voltage").and_then(|v| v.as_f64()) {
+                println!("Voltage: {:.1} V", v);
+            }
+            if let Some(a) = d.get("current").and_then(|v| v.as_f64()) {
+                println!("Current: {:.3} A", a);
+            }
+            if let Some(kwh) = d.get("total").and_then(|v| v.as_f64()) {
+                println!("Total:   {:.3} kWh", kwh);
+            }
         }
-        if let Some(mv) = d.get("voltage_mv").and_then(|v| v.as_f64()) {
-            println!("Voltage: {:.1} V", mv / 1000.0);
-        }
-        if let Some(ma) = d.get("current_ma").and_then(|v| v.as_f64()) {
-            println!("Current: {:.3} A", ma / 1000.0);
-        }
-        if let Some(wh) = d.get("total_wh").and_then(|v| v.as_u64()) {
-            println!("Total:   {} Wh", wh);
-        }
-
-        // HS110 (older firmware) reports in real units: power, voltage, current, total (kWh)
-        if let Some(w) = d.get("power").and_then(|v| v.as_f64()) {
-            println!("Power:   {:.2} W", w);
-        }
-        if let Some(v) = d.get("voltage").and_then(|v| v.as_f64()) {
-            println!("Voltage: {:.1} V", v);
-        }
-        if let Some(a) = d.get("current").and_then(|v| v.as_f64()) {
-            println!("Current: {:.3} A", a);
-        }
-        if let Some(kwh) = d.get("total").and_then(|v| v.as_f64()) {
-            println!("Total:   {:.3} kWh", kwh);
-        }
-
-        // KL135 only has power_mw and total_wh — voltage/current not available
     } else {
         println!(
             "{}",
@@ -642,13 +642,13 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     println!("   {outlet_line}");
     let a = &s.alias;
     let energy_hint = if s.has_energy_monitoring() {
-        format!("  ·  denki outlet-energy \"{a}\" 1")
+        format!("  ·  denki energy \"{a}\" 1")
     } else {
         String::new()
     };
     println!(
         "   {}",
-        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off{energy_hint}").dimmed()
+        format!("→ denki outlets \"{a}\"  ·  denki on \"{a}\" 1  ·  denki off \"{a}\" 1{energy_hint}").dimmed()
     );
     println!();
 }
@@ -675,10 +675,11 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
             h
         })
         .unwrap_or_default();
-    hints.push(format!("denki outlet \"{a}\" 1 on|off|toggle"));
+    hints.push(format!("denki on \"{a}\" 1"));
+    hints.push(format!("denki off \"{a}\" 1"));
     hints.push(format!("denki outlet-rename \"{a}\" 1 \"Name\""));
     if s.has_energy_monitoring() {
-        hints.push(format!("denki outlet-energy \"{a}\" 1"));
+        hints.push(format!("denki energy \"{a}\" 1"));
     }
     println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
     let verified = devices::lookup(&s.model).is_some_and(|e| e.verified);
@@ -814,6 +815,27 @@ mod tests {
         #[case] expected: (u8, u8, u8),
     ) {
         assert_eq!(hsv_to_rgb(h, s, v), expected, "hsv({h},{s},{v})");
+    }
+
+    // ── wh_from ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn wh_from_integer_energy_wh() {
+        let entry = serde_json::json!({"energy_wh": 1500});
+        assert_eq!(wh_from(&entry), 1500);
+    }
+
+    #[test]
+    fn wh_from_rounds_kwh_not_truncates() {
+        // 1.9999 kWh truncated → 1999 Wh; rounded → 2000 Wh
+        let entry = serde_json::json!({"energy": 1.9999});
+        assert_eq!(wh_from(&entry), 2000);
+    }
+
+    #[test]
+    fn wh_from_prefers_energy_wh_over_energy() {
+        let entry = serde_json::json!({"energy_wh": 500, "energy": 1.0});
+        assert_eq!(wh_from(&entry), 500);
     }
 
     #[test]
