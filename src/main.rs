@@ -1,3 +1,4 @@
+use denki::devices::DeviceKind;
 use denki::{bulb, creds, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
 
 use anyhow::{bail, Result};
@@ -268,7 +269,7 @@ enum LedAction {
     Off,
 }
 
-/// Detect device type from sysinfo.
+/// Classify a device from its sysinfo JSON response.
 ///
 /// Newer devices use `mic_type`; older devices (HS110, HS105, etc.) use `type`.
 /// Detection order for plug-type devices matters:
@@ -279,28 +280,6 @@ enum LedAction {
 /// For bulb-type devices:
 ///   1. `length` field present → LightStrip (KL430)
 ///   2. Otherwise → Bulb
-enum DeviceKind {
-    Bulb,
-    LightStrip,
-    Dimmer,
-    Strip,
-    Plug,
-    Unknown(String),
-}
-
-impl std::fmt::Display for DeviceKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DeviceKind::Bulb => write!(f, "bulb"),
-            DeviceKind::LightStrip => write!(f, "light strip"),
-            DeviceKind::Dimmer => write!(f, "dimmer"),
-            DeviceKind::Strip => write!(f, "power strip"),
-            DeviceKind::Plug => write!(f, "plug"),
-            DeviceKind::Unknown(t) => write!(f, "unknown ({t})"),
-        }
-    }
-}
-
 fn detect_kind(json: &serde_json::Value) -> DeviceKind {
     let sysinfo = json.pointer("/system/get_sysinfo");
     let type_str = sysinfo
@@ -471,6 +450,12 @@ fn can_get_clock(kind: &DeviceKind) -> Result<()> {
 
 /// Check that a device supports energy monitoring given its sysinfo and kind.
 ///
+/// Unlike the `can_*` guards above (static / class-level: decided from `DeviceKind`
+/// alone), energy support is a runtime / instance-level property: two plugs of the
+/// same kind may differ depending on whether the hardware has an ENE chip
+/// (KP115/HS110 yes, HS105 no). This check therefore requires both the kind and
+/// the live sysinfo blob.
+///
 /// - Bulb / LightStrip: always supported (smartlife.iot.common.emeter)
 /// - Plug: only if it has the ENE feature flag (KP115/HS110 yes, HS105 no)
 /// - Dimmer / Strip / Unknown: not supported — bail with a clear message
@@ -528,6 +513,7 @@ fn current_year_month() -> (u16, u8) {
 }
 
 /// Resolved device: IP + protocol to use.
+#[derive(Debug)]
 struct Resolved {
     ip: String,
     protocol: hosts::Protocol,
@@ -557,7 +543,12 @@ async fn resolve(input: &str) -> Result<Resolved> {
     }
     bail!(
         "No device named \"{input}\" found in saved aliases.\n\
-         Run `denki scan` to discover devices, then `denki alias \"{input}\" <ip>` to save it."
+         \n\
+         If you just ran `denki scan`, use the device IP directly:\n\
+         \x20 denki <command> 192.168.x.x\n\
+         \n\
+         To save a friendly name for next time:\n\
+         \x20 denki alias \"<name>\" <ip>"
     )
 }
 
@@ -606,6 +597,11 @@ async fn main() -> Result<()> {
                         display::print_plug_summary(ip, &p);
                     }
                 }
+                // Tapo devices are routed via KLAP before detect_kind is called;
+                // Unknown covers any novel Kasa type strings.
+                DeviceKind::Tapo => {
+                    display::print_unknown_summary(ip, &json, "tapo");
+                }
                 DeviceKind::Unknown(t) => {
                     display::print_unknown_summary(ip, &json, &t);
                 }
@@ -652,6 +648,17 @@ async fn main() -> Result<()> {
                             Some(p) => display::print_plug_detail(&r.ip, &p),
                             None => bail!("Could not parse plug sysinfo from {}", r.ip),
                         },
+                        // Tapo devices are routed via KLAP before detect_kind is called;
+                        // Unknown covers any novel Kasa type strings.
+                        DeviceKind::Tapo => {
+                            eprintln!("{}", "Unsupported device type: tapo".yellow());
+                            eprintln!("Raw sysinfo from {}:", r.ip);
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&json)
+                                    .unwrap_or_else(|_| json.to_string())
+                            );
+                        }
                         DeviceKind::Unknown(t) => {
                             eprintln!("{}", format!("Unsupported device type: {t}").yellow());
                             eprintln!("Raw sysinfo from {}:", r.ip);
@@ -1140,6 +1147,48 @@ mod tests {
         assert_eq!(kind.to_string(), "unknown (IOT.UNKNOWN)");
     }
 
+    // ── resolve() tests ───────────────────────────────────────────────────────
+    //
+    // resolve() is the single entry point for all device targeting. These tests
+    // cover the three paths: raw IP (no alias needed), saved alias, and unknown
+    // name. The unknown-name case is the most important UX path: after `denki
+    // scan` a user sees the device's sysinfo name and may try to use it directly
+    // without first running `denki alias`.
+
+    #[tokio::test]
+    async fn resolve_raw_ip_returns_kasa_protocol() {
+        let r = resolve("192.168.1.1").await.unwrap();
+        assert_eq!(r.ip, "192.168.1.1");
+        assert!(matches!(r.protocol, hosts::Protocol::Kasa));
+    }
+
+    #[tokio::test]
+    async fn resolve_unknown_name_error_mentions_ip_and_alias() {
+        // Use a name that will never be in any hosts file.
+        let err = resolve("ZZZ_no_such_device_99999").await.unwrap_err();
+        let msg = err.to_string();
+        // Error should tell the user they can use an IP directly — this is the
+        // key UX gap: scan shows sysinfo names, not IPs, so the path forward
+        // must be explicit.
+        assert!(
+            msg.contains("192.168.x.x") || msg.contains("IP") || msg.contains("ip"),
+            "error should mention using an IP: {msg}"
+        );
+        assert!(
+            msg.contains("alias"),
+            "error should mention saving an alias: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_unknown_name_error_quotes_the_input() {
+        let err = resolve("My Nonexistent Lamp").await.unwrap_err();
+        assert!(
+            err.to_string().contains("My Nonexistent Lamp"),
+            "error should quote the unrecognized input so the user knows what failed"
+        );
+    }
+
     #[test]
     fn alias_matching_is_case_and_punctuation_insensitive() {
         fn matches(alias: &str, query: &str) -> bool {
@@ -1329,15 +1378,12 @@ mod capability_tests {
     use super::*;
     use denki::devices;
 
-    fn kind_from_str(s: &str) -> Option<DeviceKind> {
-        match s {
-            "Bulb" => Some(DeviceKind::Bulb),
-            "LightStrip" => Some(DeviceKind::LightStrip),
-            "Dimmer" => Some(DeviceKind::Dimmer),
-            "Plug" => Some(DeviceKind::Plug),
-            "Strip" => Some(DeviceKind::Strip),
-            "Tapo" => None, // protocol-level guards, not kind-based
-            other => panic!("devices.toml: unknown kind '{other}' — add it to kind_from_str()"),
+    // `DeviceEntry::kind` is now typed as `DeviceKind`, so no string parsing is needed.
+    // Tapo devices skip kind-level guards (their capability checks are protocol-level).
+    fn guard_kind(kind: &DeviceKind) -> Option<&DeviceKind> {
+        match kind {
+            DeviceKind::Tapo => None,
+            k => Some(k),
         }
     }
 
@@ -1372,18 +1418,11 @@ mod capability_tests {
         }
     }
 
-    #[test]
-    fn all_kinds_are_known() {
-        for dev in devices::all() {
-            let _ = kind_from_str(&dev.kind); // panics on unknown kind
-        }
-    }
-
     /// Every (model, feature) in devices.toml must pass the corresponding guard.
     #[test]
     fn listed_features_are_permitted_by_guards() {
         for dev in devices::all() {
-            let Some(kind) = kind_from_str(&dev.kind) else {
+            let Some(kind) = guard_kind(&dev.kind) else {
                 continue;
             };
             for feature in &dev.supports {
@@ -1404,7 +1443,7 @@ mod capability_tests {
     #[test]
     fn unlisted_guarded_features_are_denied() {
         for dev in devices::all() {
-            let Some(kind) = kind_from_str(&dev.kind) else {
+            let Some(kind) = guard_kind(&dev.kind) else {
                 continue;
             };
             for &feature in GUARDED {

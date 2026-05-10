@@ -85,8 +85,11 @@ supports = ["power", "schedules", "led", "clock"]
 [[device]]
 model    = "HS300"
 kind     = "Strip"
-verified = false
+verified = true
 supports = ["power", "energy", "schedules", "led", "clock", "outlets"]
+# Verified on HS300(US) HW 2.0 / FW 1.1.2
+# HW 2.0 omits relay_state from sysinfo (defaulted) and uses short child IDs ("00"–"05")
+# that must be prefixed with deviceId for per-outlet commands
 
 [[device]]
 model    = "KP303"

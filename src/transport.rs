@@ -57,8 +57,16 @@ pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::
 /// - Devices respond to the source port, so we bind an ephemeral port
 /// - Multiple devices may respond to a single broadcast; we read until timeout
 ///
-/// Devices that don't respond (offline, wrong subnet, KLAP-only) are silently
-/// skipped. Malformed responses are also silently dropped.
+/// Devices that don't respond (offline, KLAP-only) are silently skipped.
+/// Malformed responses are also silently dropped.
+///
+/// ## Broadcast strategy
+///
+/// The limited broadcast (`255.255.255.255`) is not forwarded across subnet
+/// boundaries by most routers. Devices on a specific subnet (e.g. 192.168.4.x)
+/// may only respond to the directed subnet broadcast (e.g. 192.168.4.255).
+/// We probe both to maximize coverage, and deduplicate responses by IP so a
+/// device that replies to both probes is only counted and reported once.
 pub async fn broadcast_each<F>(timeout_secs: u64, mut f: F) -> Result<usize>
 where
     F: FnMut(std::net::IpAddr, serde_json::Value),
@@ -69,19 +77,40 @@ where
     let probe = serde_json::json!({"system": {"get_sysinfo": {}}});
     let raw = serde_json::to_vec(&probe)?;
     let encoded = cipher::encode_raw(&raw);
+
+    // Always send the limited broadcast.
     socket
         .send_to(&encoded, format!("255.255.255.255:{PORT}"))
         .await?;
 
+    // Also send a directed broadcast on each local IPv4 subnet.
+    // This reaches devices on subnets whose router drops 255.255.255.255.
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for iface in ifaces {
+            if let if_addrs::IfAddr::V4(v4) = iface.addr {
+                if let Some(bcast) = v4.broadcast {
+                    if bcast != std::net::Ipv4Addr::BROADCAST {
+                        let _ = socket.send_to(&encoded, format!("{bcast}:{PORT}")).await;
+                    }
+                }
+            }
+        }
+    }
+
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
+    let mut seen = std::collections::HashSet::new();
     let mut count = 0usize;
     let mut buf = vec![0u8; 4096];
     while let Ok(Ok((n, addr))) =
         tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await
     {
+        let ip = addr.ip();
+        if !seen.insert(ip) {
+            continue; // duplicate response to multiple broadcasts
+        }
         let decoded = cipher::decode(&buf[..n]);
         if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&decoded) {
-            f(addr.ip(), json);
+            f(ip, json);
             count += 1;
         }
     }

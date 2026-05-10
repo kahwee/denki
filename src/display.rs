@@ -609,24 +609,46 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     } else {
         "all off".dimmed().to_string().normal()
     };
+    let energy_tag = if s.has_energy_monitoring() {
+        "  energy".dimmed()
+    } else {
+        "".normal()
+    };
     println!(
-        "{} {} {} {}",
+        "{} {} {} {} {}{}",
         header(&s.alias),
         "[strip]".dimmed(),
         format!("[{ip}]").dimmed(),
         state,
+        signal_summary(s.rssi),
+        energy_tag,
     );
-    // strip has no rssi in sysinfo root — signal not shown
     println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
+    // Outlet names colored by state: on = green bold, off = dimmed
+    let outlet_line = s
+        .children
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let label = format!("{} {}", i + 1, c.alias);
+            if c.is_on() {
+                label.green().bold().to_string()
+            } else {
+                label.dimmed().to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("  ");
+    println!("   {outlet_line}");
     let a = &s.alias;
     let energy_hint = if s.has_energy_monitoring() {
-        format!("  ·  denki outlet-energy \"{a}\" 1  ·  denki outlet-energy-daily \"{a}\" 1  ·  denki outlet-energy-monthly \"{a}\" 1")
+        format!("  ·  denki outlet-energy \"{a}\" 1")
     } else {
         String::new()
     };
     println!(
         "   {}",
-        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off  ·  denki outlet-rename \"{a}\" 1 <name>{energy_hint}").dimmed()
+        format!("→ denki outlets \"{a}\"  ·  denki outlet \"{a}\" 1 on|off{energy_hint}").dimmed()
     );
     println!();
 }

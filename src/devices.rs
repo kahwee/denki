@@ -12,10 +12,66 @@ use std::sync::OnceLock;
 
 const TOML_SRC: &str = include_str!("../devices.toml");
 
+/// Device kind — used for both sysinfo-based classification at runtime and
+/// TOML deserialization in the static registry.
+///
+/// `Unknown(String)` is intentionally not deserializable from `devices.toml`:
+/// the custom `Deserialize` impl rejects unrecognized strings so TOML drift
+/// fails at startup rather than silently producing wrong capability lookups.
+/// At runtime, `detect_kind` in main.rs may produce `Unknown` for device
+/// types not yet known to denki.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceKind {
+    Bulb,
+    LightStrip,
+    Dimmer,
+    Strip,
+    Plug,
+    /// Tapo devices use the KLAP protocol; capability guards are protocol-level,
+    /// not kind-level. This variant appears in `devices.toml` but is never
+    /// produced by `detect_kind` (Tapo devices are routed before sysinfo parsing).
+    Tapo,
+    /// Encountered at runtime for device types not yet recognized by denki.
+    /// Not deserializable from `devices.toml` — only constructible in code.
+    Unknown(String),
+}
+
+impl std::fmt::Display for DeviceKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceKind::Bulb => write!(f, "bulb"),
+            DeviceKind::LightStrip => write!(f, "light strip"),
+            DeviceKind::Dimmer => write!(f, "dimmer"),
+            DeviceKind::Strip => write!(f, "power strip"),
+            DeviceKind::Plug => write!(f, "plug"),
+            DeviceKind::Tapo => write!(f, "tapo"),
+            DeviceKind::Unknown(t) => write!(f, "unknown ({t})"),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DeviceKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match s.as_str() {
+            "Bulb" => Ok(DeviceKind::Bulb),
+            "LightStrip" => Ok(DeviceKind::LightStrip),
+            "Dimmer" => Ok(DeviceKind::Dimmer),
+            "Strip" => Ok(DeviceKind::Strip),
+            "Plug" => Ok(DeviceKind::Plug),
+            "Tapo" => Ok(DeviceKind::Tapo),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["Bulb", "LightStrip", "Dimmer", "Strip", "Plug", "Tapo"],
+            )),
+        }
+    }
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct DeviceEntry {
     pub model: String,
-    pub kind: String,
+    pub kind: DeviceKind,
     pub verified: bool,
     #[serde(default)]
     pub protocol: Option<String>,
@@ -113,14 +169,11 @@ mod tests {
     }
 
     #[test]
-    fn all_entries_have_non_empty_kind() {
-        for dev in all() {
-            assert!(
-                !dev.kind.is_empty(),
-                "{}: kind must not be empty",
-                dev.model
-            );
-        }
+    fn all_entries_have_known_kind() {
+        // If any entry had an unrecognized kind string in devices.toml, `all()`
+        // would already have panicked during deserialization. This test just
+        // confirms the registry loads without error.
+        assert!(!all().is_empty());
     }
 
     // ── Lookup ────────────────────────────────────────────────────────────────
@@ -136,7 +189,7 @@ mod tests {
     fn lookup_strips_country_suffix() {
         let entry = lookup("KL135(US)").expect("KL135(US) should match KL135");
         assert_eq!(entry.model, "KL135");
-        assert_eq!(entry.kind, "Bulb");
+        assert!(matches!(entry.kind, DeviceKind::Bulb));
     }
 
     #[test]
@@ -214,7 +267,7 @@ mod tests {
 
     #[test]
     fn unverified_devices_are_marked() {
-        for model in ["HS220", "HS300", "KL430"] {
+        for model in ["HS220", "KL430"] {
             let entry = lookup(model).unwrap();
             assert!(!entry.verified, "{model} should be marked verified = false");
         }
