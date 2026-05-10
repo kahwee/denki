@@ -1329,8 +1329,8 @@ mod tests {
         // relay_state is 0 (absent/defaulted) but outlet 1 is on:
         // is_any_on() must return true; relay_state alone would give the wrong answer
         assert!(s.is_any_on(), "is_any_on should be true when any child state == 1");
-        // toggle target = !is_any_on() = false → turn off
-        assert!(!s.is_any_on() == false);
+        // toggle target = !is_any_on() = false → strip would be turned off
+        assert!(s.is_any_on(), "toggle should target off because strip is partially on");
     }
 
     // ── CLI parsing tests ─────────────────────────────────────────────────────
@@ -1550,7 +1550,7 @@ mod capability_tests {
                 continue;
             };
             for feature in &dev.supports {
-                let result = check(&kind, feature);
+                let result = check(kind, feature);
                 assert!(
                     result.is_ok(),
                     "devices.toml: {} ({}) lists '{}' but the guard rejects it: {}",
@@ -1574,7 +1574,7 @@ mod capability_tests {
                 if dev.supports.iter().any(|f| f == feature) {
                     continue;
                 }
-                let result = check(&kind, feature);
+                let result = check(kind, feature);
                 assert!(
                     result.is_err(),
                     "devices.toml: {} ({}) does NOT list '{}' but the guard permits it — \
