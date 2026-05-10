@@ -112,25 +112,21 @@ device models support it.
 ```
 denki scan [--timeout N]                          Discover all Kasa devices on the network
 denki info <device>                               Detailed device info (Kasa + Tapo)
-denki on <device>                                 Turn a device on (Kasa + Tapo)
-denki off <device>                                Turn a device off (Kasa + Tapo)
-denki toggle <device>                             Toggle a device on/off (Kasa + Tapo)
+denki on <device> [N]                             Turn on (Kasa + Tapo); N = outlet (strips only, 1-based)
+denki off <device> [N]                            Turn off (Kasa + Tapo); N = outlet (strips only, 1-based)
+denki toggle <device> [N]                         Toggle (Kasa + Tapo); N = outlet (strips only, 1-based)
 denki dim <device> <0-100>                        Brightness — KL135 bulbs + HS220 dimmers
 denki color-temp <device> <2500-9000>             Color temperature in Kelvin — KL135 bulbs only
 denki color <device> -H <hue> -s <sat> -v <val>  HSV color — KL135 bulbs only
-denki energy <device>                             Real-time power usage — bulbs + ENE-capable plugs
-denki energy-daily <device> [YYYY-MM]             Daily energy stats
-denki energy-monthly <device> [YYYY]              Monthly energy stats
+denki energy <device> [N]                         Real-time power usage — bulbs + ENE-capable plugs; N = outlet (strips)
+denki energy-daily <device> [YYYY-MM] [-o N]      Daily energy stats; -o = outlet (strips)
+denki energy-monthly <device> [YYYY] [-o N]       Monthly energy stats; -o = outlet (strips)
 denki specs <device>                              Hardware specs — KL135 bulbs only
 denki presets <device>                            Saved light presets — KL135 bulbs only
 denki schedules <device>                          Schedule rules — plugs, dimmers, strips
 denki led <device> on|off                         LED indicator — plugs, dimmers, and strips
 denki clock <device>                              Device clock — plugs, dimmers, strips
 denki outlets <device>                            Per-outlet state — strips only
-denki outlet <device> <N> on|off|toggle           Control one outlet — strips only (1-based)
-denki outlet-energy <device> <N>                  Per-outlet real-time energy — ENE strips only
-denki outlet-energy-daily <device> <N> [YYYY-MM]  Per-outlet daily energy stats
-denki outlet-energy-monthly <device> <N> [YYYY]   Per-outlet monthly energy stats
 denki outlet-rename <device> <N> <name>           Rename one outlet — strips only
 denki rename <device> <name>                      Rename device (all types)
 denki restart <device>                            Reboot device (all types)

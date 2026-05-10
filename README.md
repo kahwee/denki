@@ -75,11 +75,12 @@ denki energy-monthly "desk plug" 2025
 
 ```bash
 denki outlets "power strip"
-denki outlet "power strip" 2 on
-denki outlet "power strip" 2 toggle
-denki outlet-energy "power strip" 2
-denki outlet-energy-daily "power strip" 2 2025-03
-denki outlet-energy-monthly "power strip" 2 2025
+denki on "power strip" 2
+denki off "power strip" 2
+denki toggle "power strip" 2
+denki energy "power strip" 2
+denki energy-daily "power strip" --outlet 2 2025-03
+denki energy-monthly "power strip" --outlet 2 2025
 denki outlet-rename "power strip" 2 "Coffee Maker"
 ```
 
@@ -87,9 +88,9 @@ Notes:
 
 - `outlets` shows the strip's outlet numbers, names, and on/off state.
 - Outlet numbers are `1`-based and match the order shown by `outlets`.
-- `outlet`, `outlet-energy`, and the outlet energy history commands only work on strips with the `ENE` feature flag.
+- Omit the outlet number to target the whole strip; include it to target one outlet.
+- Per-outlet energy commands only work on strips with the `ENE` feature flag.
 - `outlet-rename` changes the name shown by `outlets` and `info`.
-- The regular `energy*` commands report whole-strip totals; the `outlet-energy*` commands report one outlet at a time.
 
 ### Tapo setup
 

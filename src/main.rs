@@ -37,6 +37,9 @@ enum Command {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
+        /// Outlet number, 1-based (strips only)
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: Option<u8>,
     },
 
     /// Turn a device off
@@ -44,6 +47,9 @@ enum Command {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
+        /// Outlet number, 1-based (strips only)
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: Option<u8>,
     },
 
     /// Toggle a device on/off
@@ -51,6 +57,9 @@ enum Command {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
+        /// Outlet number, 1-based (strips only)
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: Option<u8>,
     },
 
     /// Set brightness 0-100 (KL135 bulbs and HS220 dimmers)
@@ -92,6 +101,9 @@ enum Command {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
+        /// Outlet number, 1-based (strips only)
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: Option<u8>,
     },
 
     /// Show daily energy usage for a month (YYYY-MM)
@@ -101,6 +113,9 @@ enum Command {
         host: String,
         /// Month in YYYY-MM format (defaults to current month)
         month: Option<String>,
+        /// Outlet number, 1-based (strips only)
+        #[arg(long, short = 'o', value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: Option<u8>,
     },
 
     /// Show monthly energy usage for a year (bulbs, light strips, and energy-monitoring plugs)
@@ -109,6 +124,9 @@ enum Command {
         #[arg(value_name = "DEVICE")]
         host: String,
         year: Option<u16>,
+        /// Outlet number, 1-based (strips only)
+        #[arg(long, short = 'o', value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: Option<u8>,
     },
 
     /// Show bulb hardware specs — lumens, wattage, CRI (bulbs only)
@@ -170,51 +188,6 @@ enum Command {
         host: String,
     },
 
-    /// Turn one outlet on, off, or toggle it by its 1-based outlet number (strips only)
-    Outlet {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: u8,
-        #[arg(value_enum)]
-        state: PowerAction,
-    },
-
-    /// Show real-time energy for one outlet on a power strip (1-based outlet number; strips with ENE feature only)
-    OutletEnergy {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: u8,
-    },
-
-    /// Show daily energy usage for one outlet (YYYY-MM, 1-based outlet number; strips with ENE feature only)
-    OutletEnergyDaily {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: u8,
-        /// Month in YYYY-MM format (defaults to current month)
-        month: Option<String>,
-    },
-
-    /// Show monthly energy totals for one outlet (1-based outlet number; strips with ENE feature only)
-    OutletEnergyMonthly {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: u8,
-        year: Option<u16>,
-    },
-
     /// Rename one outlet on a power strip (1-based outlet number)
     OutletRename {
         /// Device name from scan output, or an IP address
@@ -254,13 +227,6 @@ enum Command {
         /// Tapo account password
         password: String,
     },
-}
-
-#[derive(ValueEnum, Clone)]
-enum PowerAction {
-    On,
-    Off,
-    Toggle,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -673,54 +639,84 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::On { host } => {
+        Command::On { host, outlet } => {
             let r = resolve(&host).await?;
-            match r.protocol {
-                hosts::Protocol::Klap => {
-                    let mut s = open_tapo(&r.ip).await?;
-                    ops::tapo_on(&mut s).await?;
-                }
-                hosts::Protocol::Kasa => {
-                    let json = ops::sysinfo(&r.ip).await?;
-                    kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(true)).await?;
-                }
-            }
-            println!("{} {}", r.ip, "on".green().bold());
-        }
-
-        Command::Off { host } => {
-            let r = resolve(&host).await?;
-            match r.protocol {
-                hosts::Protocol::Klap => {
-                    let mut s = open_tapo(&r.ip).await?;
-                    ops::tapo_off(&mut s).await?;
-                }
-                hosts::Protocol::Kasa => {
-                    let json = ops::sysinfo(&r.ip).await?;
-                    kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(false)).await?;
-                }
-            }
-            println!("{} {}", r.ip, "off".dimmed());
-        }
-
-        Command::Toggle { host } => {
-            let r = resolve(&host).await?;
-            let now_on = match r.protocol {
-                hosts::Protocol::Klap => {
-                    let mut s = open_tapo(&r.ip).await?;
-                    ops::tapo_toggle(&mut s).await?
-                }
-                hosts::Protocol::Kasa => {
-                    let json = ops::sysinfo(&r.ip).await?;
-                    kasa_exec_power(&r.ip, &detect_kind(&json), &json, None).await?
-                }
-            };
-            let label = if now_on {
-                "on".green().bold()
+            if let Some(outlet_num) = outlet {
+                let json = ops::sysinfo(&r.ip).await?;
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let child = resolve_outlet(&s, outlet_num)?;
+                ops::strip_outlet_on(&r.ip, &child.id).await?;
+                println!("Outlet {} ({}) {}", outlet_num, child.alias, "on".green().bold());
             } else {
-                "off".dimmed()
-            };
-            println!("{} -> {label}", r.ip);
+                match r.protocol {
+                    hosts::Protocol::Klap => {
+                        let mut s = open_tapo(&r.ip).await?;
+                        ops::tapo_on(&mut s).await?;
+                    }
+                    hosts::Protocol::Kasa => {
+                        let json = ops::sysinfo(&r.ip).await?;
+                        kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(true)).await?;
+                    }
+                }
+                println!("{} {}", r.ip, "on".green().bold());
+            }
+        }
+
+        Command::Off { host, outlet } => {
+            let r = resolve(&host).await?;
+            if let Some(outlet_num) = outlet {
+                let json = ops::sysinfo(&r.ip).await?;
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let child = resolve_outlet(&s, outlet_num)?;
+                ops::strip_outlet_off(&r.ip, &child.id).await?;
+                println!("Outlet {} ({}) {}", outlet_num, child.alias, "off".dimmed());
+            } else {
+                match r.protocol {
+                    hosts::Protocol::Klap => {
+                        let mut s = open_tapo(&r.ip).await?;
+                        ops::tapo_off(&mut s).await?;
+                    }
+                    hosts::Protocol::Kasa => {
+                        let json = ops::sysinfo(&r.ip).await?;
+                        kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(false)).await?;
+                    }
+                }
+                println!("{} {}", r.ip, "off".dimmed());
+            }
+        }
+
+        Command::Toggle { host, outlet } => {
+            let r = resolve(&host).await?;
+            if let Some(outlet_num) = outlet {
+                let json = ops::sysinfo(&r.ip).await?;
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                let child = resolve_outlet(&s, outlet_num)?;
+                let now_on = if child.is_on() {
+                    ops::strip_outlet_off(&r.ip, &child.id).await?;
+                    false
+                } else {
+                    ops::strip_outlet_on(&r.ip, &child.id).await?;
+                    true
+                };
+                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                println!("Outlet {} ({}) -> {label}", outlet_num, child.alias);
+            } else {
+                let now_on = match r.protocol {
+                    hosts::Protocol::Klap => {
+                        let mut s = open_tapo(&r.ip).await?;
+                        ops::tapo_toggle(&mut s).await?
+                    }
+                    hosts::Protocol::Kasa => {
+                        let json = ops::sysinfo(&r.ip).await?;
+                        kasa_exec_power(&r.ip, &detect_kind(&json), &json, None).await?
+                    }
+                };
+                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                println!("{} -> {label}", r.ip);
+            }
         }
 
         Command::Dim { host, level } => {
@@ -775,19 +771,31 @@ async fn main() -> Result<()> {
             println!("Color -> hue:{hue} sat:{saturation} val:{value}");
         }
 
-        Command::Energy { host } => {
+        Command::Energy { host, outlet } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
             let kind = detect_kind(&json);
-            require_energy(&json, &kind)?;
-            let resp = match &kind {
-                DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(&r.ip).await?,
-                _ => ops::device_energy(&r.ip).await?,
-            };
-            display::print_energy_realtime(&resp);
+            if let Some(outlet_num) = outlet {
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                if !s.has_energy_monitoring() {
+                    bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
+                }
+                let child = resolve_outlet(&s, outlet_num)?;
+                let resp = ops::strip_outlet_energy(&r.ip, &child.id).await?;
+                println!("Outlet {} ({})", outlet_num, child.alias.bold());
+                display::print_energy_realtime(&resp);
+            } else {
+                require_energy(&json, &kind)?;
+                let resp = match &kind {
+                    DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(&r.ip).await?,
+                    _ => ops::device_energy(&r.ip).await?,
+                };
+                display::print_energy_realtime(&resp);
+            }
         }
 
-        Command::EnergyDaily { host, month } => {
+        Command::EnergyDaily { host, month, outlet } => {
             let host = resolve(&host).await?.ip;
             let month_str = match month {
                 Some(m) => m,
@@ -805,29 +813,53 @@ async fn main() -> Result<()> {
 
             let json = ops::sysinfo(&host).await?;
             let kind = detect_kind(&json);
-            require_energy(&json, &kind)?;
-            let resp = match &kind {
-                DeviceKind::Bulb | DeviceKind::LightStrip => {
-                    ops::bulb_energy_daily(&host, year, mo).await?
+            if let Some(outlet_num) = outlet {
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{host} does not appear to be a power strip"))?;
+                if !s.has_energy_monitoring() {
+                    bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
                 }
-                _ => ops::device_energy_daily(&host, year, mo).await?,
-            };
-            display::print_energy_daily(&resp, &month_str);
+                let child = resolve_outlet(&s, outlet_num)?;
+                let resp = ops::strip_outlet_energy_daily(&host, &child.id, year, mo).await?;
+                println!("Outlet {} ({})", outlet_num, child.alias.bold());
+                display::print_energy_daily(&resp, &month_str);
+            } else {
+                require_energy(&json, &kind)?;
+                let resp = match &kind {
+                    DeviceKind::Bulb | DeviceKind::LightStrip => {
+                        ops::bulb_energy_daily(&host, year, mo).await?
+                    }
+                    _ => ops::device_energy_daily(&host, year, mo).await?,
+                };
+                display::print_energy_daily(&resp, &month_str);
+            }
         }
 
-        Command::EnergyMonthly { host, year } => {
+        Command::EnergyMonthly { host, year, outlet } => {
             let r = resolve(&host).await?;
             let year = year.unwrap_or_else(|| current_year_month().0);
             let json = ops::sysinfo(&r.ip).await?;
             let kind = detect_kind(&json);
-            require_energy(&json, &kind)?;
-            let resp = match &kind {
-                DeviceKind::Bulb | DeviceKind::LightStrip => {
-                    ops::bulb_energy_monthly(&r.ip, year).await?
+            if let Some(outlet_num) = outlet {
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+                if !s.has_energy_monitoring() {
+                    bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
                 }
-                _ => ops::device_energy_monthly(&r.ip, year).await?,
-            };
-            display::print_energy_monthly(&resp, year);
+                let child = resolve_outlet(&s, outlet_num)?;
+                let resp = ops::strip_outlet_energy_monthly(&r.ip, &child.id, year).await?;
+                println!("Outlet {} ({})", outlet_num, child.alias.bold());
+                display::print_energy_monthly(&resp, year);
+            } else {
+                require_energy(&json, &kind)?;
+                let resp = match &kind {
+                    DeviceKind::Bulb | DeviceKind::LightStrip => {
+                        ops::bulb_energy_monthly(&r.ip, year).await?
+                    }
+                    _ => ops::device_energy_monthly(&r.ip, year).await?,
+                };
+                display::print_energy_monthly(&resp, year);
+            }
         }
 
         Command::Specs { host } => {
@@ -903,103 +935,6 @@ async fn main() -> Result<()> {
                 Some(s) => display::print_strip_outlets(&s),
                 None => bail!("{host} does not appear to be a power strip"),
             }
-        }
-
-        Command::Outlet {
-            host,
-            outlet,
-            state,
-        } => {
-            let r = resolve(&host).await?;
-            let json = ops::sysinfo(&r.ip).await?;
-            let s = strip::parse(&json)
-                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-            let child = resolve_outlet(&s, outlet)?;
-            let now_on = match state {
-                PowerAction::On => {
-                    ops::strip_outlet_on(&r.ip, &child.id).await?;
-                    true
-                }
-                PowerAction::Off => {
-                    ops::strip_outlet_off(&r.ip, &child.id).await?;
-                    false
-                }
-                PowerAction::Toggle => {
-                    if child.is_on() {
-                        ops::strip_outlet_off(&r.ip, &child.id).await?;
-                        false
-                    } else {
-                        ops::strip_outlet_on(&r.ip, &child.id).await?;
-                        true
-                    }
-                }
-            };
-            let label = if now_on {
-                "on".green().bold()
-            } else {
-                "off".dimmed()
-            };
-            println!("Outlet {} ({}) -> {}", outlet, child.alias, label);
-        }
-
-        Command::OutletEnergy { host, outlet } => {
-            let r = resolve(&host).await?;
-            let json = ops::sysinfo(&r.ip).await?;
-            let s = strip::parse(&json)
-                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-            if !s.has_energy_monitoring() {
-                bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
-            }
-            let child = resolve_outlet(&s, outlet)?;
-            let resp = ops::strip_outlet_energy(&r.ip, &child.id).await?;
-            println!("Outlet {} ({})", outlet, child.alias.bold());
-            display::print_energy_realtime(&resp);
-        }
-
-        Command::OutletEnergyDaily {
-            host,
-            outlet,
-            month,
-        } => {
-            let r = resolve(&host).await?;
-            let json = ops::sysinfo(&r.ip).await?;
-            let s = strip::parse(&json)
-                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-            if !s.has_energy_monitoring() {
-                bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
-            }
-            let child = resolve_outlet(&s, outlet)?;
-            let month_str = match month {
-                Some(m) => m,
-                None => {
-                    let (y, m) = current_year_month();
-                    format!("{y}-{m:02}")
-                }
-            };
-            let parts: Vec<&str> = month_str.split('-').collect();
-            if parts.len() != 2 {
-                bail!("Month must be in YYYY-MM format");
-            }
-            let year: u16 = parts[0].parse()?;
-            let mo: u8 = parts[1].parse()?;
-            let resp = ops::strip_outlet_energy_daily(&r.ip, &child.id, year, mo).await?;
-            println!("Outlet {} ({})", outlet, child.alias.bold());
-            display::print_energy_daily(&resp, &month_str);
-        }
-
-        Command::OutletEnergyMonthly { host, outlet, year } => {
-            let r = resolve(&host).await?;
-            let json = ops::sysinfo(&r.ip).await?;
-            let s = strip::parse(&json)
-                .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-            if !s.has_energy_monitoring() {
-                bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
-            }
-            let child = resolve_outlet(&s, outlet)?;
-            let year = year.unwrap_or_else(|| current_year_month().0);
-            let resp = ops::strip_outlet_energy_monthly(&r.ip, &child.id, year).await?;
-            println!("Outlet {} ({})", outlet, child.alias.bold());
-            display::print_energy_monthly(&resp, year);
         }
 
         Command::OutletRename { host, outlet, name } => {
@@ -1321,13 +1256,13 @@ mod tests {
     #[test]
     fn on_off_toggle_parse_as_top_level_commands() {
         let on = Cli::try_parse_from(["denki", "on", "desk lamp"]).unwrap();
-        assert!(matches!(on.command, Command::On { host } if host == "desk lamp"));
+        assert!(matches!(on.command, Command::On { ref host, .. } if host == "desk lamp"));
 
         let off = Cli::try_parse_from(["denki", "off", "desk lamp"]).unwrap();
-        assert!(matches!(off.command, Command::Off { host } if host == "desk lamp"));
+        assert!(matches!(off.command, Command::Off { ref host, .. } if host == "desk lamp"));
 
         let tog = Cli::try_parse_from(["denki", "toggle", "desk lamp"]).unwrap();
-        assert!(matches!(tog.command, Command::Toggle { host } if host == "desk lamp"));
+        assert!(matches!(tog.command, Command::Toggle { ref host, .. } if host == "desk lamp"));
     }
 
     #[test]
@@ -1350,17 +1285,87 @@ mod tests {
     }
 
     #[test]
-    fn outlet_command_parses_host_outlet_and_state() {
-        let cli = Cli::try_parse_from(["denki", "outlet", "strip", "2", "on"]).unwrap();
+    fn on_with_outlet_parses_host_and_outlet() {
+        let cli = Cli::try_parse_from(["denki", "on", "strip", "2"]).unwrap();
         assert!(matches!(
             cli.command,
-            Command::Outlet { host, outlet, state: PowerAction::On } if host == "strip" && outlet == 2
+            Command::On { ref host, outlet: Some(2) } if host == "strip"
         ));
     }
 
     #[test]
-    fn outlet_rejects_zero_index() {
-        assert!(Cli::try_parse_from(["denki", "outlet", "strip", "0", "on"]).is_err());
+    fn on_without_outlet_parses_host_only() {
+        let cli = Cli::try_parse_from(["denki", "on", "strip"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::On { ref host, outlet: None } if host == "strip"
+        ));
+    }
+
+    #[test]
+    fn on_rejects_zero_outlet() {
+        assert!(Cli::try_parse_from(["denki", "on", "strip", "0"]).is_err());
+    }
+
+    #[test]
+    fn off_with_outlet_parses_host_and_outlet() {
+        let cli = Cli::try_parse_from(["denki", "off", "strip", "3"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Off { ref host, outlet: Some(3) } if host == "strip"
+        ));
+    }
+
+    #[test]
+    fn off_rejects_zero_outlet() {
+        assert!(Cli::try_parse_from(["denki", "off", "strip", "0"]).is_err());
+    }
+
+    #[test]
+    fn toggle_with_outlet_parses_host_and_outlet() {
+        let cli = Cli::try_parse_from(["denki", "toggle", "strip", "2"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Toggle { ref host, outlet: Some(2) } if host == "strip"
+        ));
+    }
+
+    #[test]
+    fn energy_with_outlet_parses_host_and_outlet() {
+        let cli = Cli::try_parse_from(["denki", "energy", "strip", "1"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Energy { ref host, outlet: Some(1) } if host == "strip"
+        ));
+    }
+
+    #[test]
+    fn energy_without_outlet_parses_host_only() {
+        let cli = Cli::try_parse_from(["denki", "energy", "strip"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Energy { ref host, outlet: None } if host == "strip"
+        ));
+    }
+
+    #[test]
+    fn energy_daily_with_outlet_flag() {
+        let cli =
+            Cli::try_parse_from(["denki", "energy-daily", "strip", "--outlet", "2"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::EnergyDaily { ref host, outlet: Some(2), .. } if host == "strip"
+        ));
+    }
+
+    #[test]
+    fn energy_monthly_with_outlet_flag() {
+        let cli =
+            Cli::try_parse_from(["denki", "energy-monthly", "strip", "--outlet", "1"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::EnergyMonthly { ref host, outlet: Some(1), .. } if host == "strip"
+        ));
     }
 }
 
