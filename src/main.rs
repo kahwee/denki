@@ -300,13 +300,23 @@ async fn kasa_exec_power(
 ) -> Result<bool> {
     can_control_power(kind)?;
     let on = target_on.unwrap_or_else(|| {
-        // Determine target by inverting current state — avoids a second sysinfo round trip
-        let cur = if matches!(kind, DeviceKind::Bulb) {
-            json.pointer("/system/get_sysinfo/light_state/on_off")
-        } else {
-            json.pointer("/system/get_sysinfo/relay_state")
-        };
-        cur.and_then(|v| v.as_u64()).unwrap_or(0) == 0 // 0 = currently off → turn on
+        // Determine target by inverting current state — avoids a second sysinfo round trip.
+        // Strip: relay_state is absent on HS300 HW 2.0; derive from child outlet states instead.
+        match kind {
+            DeviceKind::Bulb => json
+                .pointer("/system/get_sysinfo/light_state/on_off")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                == 0,
+            DeviceKind::Strip => {
+                !strip::parse(json).map(|s| s.is_any_on()).unwrap_or(false)
+            }
+            _ => json
+                .pointer("/system/get_sysinfo/relay_state")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                == 0,
+        }
     });
     if matches!(kind, DeviceKind::Bulb) {
         if on {
@@ -332,11 +342,12 @@ async fn kasa_exec_power(
 
 fn can_control_power(kind: &DeviceKind) -> Result<()> {
     match kind {
+        DeviceKind::Bulb | DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
         DeviceKind::LightStrip => anyhow::bail!(
             "light strip power control is not yet implemented \
              (KL430 uses smartlife.iot.lightStrip)"
         ),
-        _ => Ok(()),
+        other => anyhow::bail!("{other} does not support power control"),
     }
 }
 
@@ -429,28 +440,28 @@ fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
         DeviceKind::Plug => {
-            if let Some(p) = plug::parse(json) {
-                if !p.has_energy_monitoring() {
-                    anyhow::bail!(
-                        "{} ({}) does not have energy monitoring (feature: {:?})",
-                        p.alias,
-                        p.model,
-                        p.feature
-                    );
-                }
+            let p = plug::parse(json)
+                .ok_or_else(|| anyhow::anyhow!("could not parse plug sysinfo"))?;
+            if !p.has_energy_monitoring() {
+                anyhow::bail!(
+                    "{} ({}) does not have energy monitoring (feature: {:?})",
+                    p.alias,
+                    p.model,
+                    p.feature
+                );
             }
             Ok(())
         }
         DeviceKind::Strip => {
-            if let Some(s) = strip::parse(json) {
-                if !s.has_energy_monitoring() {
-                    anyhow::bail!(
-                        "{} ({}) does not have energy monitoring (feature: {:?})",
-                        s.alias,
-                        s.model,
-                        s.feature
-                    );
-                }
+            let s = strip::parse(json)
+                .ok_or_else(|| anyhow::anyhow!("could not parse strip sysinfo"))?;
+            if !s.has_energy_monitoring() {
+                anyhow::bail!(
+                    "{} ({}) does not have energy monitoring (feature: {:?})",
+                    s.alias,
+                    s.model,
+                    s.feature
+                );
             }
             Ok(())
         }
@@ -1144,6 +1155,16 @@ mod tests {
     // the routing decisions without needing a live device.
 
     #[test]
+    fn can_control_power_accepts_bulb_plug_dimmer_strip() {
+        assert!(can_control_power(&DeviceKind::Bulb).is_ok());
+        assert!(can_control_power(&DeviceKind::Plug).is_ok());
+        assert!(can_control_power(&DeviceKind::Dimmer).is_ok());
+        assert!(can_control_power(&DeviceKind::Strip).is_ok());
+        assert!(can_control_power(&DeviceKind::LightStrip).is_err());
+        assert!(can_control_power(&DeviceKind::Unknown("IOT.SOMETHING".into())).is_err());
+    }
+
+    #[test]
     fn can_dim_accepts_bulb_and_dimmer_only() {
         assert!(can_dim(&DeviceKind::Bulb).is_ok());
         assert!(can_dim(&DeviceKind::Dimmer).is_ok());
@@ -1249,6 +1270,50 @@ mod tests {
         assert!(can_get_clock(&DeviceKind::Strip).is_ok());
         assert!(can_get_clock(&DeviceKind::Bulb).is_err());
         assert!(can_get_clock(&DeviceKind::LightStrip).is_err());
+    }
+
+    #[test]
+    fn require_energy_bails_when_plug_parse_fails() {
+        // Empty JSON → plug::parse returns None → must error rather than silently pass through
+        let empty = serde_json::json!({});
+        assert!(
+            require_energy(&empty, &DeviceKind::Plug).is_err(),
+            "should bail when plug sysinfo cannot be parsed"
+        );
+    }
+
+    #[test]
+    fn require_energy_bails_when_strip_parse_fails() {
+        let empty = serde_json::json!({});
+        assert!(
+            require_energy(&empty, &DeviceKind::Strip).is_err(),
+            "should bail when strip sysinfo cannot be parsed"
+        );
+    }
+
+    #[test]
+    fn strip_toggle_uses_child_states_not_relay_state() {
+        // HS300 HW 2.0 omits relay_state; is_any_on() must be used instead.
+        // Build a minimal strip sysinfo with no relay_state but one outlet on.
+        let json = serde_json::json!({
+            "system": { "get_sysinfo": {
+                "alias": "Test Strip", "model": "HS300(US)",
+                "hw_ver": "2.0", "sw_ver": "1.0.0", "rssi": -50,
+                "mic_type": "IOT.SMARTPLUGSWITCH",
+                "feature": "TIM:ENE",
+                "children": [
+                    { "id": "8006C2", "alias": "Outlet 1", "state": 1 },
+                    { "id": "8006C3", "alias": "Outlet 2", "state": 0 }
+                ]
+            }}
+        });
+        let s = strip::parse(&json).expect("should parse");
+        assert_eq!(s.relay_state, 0, "relay_state absent → deserialized as 0");
+        // relay_state is 0 (absent/defaulted) but outlet 1 is on:
+        // is_any_on() must return true; relay_state alone would give the wrong answer
+        assert!(s.is_any_on(), "is_any_on should be true when any child state == 1");
+        // toggle target = !is_any_on() = false → turn off
+        assert!(!s.is_any_on() == false);
     }
 
     // ── CLI parsing tests ─────────────────────────────────────────────────────

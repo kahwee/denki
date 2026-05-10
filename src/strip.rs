@@ -3,11 +3,11 @@
 //! Power strips are detected by the presence of a `children` array in sysinfo.
 //! Each child represents one controllable outlet.
 //!
-//! The parent device controls all outlets at once via set_relay_state.
+//! Whole-strip on/off uses set_relay_state. HS300 HW 2.0 omits the top-level
+//! relay_state field; current power state must be derived from child outlet
+//! states via is_any_on() rather than reading relay_state directly.
 //! Individual outlets are controlled by passing a `children` array in the
 //! command with the target outlet's id and desired state.
-//!
-//! NOTE: verified = false — not tested on live hardware.
 
 use serde::Deserialize;
 
