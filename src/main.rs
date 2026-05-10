@@ -62,7 +62,7 @@ enum Command {
     },
 
     /// Set color temperature in Kelvin 2500-9000 (KL135 bulbs only)
-    Warmth {
+    ColorTemp {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
@@ -366,7 +366,7 @@ async fn kasa_exec_power(
     if matches!(kind, DeviceKind::Bulb) {
         if on { ops::bulb_on(ip).await? } else { ops::bulb_off(ip).await? }
     } else {
-        if on { ops::plug_on(ip).await? } else { ops::plug_off(ip).await? }
+        if on { ops::relay_on(ip).await? } else { ops::relay_off(ip).await? }
     }
     Ok(on)
 }
@@ -400,11 +400,11 @@ fn can_dim(kind: &DeviceKind) -> Result<()> {
     }
 }
 
-fn can_set_warmth(kind: &DeviceKind) -> Result<()> {
+fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb => Ok(()),
         other => anyhow::bail!(
-            "`warmth` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
+            "`color-temp` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
         ),
     }
 }
@@ -690,7 +690,7 @@ async fn main() -> Result<()> {
                 DeviceKind::Dimmer => {
                     // Turn on first if currently off and a non-zero level was requested
                     if level > 0 && dimmer::parse(&json).is_some_and(|d| !d.is_on()) {
-                        ops::plug_on(&r.ip).await?;
+                        ops::relay_on(&r.ip).await?;
                     }
                     ops::dimmer_set_brightness(&r.ip, level).await?;
                 }
@@ -699,14 +699,14 @@ async fn main() -> Result<()> {
             println!("Brightness -> {level}%");
         }
 
-        Command::Warmth { host, kelvin } => {
+        Command::ColorTemp { host, kelvin } => {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_set_warmth(&detect_kind(&json))?;
+            can_set_color_temp(&detect_kind(&json))?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                 ops::bulb_on(&r.ip).await?;
             }
-            ops::bulb_set_warmth(&r.ip, kelvin).await?;
+            ops::bulb_set_color_temp(&r.ip, kelvin).await?;
             println!("Color temperature -> {kelvin}K");
         }
 
@@ -733,7 +733,7 @@ async fn main() -> Result<()> {
             require_energy(&json, &kind)?;
             let resp = match &kind {
                 DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(&r.ip).await?,
-                _ => ops::plug_energy(&r.ip).await?,
+                _ => ops::device_energy(&r.ip).await?,
             };
             display::print_energy_realtime(&resp);
         }
@@ -761,7 +761,7 @@ async fn main() -> Result<()> {
                 DeviceKind::Bulb | DeviceKind::LightStrip => {
                     ops::bulb_energy_daily(&host, year, mo).await?
                 }
-                _ => ops::plug_energy_daily(&host, year, mo).await?,
+                _ => ops::device_energy_daily(&host, year, mo).await?,
             };
             display::print_energy_daily(&resp, &month_str);
         }
@@ -776,7 +776,7 @@ async fn main() -> Result<()> {
                 DeviceKind::Bulb | DeviceKind::LightStrip => {
                     ops::bulb_energy_monthly(&r.ip, year).await?
                 }
-                _ => ops::plug_energy_monthly(&r.ip, year).await?,
+                _ => ops::device_energy_monthly(&r.ip, year).await?,
             };
             display::print_energy_monthly(&resp, year);
         }
@@ -801,7 +801,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
             can_get_schedules(&detect_kind(&json))?;
-            let resp = ops::plug_schedules(&r.ip).await?;
+            let resp = ops::device_schedules(&r.ip).await?;
             display::print_schedules(&resp);
         }
 
@@ -810,7 +810,7 @@ async fn main() -> Result<()> {
             let json = ops::sysinfo(&r.ip).await?;
             can_control_led(&detect_kind(&json))?;
             let on = matches!(state, LedAction::On);
-            ops::plug_led(&r.ip, on).await?;
+            ops::device_led(&r.ip, on).await?;
             println!("LED indicator {}", if on { "on".green() } else { "off".dimmed() });
         }
 
@@ -818,7 +818,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             let json = ops::sysinfo(&r.ip).await?;
             can_get_clock(&detect_kind(&json))?;
-            let resp = ops::plug_time(&r.ip).await?;
+            let resp = ops::device_time(&r.ip).await?;
             if let Some(t) = resp.pointer("/time/get_time") {
                 println!(
                     "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
@@ -1103,19 +1103,19 @@ mod tests {
     }
 
     #[test]
-    fn can_set_warmth_accepts_bulb_only() {
-        assert!(can_set_warmth(&DeviceKind::Bulb).is_ok());
-        assert!(can_set_warmth(&DeviceKind::Dimmer).is_err());
-        assert!(can_set_warmth(&DeviceKind::Plug).is_err());
-        assert!(can_set_warmth(&DeviceKind::LightStrip).is_err());
-        assert!(can_set_warmth(&DeviceKind::Strip).is_err());
+    fn can_set_color_temp_accepts_bulb_only() {
+        assert!(can_set_color_temp(&DeviceKind::Bulb).is_ok());
+        assert!(can_set_color_temp(&DeviceKind::Dimmer).is_err());
+        assert!(can_set_color_temp(&DeviceKind::Plug).is_err());
+        assert!(can_set_color_temp(&DeviceKind::LightStrip).is_err());
+        assert!(can_set_color_temp(&DeviceKind::Strip).is_err());
     }
 
     #[test]
-    fn can_set_warmth_error_mentions_kl135() {
-        let err = can_set_warmth(&DeviceKind::Plug).unwrap_err();
+    fn can_set_color_temp_error_mentions_kl135() {
+        let err = can_set_color_temp(&DeviceKind::Plug).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("`warmth`"), "{msg}");
+        assert!(msg.contains("`color-temp`"), "{msg}");
         assert!(msg.contains("KL135"), "{msg}");
     }
 

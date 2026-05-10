@@ -15,7 +15,7 @@
 //!     ops::tapo_on(&mut session).await?;
 //!
 //!     // Legacy Kasa device via XOR
-//!     ops::plug_on("192.168.4.23").await?;
+//!     ops::relay_on("192.168.4.23").await?;
 //!     Ok(())
 //! }
 //! ```

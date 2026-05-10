@@ -101,7 +101,7 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
     let a = &bulb.alias;
     let action = if bulb.light_state.is_on() { "off" } else { "on" };
     let color_hint = if bulb.is_color == 1 {
-        format!("  ·  denki warmth \"{a}\" 2700  ·  denki dim \"{a}\" 80")
+        format!("  ·  denki color-temp \"{a}\" 2700  ·  denki dim \"{a}\" 80")
     } else if bulb.is_dimmable == 1 {
         format!("  ·  denki dim \"{a}\" 80")
     } else {
