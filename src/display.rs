@@ -681,10 +681,13 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
         hints.push(format!("denki outlet-energy \"{a}\" 1"));
     }
     println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
-    println!(
-        "  {}",
-        "NOTE: unverified — not tested on live hardware".yellow()
-    );
+    let verified = devices::lookup(&s.model).is_some_and(|e| e.verified);
+    if !verified {
+        println!(
+            "  {}",
+            "NOTE: unverified — not tested on live hardware".yellow()
+        );
+    }
 }
 
 pub fn print_strip_outlets(s: &Strip) {
