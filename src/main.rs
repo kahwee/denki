@@ -1,359 +1,50 @@
+mod resolve;
+
 use denki::cli::{Cli, Command, LedAction};
-use denki::devices::DeviceKind;
-use denki::{bulb, creds, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
+use denki::devices::{self, DeviceKind};
+use denki::{bulb, creds, dimmer, display, fmt, hosts, klap, ops, plug, strip, tapo, transport};
+use resolve::{require_kasa, resolve, resolve_outlet, resolve_quiet};
 
 use anyhow::{bail, Result};
 use clap::Parser;
 use colored::Colorize;
-use std::net::IpAddr;
 
-/// Classify a device from its sysinfo JSON response.
-///
-/// Newer devices use `mic_type`; older devices (HS110, HS105, etc.) use `type`.
-/// Detection order for plug-type devices matters:
-///   1. "Dimmer" in dev_name → Dimmer (HS220)
-///   2. `children` array present → Strip (HS300, KP303)
-///   3. Otherwise → Plug
-///
-/// For bulb-type devices:
-///   1. `length` field present → LightStrip (KL430)
-///   2. Otherwise → Bulb
-fn detect_kind(json: &serde_json::Value) -> DeviceKind {
-    let sysinfo = json.pointer("/system/get_sysinfo");
-    let type_str = sysinfo
-        .and_then(|s| s.get("mic_type").or_else(|| s.get("type")))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let dev_name = sysinfo
-        .and_then(|s| s.get("dev_name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let has_children = sysinfo.and_then(|s| s.get("children")).is_some();
-    let has_length = sysinfo.and_then(|s| s.get("length")).is_some();
-
-    if type_str.contains("SMARTBULB") {
-        if has_length {
-            DeviceKind::LightStrip
-        } else {
-            DeviceKind::Bulb
-        }
-    } else if type_str.contains("PLUG") || type_str.contains("SWITCH") {
-        if dev_name.contains("Dimmer") {
-            DeviceKind::Dimmer
-        } else if has_children {
-            DeviceKind::Strip
-        } else {
-            DeviceKind::Plug
-        }
-    } else {
-        DeviceKind::Unknown(type_str.to_string())
-    }
-}
-
-/// Open a KLAP session using saved or env-var credentials.
 async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
     let (user, pass) = creds::load()?;
     klap::handshake(ip, &user, &pass).await
 }
 
-/// Execute an on/off/toggle action on a Kasa device using an already-fetched sysinfo blob.
-///
-/// `target_on`:
-///   - `Some(true)`  → turn on
-///   - `Some(false)` → turn off
-///   - `None`        → toggle (reads current state from `json`, no extra network call)
-///
-/// Returns the new power state (true = on).
+// Execute on/off/toggle on a Kasa device using an already-fetched sysinfo blob.
+// target_on: Some(true) = on, Some(false) = off, None = toggle (inverts current state).
+// Strip: relay_state is absent on HS300 HW 2.0 — derive from child outlet states instead.
 async fn kasa_exec_power(
     ip: &str,
     kind: &DeviceKind,
     json: &serde_json::Value,
     target_on: Option<bool>,
 ) -> Result<bool> {
-    can_control_power(kind)?;
-    let on = target_on.unwrap_or_else(|| {
-        // Determine target by inverting current state — avoids a second sysinfo round trip.
-        // Strip: relay_state is absent on HS300 HW 2.0; derive from child outlet states instead.
-        match kind {
-            DeviceKind::Bulb => {
-                json.pointer("/system/get_sysinfo/light_state/on_off")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-                    == 0
-            }
-            DeviceKind::Strip => !strip::parse(json).map(|s| s.is_any_on()).unwrap_or(false),
-            _ => {
-                json.pointer("/system/get_sysinfo/relay_state")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)
-                    == 0
-            }
+    devices::can_control_power(kind)?;
+    let on = target_on.unwrap_or_else(|| match kind {
+        DeviceKind::Bulb => {
+            json.pointer("/system/get_sysinfo/light_state/on_off")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                == 0
+        }
+        DeviceKind::Strip => !strip::parse(json).map(|s| s.is_any_on()).unwrap_or(false),
+        _ => {
+            json.pointer("/system/get_sysinfo/relay_state")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                == 0
         }
     });
     if matches!(kind, DeviceKind::Bulb) {
-        if on {
-            ops::bulb_on(ip).await?
-        } else {
-            ops::bulb_off(ip).await?
-        }
+        if on { ops::bulb_on(ip).await? } else { ops::bulb_off(ip).await? }
     } else {
-        if on {
-            ops::relay_on(ip).await?
-        } else {
-            ops::relay_off(ip).await?
-        }
+        if on { ops::relay_on(ip).await? } else { ops::relay_off(ip).await? }
     }
     Ok(on)
-}
-
-// ── Command compatibility guards ──────────────────────────────────────────────
-// Pure synchronous functions: take a DeviceKind, return Ok or a clear error.
-// Handlers call these before issuing any network request so the user always
-// gets a command-level message ("dim is not supported on plug") rather than
-// a raw protocol error from the device.
-
-fn can_control_power(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb | DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        DeviceKind::LightStrip => anyhow::bail!(
-            "light strip power control is not yet implemented \
-             (KL430 uses smartlife.iot.lightStrip)"
-        ),
-        other => anyhow::bail!("{other} does not support power control"),
-    }
-}
-
-fn can_dim(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb | DeviceKind::Dimmer => Ok(()),
-        DeviceKind::LightStrip => anyhow::bail!(
-            "`dim` is not yet supported on light strips \
-             (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)"
-        ),
-        other => anyhow::bail!(
-            "`dim` is only supported on KL135-style bulbs and HS220 dimmers, not {other}"
-        ),
-    }
-}
-
-fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!(
-            "`color-temp` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
-        ),
-    }
-}
-
-fn can_set_color(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!(
-            "`color` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
-        ),
-    }
-}
-
-fn can_get_specs(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!("`specs` is only supported on KL135-style bulbs, not {other}"),
-    }
-}
-
-fn can_get_presets(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!("`presets` is only supported on KL135-style bulbs, not {other}"),
-    }
-}
-
-fn can_get_schedules(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!(
-            "`schedules` is only supported on plugs, dimmers, and strips \
-             (e.g. KP115, HS220, HS300), not {other}"
-        ),
-    }
-}
-
-fn can_control_led(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!(
-            "`led` is only supported on plugs, dimmers, and strips (e.g. KP115, HS220, HS300), not {other}"
-        ),
-    }
-}
-
-fn can_get_clock(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!(
-            "`clock` is only supported on plugs, dimmers, and strips \
-             (e.g. KP115, HS220, HS300), not {other}"
-        ),
-    }
-}
-
-/// Check that a device supports energy monitoring given its sysinfo and kind.
-///
-/// Unlike the `can_*` guards above (static / class-level: decided from `DeviceKind`
-/// alone), energy support is a runtime / instance-level property: two plugs of the
-/// same kind may differ depending on whether the hardware has an ENE chip
-/// (KP115/HS110 yes, HS105 no). This check therefore requires both the kind and
-/// the live sysinfo blob.
-///
-/// - Bulb / LightStrip: always supported (smartlife.iot.common.emeter)
-/// - Plug: only if it has the ENE feature flag (KP115/HS110 yes, HS105 no)
-/// - Dimmer / Strip / Unknown: not supported — bail with a clear message
-fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
-        DeviceKind::Plug => {
-            let p =
-                plug::parse(json).ok_or_else(|| anyhow::anyhow!("could not parse plug sysinfo"))?;
-            if !p.has_energy_monitoring() {
-                anyhow::bail!(
-                    "{} ({}) does not have energy monitoring (feature: {:?})",
-                    p.alias,
-                    p.model,
-                    p.feature
-                );
-            }
-            Ok(())
-        }
-        DeviceKind::Strip => {
-            let s = strip::parse(json)
-                .ok_or_else(|| anyhow::anyhow!("could not parse strip sysinfo"))?;
-            if !s.has_energy_monitoring() {
-                anyhow::bail!(
-                    "{} ({}) does not have energy monitoring (feature: {:?})",
-                    s.alias,
-                    s.model,
-                    s.feature
-                );
-            }
-            Ok(())
-        }
-        other => anyhow::bail!("{other} does not support energy monitoring"),
-    }
-}
-
-/// Returns the current (year, month) using only std — no external date crate.
-/// Uses Howard Hinnant's civil_from_days algorithm.
-fn current_year_month() -> (u16, u8) {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let days = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() / 86400)
-        .unwrap_or(0) as i64;
-    let z = days + 719468;
-    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if m <= 2 { y + 1 } else { y };
-    (year as u16, m as u8)
-}
-
-/// Resolved device: IP + protocol to use.
-#[derive(Debug)]
-struct Resolved {
-    ip: String,
-    protocol: hosts::Protocol,
-    /// The saved alias name, if the input was resolved via hosts.json.
-    saved_name: Option<String>,
-}
-
-/// Resolve a name or IP to (ip, protocol, saved_name), printing "Using alias…" if matched.
-/// Resolution order:
-///   1. Already an IP → Kasa (default)
-///   2. Saved alias in hosts file → uses stored protocol
-///   3. Error — no UDP fallback (would block for seconds and miss KLAP devices)
-async fn resolve(input: &str) -> Result<Resolved> {
-    if input.parse::<IpAddr>().is_ok() {
-        return Ok(Resolved {
-            ip: input.to_string(),
-            protocol: hosts::Protocol::Kasa,
-            saved_name: None,
-        });
-    }
-    if let Some(entry) = hosts::lookup(input) {
-        println!(
-            "{}",
-            format!("Using alias \"{input}\" [{}]", entry.ip).dimmed()
-        );
-        return Ok(Resolved {
-            ip: entry.ip,
-            protocol: entry.protocol,
-            saved_name: Some(input.to_string()),
-        });
-    }
-    bail!(
-        "No device named \"{input}\" found in saved aliases.\n\
-         \n\
-         If you just ran `denki scan`, use the device IP directly:\n\
-         \x20 denki <command> 192.168.x.x\n\
-         \n\
-         To save a friendly name for next time:\n\
-         \x20 denki alias \"<name>\" <ip>"
-    )
-}
-
-/// Like `resolve` but suppresses the "Using alias…" output line.
-/// Used by `info` so the detail header isn't preceded by a redundant name echo.
-async fn resolve_quiet(input: &str) -> Result<Resolved> {
-    if input.parse::<IpAddr>().is_ok() {
-        return Ok(Resolved {
-            ip: input.to_string(),
-            protocol: hosts::Protocol::Kasa,
-            saved_name: None,
-        });
-    }
-    if let Some(entry) = hosts::lookup(input) {
-        return Ok(Resolved {
-            ip: entry.ip,
-            protocol: entry.protocol,
-            saved_name: Some(input.to_string()),
-        });
-    }
-    bail!(
-        "No device named \"{input}\" found in saved aliases.\n\
-         \n\
-         If you just ran `denki scan`, use the device IP directly:\n\
-         \x20 denki <command> 192.168.x.x\n\
-         \n\
-         To save a friendly name for next time:\n\
-         \x20 denki alias \"<name>\" <ip>"
-    )
-}
-
-/// Resolve a 1-based outlet number to the matching StripChild, with a clear error if out of range.
-fn resolve_outlet(s: &strip::Strip, outlet: u8) -> Result<&strip::StripChild> {
-    let idx = (outlet - 1) as usize;
-    s.children.get(idx).ok_or_else(|| {
-        anyhow::anyhow!(
-            "outlet {} does not exist (strip has {} outlets)",
-            outlet,
-            s.children.len()
-        )
-    })
-}
-
-/// Fail with a clear message if the resolved device is not a Kasa device.
-///
-/// KLAP (Tapo) devices don't support the Kasa XOR protocol, so commands that
-/// depend on Kasa sysinfo must call this guard before issuing any network I/O.
-fn require_kasa(r: &Resolved, cmd: &str) -> Result<()> {
-    if r.protocol != hosts::Protocol::Kasa {
-        bail!("`{cmd}` requires Kasa protocol — save the alias without --klap");
-    }
-    Ok(())
 }
 
 #[tokio::main]
@@ -365,16 +56,14 @@ async fn main() -> Result<()> {
             println!("{}", format!("Scanning network for {timeout}s...").dimmed());
             let mut kasa_count = transport::broadcast_each(timeout, |ip, json| {
                 let ip_str = ip.to_string();
-                // Auto-save new devices using their sysinfo name on first discovery.
                 if let Some(name) = json
                     .pointer("/system/get_sysinfo/alias")
                     .and_then(|v| v.as_str())
                 {
                     let _ = hosts::save_if_new(name, &ip_str);
                 }
-                // Prefer the saved alias name for hints; fall back to the device's IP.
                 let hint = hosts::lookup_by_ip(&ip_str).unwrap_or_else(|| ip_str.clone());
-                match detect_kind(&json) {
+                match devices::detect_kind(&json) {
                     DeviceKind::Bulb => {
                         if let Some(b) = bulb::parse(&json) {
                             display::print_bulb_summary(ip, &b, &hint);
@@ -400,19 +89,13 @@ async fn main() -> Result<()> {
                             display::print_plug_summary(ip, &p, &hint);
                         }
                     }
-                    // Tapo devices use KLAP on port 80; they won't respond to this
-                    // UDP probe. Unknown covers any novel Kasa type strings.
-                    DeviceKind::Tapo => {
-                        display::print_unknown_summary(ip, &json, "tapo");
-                    }
-                    DeviceKind::Unknown(t) => {
-                        display::print_unknown_summary(ip, &json, &t);
-                    }
+                    // Tapo devices use KLAP on port 80 and won't respond to UDP probe.
+                    DeviceKind::Tapo => display::print_unknown_summary(ip, &json, "tapo"),
+                    DeviceKind::Unknown(t) => display::print_unknown_summary(ip, &json, &t),
                 }
             })
             .await?;
 
-            // Probe each saved KLAP alias to include Tapo devices in the scan output.
             for (name, entry) in hosts::klap_aliases() {
                 if let Ok(mut session) = open_tapo(&entry.ip).await {
                     if let Ok(json) = ops::tapo_device_info(&mut session).await {
@@ -432,7 +115,6 @@ async fn main() -> Result<()> {
         }
 
         Command::Info { host } => {
-            // resolve_quiet suppresses "Using alias…" — the detail view already shows the name.
             let r = resolve_quiet(&host).await?;
             let hint = r.saved_name.as_deref().unwrap_or(&r.ip).to_string();
             match r.protocol {
@@ -446,7 +128,7 @@ async fn main() -> Result<()> {
                 }
                 hosts::Protocol::Kasa => {
                     let json = ops::sysinfo(&r.ip).await?;
-                    match detect_kind(&json) {
+                    match devices::detect_kind(&json) {
                         DeviceKind::Bulb => match bulb::parse(&json) {
                             Some(b) => display::print_bulb_detail(&r.ip, &b, &hint),
                             None => bail!("Could not parse bulb sysinfo from {}", r.ip),
@@ -467,18 +149,8 @@ async fn main() -> Result<()> {
                             Some(p) => display::print_plug_detail(&r.ip, &p, &hint),
                             None => bail!("Could not parse plug sysinfo from {}", r.ip),
                         },
-                        // Tapo devices are routed via KLAP before detect_kind is called;
-                        // Unknown covers any novel Kasa type strings.
-                        DeviceKind::Tapo => {
-                            eprintln!("{}", "Unsupported device type: tapo".yellow());
-                            eprintln!("Raw sysinfo from {}:", r.ip);
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&json)
-                                    .unwrap_or_else(|_| json.to_string())
-                            );
-                        }
-                        DeviceKind::Unknown(t) => {
+                        DeviceKind::Tapo | DeviceKind::Unknown(_) => {
+                            let t = devices::detect_kind(&json).to_string();
                             eprintln!("{}", format!("Unsupported device type: {t}").yellow());
                             eprintln!("Raw sysinfo from {}:", r.ip);
                             println!(
@@ -497,17 +169,11 @@ async fn main() -> Result<()> {
             if let Some(outlet_num) = outlet {
                 require_kasa(&r, "on <outlet>")?;
                 let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json).ok_or_else(|| {
-                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
-                })?;
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
                 let child = resolve_outlet(&s, outlet_num)?;
                 ops::strip_outlet_on(&r.ip, &child.id).await?;
-                println!(
-                    "Outlet {} ({}) {}",
-                    outlet_num,
-                    child.alias,
-                    "on".green().bold()
-                );
+                println!("Outlet {} ({}) {}", outlet_num, child.alias, "on".green().bold());
             } else {
                 match r.protocol {
                     hosts::Protocol::Klap => {
@@ -516,7 +182,7 @@ async fn main() -> Result<()> {
                     }
                     hosts::Protocol::Kasa => {
                         let json = ops::sysinfo(&r.ip).await?;
-                        kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(true)).await?;
+                        kasa_exec_power(&r.ip, &devices::detect_kind(&json), &json, Some(true)).await?;
                     }
                 }
                 println!("{} {}", r.ip, "on".green().bold());
@@ -528,9 +194,8 @@ async fn main() -> Result<()> {
             if let Some(outlet_num) = outlet {
                 require_kasa(&r, "off <outlet>")?;
                 let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json).ok_or_else(|| {
-                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
-                })?;
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
                 let child = resolve_outlet(&s, outlet_num)?;
                 ops::strip_outlet_off(&r.ip, &child.id).await?;
                 println!("Outlet {} ({}) {}", outlet_num, child.alias, "off".dimmed());
@@ -542,7 +207,7 @@ async fn main() -> Result<()> {
                     }
                     hosts::Protocol::Kasa => {
                         let json = ops::sysinfo(&r.ip).await?;
-                        kasa_exec_power(&r.ip, &detect_kind(&json), &json, Some(false)).await?;
+                        kasa_exec_power(&r.ip, &devices::detect_kind(&json), &json, Some(false)).await?;
                     }
                 }
                 println!("{} {}", r.ip, "off".dimmed());
@@ -554,9 +219,8 @@ async fn main() -> Result<()> {
             if let Some(outlet_num) = outlet {
                 require_kasa(&r, "toggle <outlet>")?;
                 let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json).ok_or_else(|| {
-                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
-                })?;
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
                 let child = resolve_outlet(&s, outlet_num)?;
                 let now_on = if child.is_on() {
                     ops::strip_outlet_off(&r.ip, &child.id).await?;
@@ -565,11 +229,7 @@ async fn main() -> Result<()> {
                     ops::strip_outlet_on(&r.ip, &child.id).await?;
                     true
                 };
-                let label = if now_on {
-                    "on".green().bold()
-                } else {
-                    "off".dimmed()
-                };
+                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
                 println!("Outlet {} ({}) -> {label}", outlet_num, child.alias);
             } else {
                 let now_on = match r.protocol {
@@ -579,14 +239,10 @@ async fn main() -> Result<()> {
                     }
                     hosts::Protocol::Kasa => {
                         let json = ops::sysinfo(&r.ip).await?;
-                        kasa_exec_power(&r.ip, &detect_kind(&json), &json, None).await?
+                        kasa_exec_power(&r.ip, &devices::detect_kind(&json), &json, None).await?
                     }
                 };
-                let label = if now_on {
-                    "on".green().bold()
-                } else {
-                    "off".dimmed()
-                };
+                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
                 println!("{} -> {label}", r.ip);
             }
         }
@@ -595,8 +251,8 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "dim")?;
             let json = ops::sysinfo(&r.ip).await?;
-            let kind = detect_kind(&json);
-            can_dim(&kind)?;
+            let kind = devices::detect_kind(&json);
+            devices::can_dim(&kind)?;
             match kind {
                 DeviceKind::Bulb => {
                     // Turn on first if currently off (setting brightness while off has no visible effect)
@@ -606,7 +262,6 @@ async fn main() -> Result<()> {
                     ops::bulb_set_brightness(&r.ip, level).await?;
                 }
                 DeviceKind::Dimmer => {
-                    // Turn on first if currently off and a non-zero level was requested
                     if level > 0 && dimmer::parse(&json).is_some_and(|d| !d.is_on()) {
                         ops::relay_on(&r.ip).await?;
                     }
@@ -621,7 +276,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "color-temp")?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_set_color_temp(&detect_kind(&json))?;
+            devices::can_set_color_temp(&devices::detect_kind(&json))?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                 ops::bulb_on(&r.ip).await?;
             }
@@ -629,16 +284,11 @@ async fn main() -> Result<()> {
             println!("Color temperature -> {kelvin}K");
         }
 
-        Command::Color {
-            host,
-            hue,
-            saturation,
-            value,
-        } => {
+        Command::Color { host, hue, saturation, value } => {
             let r = resolve(&host).await?;
             require_kasa(&r, "color")?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_set_color(&detect_kind(&json))?;
+            devices::can_set_color(&devices::detect_kind(&json))?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                 ops::bulb_on(&r.ip).await?;
             }
@@ -650,11 +300,10 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "energy")?;
             let json = ops::sysinfo(&r.ip).await?;
-            let kind = detect_kind(&json);
+            let kind = devices::detect_kind(&json);
             if let Some(outlet_num) = outlet {
-                let s = strip::parse(&json).ok_or_else(|| {
-                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
-                })?;
+                let s = strip::parse(&json)
+                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
                 if !s.has_energy_monitoring() {
                     bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
                 }
@@ -663,7 +312,7 @@ async fn main() -> Result<()> {
                 println!("Outlet {} ({})", outlet_num, child.alias.bold());
                 display::print_energy_realtime(&resp);
             } else {
-                require_energy(&json, &kind)?;
+                devices::require_energy(&json, &kind)?;
                 let resp = match &kind {
                     DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(&r.ip).await?,
                     _ => ops::device_energy(&r.ip).await?,
@@ -672,18 +321,14 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::EnergyDaily {
-            host,
-            month,
-            outlet,
-        } => {
+        Command::EnergyDaily { host, month, outlet } => {
             let r = resolve(&host).await?;
             require_kasa(&r, "energy-daily")?;
             let host = r.ip;
             let month_str = match month {
                 Some(m) => m,
                 None => {
-                    let (y, m) = current_year_month();
+                    let (y, m) = fmt::current_year_month();
                     format!("{y}-{m:02}")
                 }
             };
@@ -696,9 +341,8 @@ async fn main() -> Result<()> {
             if !(1..=12).contains(&mo) {
                 bail!("Month must be 01–12, got {mo:02}");
             }
-
             let json = ops::sysinfo(&host).await?;
-            let kind = detect_kind(&json);
+            let kind = devices::detect_kind(&json);
             if let Some(outlet_num) = outlet {
                 let s = strip::parse(&json)
                     .ok_or_else(|| anyhow::anyhow!("{host} does not appear to be a power strip"))?;
@@ -710,7 +354,7 @@ async fn main() -> Result<()> {
                 println!("Outlet {} ({})", outlet_num, child.alias.bold());
                 display::print_energy_daily(&resp, &month_str);
             } else {
-                require_energy(&json, &kind)?;
+                devices::require_energy(&json, &kind)?;
                 let resp = match &kind {
                     DeviceKind::Bulb | DeviceKind::LightStrip => {
                         ops::bulb_energy_daily(&host, year, mo).await?
@@ -724,9 +368,9 @@ async fn main() -> Result<()> {
         Command::EnergyMonthly { host, year, outlet } => {
             let r = resolve(&host).await?;
             require_kasa(&r, "energy-monthly")?;
-            let year = year.unwrap_or_else(|| current_year_month().0);
+            let year = year.unwrap_or_else(|| fmt::current_year_month().0);
             let json = ops::sysinfo(&r.ip).await?;
-            let kind = detect_kind(&json);
+            let kind = devices::detect_kind(&json);
             if let Some(outlet_num) = outlet {
                 let s = strip::parse(&json).ok_or_else(|| {
                     anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
@@ -739,7 +383,7 @@ async fn main() -> Result<()> {
                 println!("Outlet {} ({})", outlet_num, child.alias.bold());
                 display::print_energy_monthly(&resp, year);
             } else {
-                require_energy(&json, &kind)?;
+                devices::require_energy(&json, &kind)?;
                 let resp = match &kind {
                     DeviceKind::Bulb | DeviceKind::LightStrip => {
                         ops::bulb_energy_monthly(&r.ip, year).await?
@@ -754,7 +398,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "specs")?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_get_specs(&detect_kind(&json))?;
+            devices::can_get_specs(&devices::detect_kind(&json))?;
             let resp = ops::bulb_specs(&r.ip).await?;
             display::print_bulb_specs(&resp);
         }
@@ -763,7 +407,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "presets")?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_get_presets(&detect_kind(&json))?;
+            devices::can_get_presets(&devices::detect_kind(&json))?;
             let resp = ops::bulb_presets(&r.ip).await?;
             display::print_bulb_presets(&resp);
         }
@@ -772,7 +416,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "schedules")?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_get_schedules(&detect_kind(&json))?;
+            devices::can_get_schedules(&devices::detect_kind(&json))?;
             let resp = ops::device_schedules(&r.ip).await?;
             display::print_schedules(&resp);
         }
@@ -781,7 +425,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "led")?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_control_led(&detect_kind(&json))?;
+            devices::can_control_led(&devices::detect_kind(&json))?;
             let on = matches!(state, LedAction::On);
             ops::device_led(&r.ip, on).await?;
             println!(
@@ -794,7 +438,7 @@ async fn main() -> Result<()> {
             let r = resolve(&host).await?;
             require_kasa(&r, "clock")?;
             let json = ops::sysinfo(&r.ip).await?;
-            can_get_clock(&detect_kind(&json))?;
+            devices::can_get_clock(&devices::detect_kind(&json))?;
             let resp = ops::device_time(&r.ip).await?;
             if let Some(t) = resp.pointer("/time/get_time") {
                 println!(
@@ -847,17 +491,9 @@ async fn main() -> Result<()> {
         }
 
         Command::Alias { name, ip, klap } => {
-            let protocol = if klap {
-                hosts::Protocol::Klap
-            } else {
-                hosts::Protocol::Kasa
-            };
+            let protocol = if klap { hosts::Protocol::Klap } else { hosts::Protocol::Kasa };
             hosts::set(&name, &ip, protocol)?;
-            let tag = if klap {
-                " (klap)".dimmed()
-            } else {
-                "".normal()
-            };
+            let tag = if klap { " (klap)".dimmed() } else { "".normal() };
             println!("Saved: {} → {}{}", name.bold(), ip, tag);
         }
 
@@ -912,116 +548,27 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use denki::cli::{Cli, Command};
     use serde_json::json;
 
     #[test]
-    fn detect_kind_separates_bulbs_and_light_strips() {
-        let bulb = json!({
-            "system": {
-                "get_sysinfo": {
-                    "mic_type": "IOT.SMARTBULB",
-                    "dev_name": "Smart Wi-Fi LED Bulb"
-                }
-            }
-        });
-        let strip = json!({
-            "system": {
-                "get_sysinfo": {
-                    "mic_type": "IOT.SMARTBULB",
-                    "dev_name": "Smart Wi-Fi Light Strip",
-                    "length": 200
-                }
-            }
-        });
-
-        assert_eq!(detect_kind(&bulb).to_string(), "bulb");
-        assert_eq!(detect_kind(&strip).to_string(), "light strip");
-    }
-
-    #[test]
-    fn detect_kind_prefers_dimmer_then_strip_then_plug() {
-        let dimmer = json!({
-            "system": {
-                "get_sysinfo": {
-                    "mic_type": "IOT.SMARTPLUGSWITCH",
-                    "dev_name": "Smart Wi-Fi Dimmer"
-                }
-            }
-        });
-        let strip = json!({
-            "system": {
-                "get_sysinfo": {
-                    "mic_type": "IOT.SMARTPLUGSWITCH",
-                    "dev_name": "Smart Wi-Fi Power Strip",
-                    "children": []
-                }
-            }
-        });
-        let plug = json!({
-            "system": {
-                "get_sysinfo": {
-                    "type": "IOT.SMARTPLUGSWITCH",
-                    "dev_name": "Smart Wi-Fi Plug"
-                }
-            }
-        });
-
-        assert_eq!(detect_kind(&dimmer).to_string(), "dimmer");
-        assert_eq!(detect_kind(&strip).to_string(), "power strip");
-        assert_eq!(detect_kind(&plug).to_string(), "plug");
-    }
-
-    #[test]
-    fn detect_kind_preserves_unknown_type() {
+    fn strip_toggle_uses_child_states_not_relay_state() {
+        // HS300 HW 2.0 omits relay_state; is_any_on() must be used instead.
         let json = json!({
-            "system": {
-                "get_sysinfo": {
-                    "mic_type": "IOT.UNKNOWN"
-                }
-            }
+            "system": { "get_sysinfo": {
+                "alias": "Test Strip", "model": "HS300(US)",
+                "hw_ver": "2.0", "sw_ver": "1.0.0", "rssi": -50,
+                "mic_type": "IOT.SMARTPLUGSWITCH",
+                "feature": "TIM:ENE",
+                "children": [
+                    { "id": "8006C2", "alias": "Outlet 1", "state": 1 },
+                    { "id": "8006C3", "alias": "Outlet 2", "state": 0 }
+                ]
+            }}
         });
-
-        let kind = detect_kind(&json);
-        assert_eq!(kind.to_string(), "unknown (IOT.UNKNOWN)");
-    }
-
-    // ── resolve() tests ───────────────────────────────────────────────────────
-    //
-    // resolve() is the single entry point for all device targeting. These tests
-    // cover the three paths: raw IP (no alias needed), saved alias, and unknown
-    // name. scan auto-saves aliases on discovery, so unknown-name errors are now
-    // rare (e.g. a typo or a device that was never scanned).
-
-    #[tokio::test]
-    async fn resolve_raw_ip_returns_kasa_protocol() {
-        let r = resolve("192.168.1.1").await.unwrap();
-        assert_eq!(r.ip, "192.168.1.1");
-        assert!(matches!(r.protocol, hosts::Protocol::Kasa));
-    }
-
-    #[tokio::test]
-    async fn resolve_unknown_name_error_mentions_ip_and_alias() {
-        // Use a name that will never be in any hosts file.
-        let err = resolve("ZZZ_no_such_device_99999").await.unwrap_err();
-        let msg = err.to_string();
-        // Error should still guide the user toward using an IP or running scan.
-        assert!(
-            msg.contains("192.168.x.x") || msg.contains("IP") || msg.contains("ip"),
-            "error should mention using an IP: {msg}"
-        );
-        assert!(
-            msg.contains("alias"),
-            "error should mention saving an alias: {msg}"
-        );
-    }
-
-    #[tokio::test]
-    async fn resolve_unknown_name_error_quotes_the_input() {
-        let err = resolve("My Nonexistent Lamp").await.unwrap_err();
-        assert!(
-            err.to_string().contains("My Nonexistent Lamp"),
-            "error should quote the unrecognized input so the user knows what failed"
-        );
+        let s = strip::parse(&json).expect("should parse");
+        assert_eq!(s.relay_state, 0, "relay_state absent → deserialized as 0");
+        assert!(s.is_any_on(), "is_any_on should be true when any child state == 1");
     }
 
     #[test]
@@ -1037,182 +584,6 @@ mod tests {
         assert!(!matches("Back Porch Reading Lamp", "coat rack"));
     }
 
-    // ── Command guard tests ───────────────────────────────────────────────────
-    //
-    // Each guard function is pure (no I/O), so we test it exhaustively here.
-    // The handlers call these before any network request, so these tests cover
-    // the routing decisions without needing a live device.
-
-    #[test]
-    fn can_control_power_accepts_bulb_plug_dimmer_strip() {
-        assert!(can_control_power(&DeviceKind::Bulb).is_ok());
-        assert!(can_control_power(&DeviceKind::Plug).is_ok());
-        assert!(can_control_power(&DeviceKind::Dimmer).is_ok());
-        assert!(can_control_power(&DeviceKind::Strip).is_ok());
-        assert!(can_control_power(&DeviceKind::LightStrip).is_err());
-        assert!(can_control_power(&DeviceKind::Unknown("IOT.SOMETHING".into())).is_err());
-    }
-
-    #[test]
-    fn can_dim_accepts_bulb_and_dimmer_only() {
-        assert!(can_dim(&DeviceKind::Bulb).is_ok());
-        assert!(can_dim(&DeviceKind::Dimmer).is_ok());
-        assert!(can_dim(&DeviceKind::LightStrip).is_err());
-        assert!(can_dim(&DeviceKind::Plug).is_err());
-        assert!(can_dim(&DeviceKind::Strip).is_err());
-        assert!(can_dim(&DeviceKind::Unknown("IOT.SOMETHING".into())).is_err());
-    }
-
-    #[test]
-    fn can_dim_error_names_the_command() {
-        let err = can_dim(&DeviceKind::Plug).unwrap_err();
-        assert!(
-            err.to_string().contains("`dim`"),
-            "error should name the command: {err}"
-        );
-    }
-
-    #[test]
-    fn can_dim_lightstrip_error_explains_namespace() {
-        let err = can_dim(&DeviceKind::LightStrip).unwrap_err();
-        assert!(err.to_string().contains("not yet supported"), "{err}");
-        assert!(err.to_string().contains("lightStrip"), "{err}");
-    }
-
-    #[test]
-    fn can_set_color_temp_accepts_bulb_only() {
-        assert!(can_set_color_temp(&DeviceKind::Bulb).is_ok());
-        assert!(can_set_color_temp(&DeviceKind::Dimmer).is_err());
-        assert!(can_set_color_temp(&DeviceKind::Plug).is_err());
-        assert!(can_set_color_temp(&DeviceKind::LightStrip).is_err());
-        assert!(can_set_color_temp(&DeviceKind::Strip).is_err());
-    }
-
-    #[test]
-    fn can_set_color_temp_error_mentions_kl135() {
-        let err = can_set_color_temp(&DeviceKind::Plug).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("`color-temp`"), "{msg}");
-        assert!(msg.contains("KL135"), "{msg}");
-    }
-
-    #[test]
-    fn can_set_color_accepts_bulb_only() {
-        assert!(can_set_color(&DeviceKind::Bulb).is_ok());
-        assert!(can_set_color(&DeviceKind::Dimmer).is_err());
-        assert!(can_set_color(&DeviceKind::Plug).is_err());
-        assert!(can_set_color(&DeviceKind::LightStrip).is_err());
-        assert!(can_set_color(&DeviceKind::Strip).is_err());
-    }
-
-    #[test]
-    fn can_get_specs_and_presets_accept_bulb_only() {
-        for kind in [
-            DeviceKind::Dimmer,
-            DeviceKind::Plug,
-            DeviceKind::Strip,
-            DeviceKind::LightStrip,
-        ] {
-            assert!(can_get_specs(&kind).is_err(), "specs should reject {kind}");
-            assert!(
-                can_get_presets(&kind).is_err(),
-                "presets should reject {kind}"
-            );
-        }
-        assert!(can_get_specs(&DeviceKind::Bulb).is_ok());
-        assert!(can_get_presets(&DeviceKind::Bulb).is_ok());
-    }
-
-    #[test]
-    fn can_get_schedules_accepts_plug_dimmer_strip() {
-        assert!(can_get_schedules(&DeviceKind::Plug).is_ok());
-        assert!(can_get_schedules(&DeviceKind::Dimmer).is_ok());
-        assert!(can_get_schedules(&DeviceKind::Strip).is_ok());
-        assert!(can_get_schedules(&DeviceKind::Bulb).is_err());
-        assert!(can_get_schedules(&DeviceKind::LightStrip).is_err());
-    }
-
-    #[test]
-    fn can_get_schedules_error_names_supported_devices() {
-        let err = can_get_schedules(&DeviceKind::Bulb).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("`schedules`"), "{msg}");
-        assert!(
-            msg.contains("KP115") || msg.contains("HS220") || msg.contains("HS300"),
-            "{msg}"
-        );
-    }
-
-    #[test]
-    fn can_control_led_accepts_plug_dimmer_and_strip() {
-        assert!(can_control_led(&DeviceKind::Plug).is_ok());
-        assert!(can_control_led(&DeviceKind::Dimmer).is_ok());
-        assert!(can_control_led(&DeviceKind::Strip).is_ok());
-        assert!(can_control_led(&DeviceKind::Bulb).is_err());
-        assert!(can_control_led(&DeviceKind::LightStrip).is_err());
-    }
-
-    #[test]
-    fn can_get_clock_accepts_plug_dimmer_strip() {
-        assert!(can_get_clock(&DeviceKind::Plug).is_ok());
-        assert!(can_get_clock(&DeviceKind::Dimmer).is_ok());
-        assert!(can_get_clock(&DeviceKind::Strip).is_ok());
-        assert!(can_get_clock(&DeviceKind::Bulb).is_err());
-        assert!(can_get_clock(&DeviceKind::LightStrip).is_err());
-    }
-
-    #[test]
-    fn require_energy_bails_when_plug_parse_fails() {
-        // Empty JSON → plug::parse returns None → must error rather than silently pass through
-        let empty = serde_json::json!({});
-        assert!(
-            require_energy(&empty, &DeviceKind::Plug).is_err(),
-            "should bail when plug sysinfo cannot be parsed"
-        );
-    }
-
-    #[test]
-    fn require_energy_bails_when_strip_parse_fails() {
-        let empty = serde_json::json!({});
-        assert!(
-            require_energy(&empty, &DeviceKind::Strip).is_err(),
-            "should bail when strip sysinfo cannot be parsed"
-        );
-    }
-
-    #[test]
-    fn strip_toggle_uses_child_states_not_relay_state() {
-        // HS300 HW 2.0 omits relay_state; is_any_on() must be used instead.
-        // Build a minimal strip sysinfo with no relay_state but one outlet on.
-        let json = serde_json::json!({
-            "system": { "get_sysinfo": {
-                "alias": "Test Strip", "model": "HS300(US)",
-                "hw_ver": "2.0", "sw_ver": "1.0.0", "rssi": -50,
-                "mic_type": "IOT.SMARTPLUGSWITCH",
-                "feature": "TIM:ENE",
-                "children": [
-                    { "id": "8006C2", "alias": "Outlet 1", "state": 1 },
-                    { "id": "8006C3", "alias": "Outlet 2", "state": 0 }
-                ]
-            }}
-        });
-        let s = strip::parse(&json).expect("should parse");
-        assert_eq!(s.relay_state, 0, "relay_state absent → deserialized as 0");
-        // relay_state is 0 (absent/defaulted) but outlet 1 is on:
-        // is_any_on() must return true; relay_state alone would give the wrong answer
-        assert!(
-            s.is_any_on(),
-            "is_any_on should be true when any child state == 1"
-        );
-        // toggle target = !is_any_on() = false → strip would be turned off
-        assert!(
-            s.is_any_on(),
-            "toggle should target off because strip is partially on"
-        );
-    }
-
-    // ── CLI parsing tests ─────────────────────────────────────────────────────
-
     #[test]
     fn on_off_toggle_parse_as_top_level_commands() {
         let on = Cli::try_parse_from(["denki", "on", "desk lamp"]).unwrap();
@@ -1227,7 +598,6 @@ mod tests {
 
     #[test]
     fn power_subcommand_no_longer_exists() {
-        // `power` was replaced by `on`/`off`/`toggle` — clap should reject it
         assert!(Cli::try_parse_from(["denki", "power", "desk lamp", "on"]).is_err());
     }
 
@@ -1319,63 +689,36 @@ mod tests {
 
     #[test]
     fn energy_monthly_with_outlet_flag() {
-        let cli =
-            Cli::try_parse_from(["denki", "energy-monthly", "strip", "--outlet", "1"]).unwrap();
+        let cli = Cli::try_parse_from(["denki", "energy-monthly", "strip", "--outlet", "1"]).unwrap();
         assert!(matches!(
             cli.command,
             Command::EnergyMonthly { ref host, outlet: Some(1), .. } if host == "strip"
         ));
     }
 
-    // ── month validation ──────────────────────────────────────────────────────
-
     #[test]
     fn energy_daily_rejects_month_zero() {
-        // mo=0 is invalid; must fail before any network I/O
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            // Simulate the month parsing path directly
-            let month_str = "2025-00".to_string();
-            let parts: Vec<&str> = month_str.split('-').collect();
-            let mo: u8 = parts[1].parse().unwrap();
-            if !(1..=12).contains(&mo) {
-                anyhow::bail!("Month must be 01–12, got {mo:02}");
-            }
-            Ok::<(), anyhow::Error>(())
-        });
-        assert!(result.is_err());
+        let month_str = "2025-00";
+        let parts: Vec<&str> = month_str.split('-').collect();
+        let mo: u8 = parts[1].parse().unwrap();
+        assert!(!(1u8..=12).contains(&mo));
     }
 
     #[test]
     fn energy_daily_rejects_month_13() {
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let month_str = "2025-13".to_string();
-            let parts: Vec<&str> = month_str.split('-').collect();
-            let mo: u8 = parts[1].parse().unwrap();
-            if !(1..=12).contains(&mo) {
-                anyhow::bail!("Month must be 01–12, got {mo:02}");
-            }
-            Ok::<(), anyhow::Error>(())
-        });
-        assert!(result.is_err());
+        let month_str = "2025-13";
+        let parts: Vec<&str> = month_str.split('-').collect();
+        let mo: u8 = parts[1].parse().unwrap();
+        assert!(!(1u8..=12).contains(&mo));
     }
 }
 
-// ── devices.toml capability tests ────────────────────────────────────────────
-//
-// devices.toml is the source of truth for what each device supports.
-// These tests go through devices::all() — the same production path used at
-// runtime — and verify it matches the can_* guards in both directions:
-//
-//   1. Every feature listed in devices.toml must be permitted by the guard.
-//   2. Every guarded feature NOT listed must be denied by the guard.
-
+// Every (model, feature) in devices.toml must pass the corresponding guard,
+// and every guarded feature NOT listed must be denied.
 #[cfg(test)]
 mod capability_tests {
-    use super::*;
-    use denki::devices;
+    use denki::devices::{self, DeviceKind};
 
-    // `DeviceEntry::kind` is now typed as `DeviceKind`, so no string parsing is needed.
-    // Tapo devices skip kind-level guards (their capability checks are protocol-level).
     fn guard_kind(kind: &DeviceKind) -> Option<&DeviceKind> {
         match kind {
             DeviceKind::Tapo => None,
@@ -1384,28 +727,20 @@ mod capability_tests {
     }
 
     const GUARDED: &[&str] = &[
-        "power",
-        "dim",
-        "color_temp",
-        "color",
-        "specs",
-        "presets",
-        "schedules",
-        "led",
-        "clock",
+        "power", "dim", "color_temp", "color", "specs", "presets", "schedules", "led", "clock",
     ];
 
     fn check(kind: &DeviceKind, feature: &str) -> anyhow::Result<()> {
         match feature {
-            "power" => can_control_power(kind),
-            "dim" => can_dim(kind),
-            "color_temp" => can_set_color_temp(kind),
-            "color" => can_set_color(kind),
-            "specs" => can_get_specs(kind),
-            "presets" => can_get_presets(kind),
-            "schedules" => can_get_schedules(kind),
-            "led" => can_control_led(kind),
-            "clock" => can_get_clock(kind),
+            "power" => devices::can_control_power(kind),
+            "dim" => devices::can_dim(kind),
+            "color_temp" => devices::can_set_color_temp(kind),
+            "color" => devices::can_set_color(kind),
+            "specs" => devices::can_get_specs(kind),
+            "presets" => devices::can_get_presets(kind),
+            "schedules" => devices::can_get_schedules(kind),
+            "led" => devices::can_control_led(kind),
+            "clock" => devices::can_get_clock(kind),
             "energy" | "outlets" => Ok(()), // runtime-checked, no static guard
             other => panic!(
                 "devices.toml: unknown feature '{other}' — add it to check() or explain \
@@ -1414,13 +749,10 @@ mod capability_tests {
         }
     }
 
-    /// Every (model, feature) in devices.toml must pass the corresponding guard.
     #[test]
     fn listed_features_are_permitted_by_guards() {
         for dev in devices::all() {
-            let Some(kind) = guard_kind(&dev.kind) else {
-                continue;
-            };
+            let Some(kind) = guard_kind(&dev.kind) else { continue };
             for feature in &dev.supports {
                 let result = check(kind, feature);
                 assert!(
@@ -1435,13 +767,10 @@ mod capability_tests {
         }
     }
 
-    /// Every guarded feature NOT listed for a device must be denied by the guard.
     #[test]
     fn unlisted_guarded_features_are_denied() {
         for dev in devices::all() {
-            let Some(kind) = guard_kind(&dev.kind) else {
-                continue;
-            };
+            let Some(kind) = guard_kind(&dev.kind) else { continue };
             for &feature in GUARDED {
                 if dev.supports.iter().any(|f| f == feature) {
                     continue;
