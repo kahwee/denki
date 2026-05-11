@@ -1,50 +1,30 @@
-//! Sysinfo types for TP-Link smart power strips (HS300, KP303).
+//! Sysinfo for TP-Link power strips (HS300, KP303).
 //!
-//! Power strips are detected by the presence of a `children` array in sysinfo.
-//! Each child represents one controllable outlet.
-//!
-//! Whole-strip on/off uses set_relay_state. HS300 HW 2.0 omits the top-level
-//! relay_state field; current power state must be derived from child outlet
-//! states via is_any_on() rather than reading relay_state directly.
-//! Individual outlets are controlled by passing a `children` array in the
-//! command with the target outlet's id and desired state.
+//! Detected by the presence of a `children` array in sysinfo.
+//! HS300 HW 2.0 omits relay_state — use is_any_on() instead of relay_state directly.
+//! HS300 HW 2.0 also uses short child IDs ("00"–"05") that need deviceId prepended.
 
 use serde::Deserialize;
 
-/// Top-level sysinfo for a TP-Link smart power strip.
 #[derive(Debug, Deserialize)]
 pub struct Strip {
-    /// Human-readable device name (alias)
     pub alias: String,
-    /// Model string, e.g. "HS300(US)"
     pub model: String,
-    /// Hardware revision
     pub hw_ver: String,
-    /// Firmware version string
     pub sw_ver: String,
-    /// Wi-Fi signal strength in dBm
     pub rssi: i32,
-    /// Master relay state: 1 = any outlet on, 0 = all off.
-    /// Absent on HS300 HW 2.0+ — state is inferred from children instead.
     #[serde(default)]
     pub relay_state: u8,
-    /// Capability flags: "TIM", "TIM:ENE"
     pub feature: Option<String>,
-    /// Individual outlet states
     #[serde(default)]
     pub children: Vec<StripChild>,
 }
 
-/// One controllable outlet on a power strip.
 #[derive(Debug, Deserialize)]
 pub struct StripChild {
-    /// Outlet identifier used for per-outlet commands
     pub id: String,
-    /// Human-readable outlet name (alias)
     pub alias: String,
-    /// Relay state: 1 = on, 0 = off
     pub state: u8,
-    /// Seconds the outlet has been on since last toggle
     #[serde(default)]
     pub on_time: u64,
 }
@@ -76,12 +56,6 @@ impl StripChild {
     }
 }
 
-/// Parse a strip from a raw sysinfo response JSON.
-/// Returns None if the sysinfo doesn't contain a `children` array.
-///
-/// HS300 HW 2.0+ returns short child IDs ("00", "01", …) rather than the full
-/// child_id expected by per-outlet commands. When the short form is detected,
-/// the `deviceId` is prepended so outlet commands work correctly on all firmware.
 pub fn parse(json: &serde_json::Value) -> Option<Strip> {
     let sysinfo = json.pointer("/system/get_sysinfo")?;
     sysinfo.get("children")?;
@@ -101,8 +75,6 @@ pub fn parse(json: &serde_json::Value) -> Option<Strip> {
 
     Some(strip)
 }
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

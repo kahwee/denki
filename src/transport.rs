@@ -1,11 +1,5 @@
-//! Network transport layer for the TP-Link Kasa legacy protocol.
-//!
-//! All devices on port 9999 use this protocol:
-//!   - Discovery: UDP broadcast to 255.255.255.255:9999, listen for responses
-//!   - Commands:  TCP connection to device_ip:9999, send/receive framed JSON
-//!
-//! Newer TP-Link devices (P125, L530, Tapo series) use a completely different
-//! KLAP protocol on port 80 with SHA256 handshake + AES encryption. Not here.
+//! Network transport for legacy Kasa devices (port 9999).
+//! Tapo/KLAP lives in klap.rs.
 
 use crate::cipher;
 use anyhow::{Context, Result};
@@ -15,13 +9,6 @@ use tokio::net::{TcpStream, UdpSocket};
 /// Port used by all legacy Kasa devices (KL135, KP115, HS series, etc.)
 const PORT: u16 = 9999;
 
-/// Send a JSON command to a device over TCP and return the decoded JSON response.
-///
-/// Each call opens a fresh TCP connection. The device closes the socket after
-/// responding, so connection reuse is not possible with this protocol.
-///
-/// Wire format (both directions):
-///   [4 bytes big-endian length] [XOR-encrypted JSON body]
 pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::Value> {
     let addr = format!("{host}:{PORT}");
     let mut stream = TcpStream::connect(&addr)
@@ -47,26 +34,12 @@ pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::
     Ok(response)
 }
 
-/// Send a UDP sysinfo broadcast and call `f` for each device response as it arrives.
+/// Broadcast a sysinfo probe and call `f` for each device as it responds.
 ///
-/// Returns the total number of valid responses received.
-/// Callers receive results immediately rather than waiting for the full timeout to elapse.
-///
-/// Important differences from TCP:
-/// - No length prefix in either direction — UDP datagrams are self-delimiting
-/// - Devices respond to the source port, so we bind an ephemeral port
-/// - Multiple devices may respond to a single broadcast; we read until timeout
-///
-/// Devices that don't respond (offline, KLAP-only) are silently skipped.
-/// Malformed responses are also silently dropped.
-///
-/// ## Broadcast strategy
-///
-/// The limited broadcast (`255.255.255.255`) is not forwarded across subnet
-/// boundaries by most routers. Devices on a specific subnet (e.g. 192.168.4.x)
-/// may only respond to the directed subnet broadcast (e.g. 192.168.4.255).
-/// We probe both to maximize coverage, and deduplicate responses by IP so a
-/// device that replies to both probes is only counted and reported once.
+/// Sends to both 255.255.255.255 and all local subnet broadcasts — some routers
+/// drop the limited broadcast, so subnet-directed ones (e.g. 192.168.4.255) are
+/// needed to reach devices on specific VLANs. Deduplicates by IP in case a device
+/// responds to both.
 pub async fn broadcast_each<F>(timeout_secs: u64, mut f: F) -> Result<usize>
 where
     F: FnMut(std::net::IpAddr, serde_json::Value),
@@ -117,8 +90,7 @@ where
     Ok(count)
 }
 
-/// Broadcast a `get_sysinfo` probe and collect all responses within `timeout_secs`.
-/// Returns a list of (IP, sysinfo JSON) pairs. Prefer `broadcast_each` when streaming output.
+/// Collect version of broadcast_each. Prefer broadcast_each when streaming output.
 pub async fn broadcast(timeout_secs: u64) -> Result<Vec<(std::net::IpAddr, serde_json::Value)>> {
     let mut results = Vec::new();
     broadcast_each(timeout_secs, |ip, json| results.push((ip, json))).await?;

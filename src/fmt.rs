@@ -1,8 +1,4 @@
-//! Shared formatting utilities.
-
-/// Format a duration in seconds as a human-readable string.
-///
-/// Examples: 0 → "0s", 90 → "1m 30s", 3661 → "1h 1m"
+/// Format seconds as "1h 2m", "3m 45s", "12s".
 pub fn duration(secs: u64) -> String {
     let h = secs / 3600;
     let m = (secs % 3600) / 60;

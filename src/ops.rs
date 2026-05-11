@@ -1,42 +1,16 @@
-//! Device operations — one function per API call, split by device type.
+//! Device operations — one function per API call, grouped by device type.
 //!
-//! All functions take a host IP string and return anyhow::Result.
-//! Callers in main.rs are responsible for detecting device type first
-//! and routing to the correct function (bulb_* vs plug_*).
-//!
-//! ── Bulb (KL135) API namespace ──────────────────────────────────────────────
-//! All lighting commands go through:
-//!   smartlife.iot.smartbulb.lightingservice / transition_light_state
-//!
-//! Energy commands use a different namespace than standard plugs:
-//!   smartlife.iot.common.emeter  (NOT the bare "emeter" module)
-//!   The bare "emeter" returns -2001 on KL135 — a common gotcha.
-//!
-//! ── Plug (KP115) API namespace ───────────────────────────────────────────────
-//! Power: system / set_relay_state  (not lightingservice)
-//! Energy: emeter  (standard module, returns V + A + W + Wh)
-//! Schedule: schedule / get_rules
-//! Time: time / get_time
-//! LED: system / set_led_off  (note: 1 = LED disabled, 0 = LED enabled — inverted)
-//!
-//! ── Shared commands ──────────────────────────────────────────────────────────
-//! Rename: system / set_dev_alias
-//! Reboot: system / reboot
+//! KL135 energy: use smartlife.iot.common.emeter, NOT bare "emeter" (that returns -2001).
+//! LED control: set_led_off with off:0 = LED on, off:1 = LED off (inverted naming).
 
 use crate::klap::KlapSession;
 use crate::transport;
 use anyhow::Result;
 use serde_json::json;
 
-// ── Universal ─────────────────────────────────────────────────────────────────
-
-/// Fetch the full system info blob. Works on all device types.
-/// Used to detect device type (mic_type) before issuing typed commands.
 pub async fn sysinfo(host: &str) -> Result<serde_json::Value> {
     transport::send(host, json!({"system": {"get_sysinfo": {}}})).await
 }
-
-// ── Bulb (KL135) — on/off ────────────────────────────────────────────────────
 
 async fn bulb_set_power(host: &str, on: bool) -> Result<()> {
     transport::send(
@@ -49,20 +23,14 @@ async fn bulb_set_power(host: &str, on: bool) -> Result<()> {
     Ok(())
 }
 
-/// Turn the bulb on. Uses transition_period: 0 for instant change.
-/// The lightingservice namespace is KL135-specific — do not use on plugs.
 pub async fn bulb_on(host: &str) -> Result<()> {
     bulb_set_power(host, true).await
 }
 
-/// Turn the bulb off.
 pub async fn bulb_off(host: &str) -> Result<()> {
     bulb_set_power(host, false).await
 }
 
-// ── Bulb (KL135) — light settings ────────────────────────────────────────────
-
-/// Set brightness 0–100. Does not change color or color temperature.
 pub async fn bulb_set_brightness(host: &str, level: u8) -> Result<()> {
     transport::send(
         host,
@@ -74,9 +42,7 @@ pub async fn bulb_set_brightness(host: &str, level: u8) -> Result<()> {
     Ok(())
 }
 
-/// Set color temperature in Kelvin (2500–9000).
-/// This puts the bulb into CCT mode. Setting hue/saturation to 0 is required
-/// to clear any previous color mode state on the device.
+/// hue/saturation must be 0 to clear any previous color mode state on the device.
 pub async fn bulb_set_color_temp(host: &str, kelvin: u16) -> Result<()> {
     transport::send(
         host,
@@ -93,11 +59,7 @@ pub async fn bulb_set_color_temp(host: &str, kelvin: u16) -> Result<()> {
     Ok(())
 }
 
-/// Set HSV color (hue 0–360, saturation 0–100, value/brightness 0–100).
-///
-/// Setting saturation > 0 activates color mode and disables CCT mode.
-/// color_temp must be set to 0 explicitly, otherwise the device may
-/// ignore the hue/saturation values on some firmware versions.
+/// color_temp must be 0 to activate color mode; some firmware ignores hue/saturation otherwise.
 pub async fn bulb_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> Result<()> {
     transport::send(
         host,
@@ -106,7 +68,7 @@ pub async fn bulb_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> 
                 "hue": hue,
                 "saturation": saturation,
                 "brightness": value,
-                "color_temp": 0, // must be 0 to activate color mode
+                "color_temp": 0,
                 "transition_period": 0
             }
         }}),
@@ -115,12 +77,6 @@ pub async fn bulb_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> 
     Ok(())
 }
 
-// ── Bulb (KL135) — info ───────────────────────────────────────────────────────
-
-/// Fetch hardware specs: beam angle, wattage, lumens, CRI, voltage range.
-/// Response path: /smartlife.iot.smartbulb.lightingservice/get_light_details
-///
-/// KL135 values: 220° beam, 10W, 60W equivalent, 800lm, CRI 90, 100–120V
 pub async fn bulb_specs(host: &str) -> Result<serde_json::Value> {
     transport::send(
         host,
@@ -129,10 +85,6 @@ pub async fn bulb_specs(host: &str) -> Result<serde_json::Value> {
     .await
 }
 
-/// Fetch the 4 saved light presets (index 0–3).
-/// Response path: /smartlife.iot.smartbulb.lightingservice/get_preferred_state/states
-///
-/// Default presets: warm white 2700K 50%, red 100%, green 100%, blue 100%
 pub async fn bulb_presets(host: &str) -> Result<serde_json::Value> {
     transport::send(
         host,
@@ -141,19 +93,7 @@ pub async fn bulb_presets(host: &str) -> Result<serde_json::Value> {
     .await
 }
 
-// ── Bulb (KL135) — energy ─────────────────────────────────────────────────────
-//
-// IMPORTANT: KL135 uses "smartlife.iot.common.emeter", NOT "emeter".
-// Using the bare "emeter" module returns: {"err_code": -2001, "err_msg": "module not support"}
-//
-// KL135 energy response is also narrower than KP115:
-//   - power_mw: current draw in milliwatts  ✓
-//   - total_wh: lifetime total in watt-hours ✓
-//   - voltage_mv: NOT present (bulb has no voltage sensor)
-//   - current_ma: NOT present (bulb has no current sensor)
-
-/// Real-time power draw from the bulb.
-/// Returns power_mw and total_wh only (no voltage or current).
+// KL135 uses smartlife.iot.common.emeter — bare "emeter" returns -2001 on bulbs.
 pub async fn bulb_energy(host: &str) -> Result<serde_json::Value> {
     transport::send(
         host,
@@ -162,9 +102,6 @@ pub async fn bulb_energy(host: &str) -> Result<serde_json::Value> {
     .await
 }
 
-/// Daily energy usage for a specific month.
-/// Response path: /smartlife.iot.common.emeter/get_daystat/day_list
-/// Each entry: {year, month, day, energy_wh}. Days with 0 usage are omitted.
 pub async fn bulb_energy_daily(host: &str, year: u16, month: u8) -> Result<serde_json::Value> {
     transport::send(
         host,
@@ -175,9 +112,6 @@ pub async fn bulb_energy_daily(host: &str, year: u16, month: u8) -> Result<serde
     .await
 }
 
-/// Monthly energy totals for a full year.
-/// Response path: /smartlife.iot.common.emeter/get_monthstat/month_list
-/// Each entry: {year, month, energy_wh}. Months with 0 usage are omitted.
 pub async fn bulb_energy_monthly(host: &str, year: u16) -> Result<serde_json::Value> {
     transport::send(
         host,
@@ -186,16 +120,7 @@ pub async fn bulb_energy_monthly(host: &str, year: u16) -> Result<serde_json::Va
     .await
 }
 
-// ── Dimmer (HS220) — brightness ──────────────────────────────────────────────
-//
-// HS220 uses a separate smartlife.iot.dimmer namespace for brightness control.
-// The bulb lightingservice namespace does NOT work on dimmers.
-//
-// Important: brightness=0 is invalid on HS220 hardware. To turn off, use
-// set_relay_state. So dimmer_set_brightness(host, 0) routes to relay_off.
-
-/// Set HS220 dimmer brightness 1–100.
-/// Sending 0 is invalid; routes to relay_off instead.
+// HS220 rejects brightness=0 — route to relay_off instead.
 pub async fn dimmer_set_brightness(host: &str, level: u8) -> Result<()> {
     if level == 0 {
         return relay_off(host).await;
@@ -208,31 +133,17 @@ pub async fn dimmer_set_brightness(host: &str, level: u8) -> Result<()> {
     Ok(())
 }
 
-// ── Relay (plugs, dimmers, strips) — on/off ───────────────────────────────────
-//
-// These functions use the standard set_relay_state command, which works on any
-// device that has a relay: plugs (KP115, HS110, HS105), dimmers (HS220), and
-// power strips (HS300, KP303). Bulbs use bulb_set_power (lightingservice) instead.
-
-/// Turn a relay-based device on (plugs, dimmers, strips).
 pub async fn relay_on(host: &str) -> Result<()> {
     transport::send(host, json!({"system": {"set_relay_state": {"state": 1}}})).await?;
     Ok(())
 }
 
-/// Turn a relay-based device off (plugs, dimmers, strips).
 pub async fn relay_off(host: &str) -> Result<()> {
     transport::send(host, json!({"system": {"set_relay_state": {"state": 0}}})).await?;
     Ok(())
 }
 
-// ── Device controls (plugs, dimmers, strips) ──────────────────────────────────
-
-/// Control the status LED indicator.
-///
-/// Note the inverted naming: the command is "set_led_off" and the field is "off".
-///   off: 0 → LED is ON  (lit)
-///   off: 1 → LED is OFF (dark)
+// set_led_off is inverted: off:0 = LED lit, off:1 = LED dark.
 pub async fn device_led(host: &str, on: bool) -> Result<()> {
     transport::send(
         host,
@@ -242,20 +153,10 @@ pub async fn device_led(host: &str, on: bool) -> Result<()> {
     Ok(())
 }
 
-// ── Device energy (plugs, dimmers, strips) ────────────────────────────────────
-//
-// Uses the standard "emeter" module. Works on any device with an energy chip
-// (KP115, HS110, HS300 with ENE feature). KL135 uses bulb_energy* instead.
-// Full response includes: current_ma, voltage_mv, power_mw, total_wh.
-
-/// Real-time energy reading. Returns current_ma, voltage_mv, power_mw, total_wh.
 pub async fn device_energy(host: &str) -> Result<serde_json::Value> {
     transport::send(host, json!({"emeter": {"get_realtime": {}}})).await
 }
 
-/// Daily energy usage for a specific month.
-/// Response path: /emeter/get_daystat/day_list
-/// Days with no usage are omitted from the list.
 pub async fn device_energy_daily(host: &str, year: u16, month: u8) -> Result<serde_json::Value> {
     transport::send(
         host,
@@ -264,35 +165,19 @@ pub async fn device_energy_daily(host: &str, year: u16, month: u8) -> Result<ser
     .await
 }
 
-/// Monthly energy totals for a full year.
-/// Response path: /emeter/get_monthstat/month_list
 pub async fn device_energy_monthly(host: &str, year: u16) -> Result<serde_json::Value> {
     transport::send(host, json!({"emeter": {"get_monthstat": {"year": year}}})).await
 }
 
-// ── Device info (plugs, dimmers, strips) ──────────────────────────────────────
-
-/// Fetch the list of schedule rules (on/off timers).
-/// Response path: /schedule/get_rules/rule_list
-/// Returns an empty list if no schedules have been configured.
 pub async fn device_schedules(host: &str) -> Result<serde_json::Value> {
     transport::send(host, json!({"schedule": {"get_rules": {}}})).await
 }
 
-/// Fetch the device's current local time.
-/// Response path: /time/get_time — {year, month, mday, hour, min, sec}
-///
-/// Not supported on bulbs — KL135 returns -2001 for time commands.
 pub async fn device_time(host: &str) -> Result<serde_json::Value> {
     transport::send(host, json!({"time": {"get_time": {}}})).await
 }
 
-// ── Strip (HS300/KP303) — per-outlet control ─────────────────────────────────
-//
-// Individual outlets are addressed via a `context.child_ids` wrapper.
-// The child_id comes from sysinfo.children[i].id (callers must fetch sysinfo
-// first to resolve the outlet number to the correct id).
-
+// Individual outlets are addressed via context.child_ids; callers resolve outlet number → child id from sysinfo.
 async fn strip_outlet_set(host: &str, child_id: &str, on: bool) -> Result<()> {
     transport::send(
         host,
@@ -305,23 +190,14 @@ async fn strip_outlet_set(host: &str, child_id: &str, on: bool) -> Result<()> {
     Ok(())
 }
 
-/// Turn on one outlet on a power strip by its child id.
 pub async fn strip_outlet_on(host: &str, child_id: &str) -> Result<()> {
     strip_outlet_set(host, child_id, true).await
 }
 
-/// Turn off one outlet on a power strip by its child id.
 pub async fn strip_outlet_off(host: &str, child_id: &str) -> Result<()> {
     strip_outlet_set(host, child_id, false).await
 }
 
-// ── Strip (HS300/KP303) — per-outlet energy ──────────────────────────────────
-//
-// Per-outlet energy uses the same emeter namespace as plugs, but wrapped in
-// context.child_ids to target a specific outlet.
-// Strip-level energy (no context) works via the device_energy* functions.
-
-/// Real-time energy for one outlet on a power strip.
 pub async fn strip_outlet_energy(host: &str, child_id: &str) -> Result<serde_json::Value> {
     transport::send(
         host,
@@ -333,7 +209,6 @@ pub async fn strip_outlet_energy(host: &str, child_id: &str) -> Result<serde_jso
     .await
 }
 
-/// Daily energy usage for one outlet.
 pub async fn strip_outlet_energy_daily(
     host: &str,
     child_id: &str,
@@ -350,7 +225,6 @@ pub async fn strip_outlet_energy_daily(
     .await
 }
 
-/// Monthly energy totals for one outlet.
 pub async fn strip_outlet_energy_monthly(
     host: &str,
     child_id: &str,
@@ -366,7 +240,6 @@ pub async fn strip_outlet_energy_monthly(
     .await
 }
 
-/// Rename one outlet on a power strip.
 pub async fn strip_outlet_rename(host: &str, child_id: &str, name: &str) -> Result<()> {
     transport::send(
         host,
@@ -379,25 +252,16 @@ pub async fn strip_outlet_rename(host: &str, child_id: &str, name: &str) -> Resu
     Ok(())
 }
 
-// ── Shared — works on all device types ───────────────────────────────────────
-
-/// Rename the device. Sets the alias shown in the Kasa app and in sysinfo.
 pub async fn rename(host: &str, name: &str) -> Result<()> {
     transport::send(host, json!({"system": {"set_dev_alias": {"alias": name}}})).await?;
     Ok(())
 }
 
-/// Reboot the device after a 1-second delay.
-/// The device will be unreachable for ~10–15 seconds while it restarts.
 pub async fn restart(host: &str) -> Result<()> {
     transport::send(host, json!({"system": {"reboot": {"delay": 1}}})).await?;
     Ok(())
 }
 
-// ── Tapo / KLAP — works on P125 and other Tapo devices ───────────────────────
-
-/// Fetch full device info from a Tapo device.
-/// Method: get_device_info (no params needed)
 pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
     session
         .send(&serde_json::to_string(
@@ -415,17 +279,14 @@ async fn tapo_set_power(session: &mut KlapSession, on: bool) -> Result<()> {
     check_tapo_error(&resp)
 }
 
-/// Turn a Tapo device on.
 pub async fn tapo_on(session: &mut KlapSession) -> Result<()> {
     tapo_set_power(session, true).await
 }
 
-/// Turn a Tapo device off.
 pub async fn tapo_off(session: &mut KlapSession) -> Result<()> {
     tapo_set_power(session, false).await
 }
 
-/// Toggle a Tapo device. Returns true if now on, false if now off.
 pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
     let info = tapo_device_info(session).await?;
     let is_on = info
@@ -441,7 +302,6 @@ pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
     }
 }
 
-/// Check for a non-zero error_code in a Tapo response.
 fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
     let code = resp.get("error_code").and_then(|v| v.as_i64()).unwrap_or(0);
     if code != 0 {

@@ -1,10 +1,5 @@
-//! Tapo account credentials — read from environment or ~/.config/denki/credentials.json.
-//!
-//! Lookup order:
-//!   1. TAPO_USER / TAPO_PASS environment variables (CI, one-off use)
-//!   2. ~/.config/denki/credentials.json (saved with `denki login`)
-//!
-//! Credentials are stored in plaintext. The file is written with mode 0600 on Unix.
+//! Tapo credentials — env vars (TAPO_USER/TAPO_PASS) take precedence over
+//! ~/.config/denki/credentials.json (written mode 0600 on Unix).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -23,7 +18,6 @@ fn creds_path() -> PathBuf {
         .join("credentials.json")
 }
 
-/// Load Tapo credentials. Environment variables take priority over the saved file.
 pub fn load() -> Result<(String, String)> {
     if let (Ok(user), Ok(pass)) = (std::env::var("TAPO_USER"), std::env::var("TAPO_PASS")) {
         return Ok((user, pass));
@@ -44,8 +38,6 @@ pub fn load() -> Result<(String, String)> {
     Ok((creds.tapo_user, creds.tapo_pass))
 }
 
-/// Save Tapo credentials to ~/.config/denki/credentials.json.
-/// Sets file permissions to 0600 on Unix so other users cannot read it.
 pub fn save(user: &str, pass: &str) -> Result<()> {
     let path = creds_path();
     if let Some(dir) = path.parent() {

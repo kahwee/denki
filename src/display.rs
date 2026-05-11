@@ -7,8 +7,6 @@ use crate::tapo::TapoDevice;
 use colored::{ColoredString, Colorize};
 use std::net::IpAddr;
 
-// ── Private helpers ───────────────────────────────────────────────────────────
-
 fn on_state(is_on: bool) -> ColoredString {
     if is_on {
         "on".green().bold()
@@ -29,12 +27,11 @@ fn header(name: &str) -> ColoredString {
     format!("== {name} ==").bold()
 }
 
-/// Trim firmware strings like "1.1.1 Build 250908 Rel.112945" to just "1.1.1".
+/// Trim "1.1.1 Build 250908 Rel.112945" → "1.1.1".
 fn short_fw(fw: &str) -> &str {
     fw.split_whitespace().next().unwrap_or(fw)
 }
 
-/// Extract Wh from a day/month energy entry.
 /// KP115/KL135 use `energy_wh` (integer Wh); HS110 uses `energy` (float kWh).
 fn wh_from(entry: &serde_json::Value) -> u64 {
     entry
@@ -72,7 +69,6 @@ fn hsv_to_rgb(h: u16, s: u8, v: u8) -> (u8, u8, u8) {
     )
 }
 
-/// Print the color temperature or RGB color line for a light state.
 fn print_light_color(ls: &LightState, indent: &str) {
     if ls.color_temp() > 0 {
         println!(
@@ -92,8 +88,6 @@ fn print_light_color(ls: &LightState, indent: &str) {
         );
     }
 }
-
-// ── Bulb display ─────────────────────────────────────────────────────────────
 
 pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     println!(
@@ -228,8 +222,6 @@ pub fn print_bulb_presets(json: &serde_json::Value) {
     }
 }
 
-// ── Plug display ─────────────────────────────────────────────────────────────
-
 pub fn print_plug_summary(ip: IpAddr, plug: &Plug, hint_alias: &str) {
     let energy_tag = if plug.has_energy_monitoring() {
         "  energy".dimmed()
@@ -284,12 +276,10 @@ pub fn print_plug_detail(ip: &str, plug: &Plug, hint_alias: &str) {
     }
     let a = hint_alias;
     let is_on = plug.is_on();
-    // Use devices.toml for model-accurate hints (HS105 omits energy; KP115 includes it).
-    // Fall back to a minimal hint if the model isn't in the registry yet.
+    // Runtime ENE flag overrides the static devices.toml entry:
+    // if the sysinfo says no energy chip, drop the energy hint.
     let hints = devices::lookup(&plug.model)
         .map(|e| {
-            // Runtime ENE flag overrides the static devices.toml entry:
-            // if the sysinfo says no energy chip, drop the energy hint.
             let mut h = devices::hints(e, a, is_on);
             if !plug.has_energy_monitoring() {
                 h.retain(|s| !s.contains("energy"));
@@ -359,20 +349,16 @@ fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
     }
 }
 
-// ── Energy display ────────────────────────────────────────────────────────────
-
 pub fn print_energy_realtime(json: &serde_json::Value) {
-    // Three possible response paths depending on device generation:
-    //   KL135 (bulb):        /smartlife.iot.common.emeter/get_realtime — milli-units (power_mw, total_wh)
-    //   KP115 (newer plug):  /emeter/get_realtime                      — milli-units (mv, ma, mw, wh)
-    //   HS110 (older plug):  /emeter/get_realtime                      — real units (V, A, W, kWh)
+    // Three possible paths:
+    //   KL135: /smartlife.iot.common.emeter/get_realtime — power_mw + total_wh only
+    //   KP115: /emeter/get_realtime — milli-unit fields (mv, ma, mw, wh)
+    //   HS110: /emeter/get_realtime — real-unit fields (V, A, W, kWh)
     let data = json
         .pointer("/emeter/get_realtime")
         .or_else(|| json.pointer("/smartlife.iot.common.emeter/get_realtime"));
 
     if let Some(d) = data {
-        // Safety net: if the device responded but reported an error (e.g. err_code -1
-        // from HS105 which has no energy chip), show a clear message instead of silence
         if d.get("err_code").and_then(|v| v.as_i64()).unwrap_or(0) != 0 {
             let msg = d
                 .get("err_msg")
@@ -382,7 +368,7 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
             return;
         }
         if d.get("power_mw").is_some() {
-            // KP115 / KL135 — milli-unit fields: power_mw, voltage_mv, current_ma, total_wh
+            // KP115 / KL135 milli-unit fields
             if let Some(mw) = d.get("power_mw").and_then(|v| v.as_f64()) {
                 println!("Power:   {:.2} W", mw / 1000.0);
             }
@@ -396,7 +382,7 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
                 println!("Total:   {} Wh", wh);
             }
         } else {
-            // HS110 (older firmware) — real-unit fields: power (W), voltage (V), current (A), total (kWh)
+            // HS110 real-unit fields
             if let Some(w) = d.get("power").and_then(|v| v.as_f64()) {
                 println!("Power:   {:.2} W", w);
             }
@@ -454,8 +440,6 @@ pub fn print_energy_monthly(json: &serde_json::Value, year: u16) {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 fn signal_label(rssi: i32) -> colored::ColoredString {
     if rssi >= -50 {
         "excellent".green()
@@ -466,7 +450,6 @@ fn signal_label(rssi: i32) -> colored::ColoredString {
     }
 }
 
-/// For scan summary lines: "signal:excellent" with the quality word colored.
 fn signal_summary(rssi: i32) -> String {
     format!("signal:{}", signal_label(rssi))
 }
@@ -485,10 +468,7 @@ fn caps_label(bulb: &Bulb) -> String {
     caps.join(", ")
 }
 
-// ── Light strip display ───────────────────────────────────────────────────────
-// Light strips share the Bulb struct (same sysinfo shape) but use the
-// smartlife.iot.lightStrip namespace instead of smartbulb.lightingservice.
-
+// Light strips share the Bulb struct but use the smartlife.iot.lightStrip namespace.
 pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     println!(
         "{} {} {} {} {}",
@@ -548,8 +528,6 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
     );
 }
 
-// ── Dimmer display ────────────────────────────────────────────────────────────
-
 pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer, hint_alias: &str) {
     println!(
         "{} {} {} {} {}",
@@ -599,8 +577,6 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer, hint_alias: &str) {
     );
 }
 
-// ── Strip display ─────────────────────────────────────────────────────────────
-
 pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
     let on_count = s.children.iter().filter(|c| c.is_on()).count();
     let total = s.children.len();
@@ -624,7 +600,6 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
         energy_tag,
     );
     println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
-    // Outlet names colored by state: on = green bold, off = dimmed
     let outlet_line = s
         .children
         .iter()
@@ -667,8 +642,6 @@ pub fn print_strip_detail(ip: &str, s: &Strip, hint_alias: &str) {
     println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
     let a = hint_alias;
-    // Start with model-derived hints from devices.toml, then append
-    // outlet-specific commands that aren't in the generic feature list.
     let mut hints = devices::lookup(&s.model)
         .map(|e| {
             let mut h = devices::hints(e, a, s.children.iter().any(|c| c.is_on()));
@@ -713,8 +686,6 @@ pub fn print_strip_outlets(s: &Strip) {
     }
 }
 
-// ── Unknown device display ────────────────────────────────────────────────────
-
 pub fn print_unknown_summary(ip: IpAddr, json: &serde_json::Value, type_str: &str) {
     let alias = json
         .pointer("/system/get_sysinfo/alias")
@@ -733,8 +704,6 @@ pub fn print_unknown_summary(ip: IpAddr, json: &serde_json::Value, type_str: &st
     println!("   {} {}", model, "— unsupported device type".dimmed());
     println!();
 }
-
-// ── Tapo device display ───────────────────────────────────────────────────────
 
 pub fn print_tapo_summary(ip: &str, d: &TapoDevice, hint_alias: &str) {
     println!(
@@ -796,8 +765,6 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    // ── short_fw ──────────────────────────────────────────────────────────────
-
     #[rstest]
     #[case("1.1.1 Build 250908 Rel.112945", "1.1.1")]
     #[case("1.0.15 Build 240429 Rel.154143", "1.0.15")]
@@ -807,8 +774,6 @@ mod tests {
     fn short_fw_strips_build_suffix(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(short_fw(input), expected);
     }
-
-    // ── hsv_to_rgb ────────────────────────────────────────────────────────────
 
     #[rstest]
     #[case(  0, 100, 100, (255,   0,   0))] // red
@@ -827,8 +792,6 @@ mod tests {
     ) {
         assert_eq!(hsv_to_rgb(h, s, v), expected, "hsv({h},{s},{v})");
     }
-
-    // ── wh_from ───────────────────────────────────────────────────────────────
 
     #[test]
     fn wh_from_integer_energy_wh() {
@@ -852,7 +815,6 @@ mod tests {
     #[test]
     fn hsv_to_rgb_kl135_purple_hue_308() {
         // hue=308 sat=65 val=100 is the default color on scanned bulbs
-        // Purple range: high red, low green, moderate-high blue
         let (r, g, b) = hsv_to_rgb(308, 65, 100);
         assert!(r > g, "expected red > green for purple: ({r},{g},{b})");
         assert!(b > g, "expected blue > green for purple: ({r},{g},{b})");

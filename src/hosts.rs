@@ -1,13 +1,7 @@
-//! Persistent device alias registry — ~/.config/denki/hosts.json
+//! Device alias registry — ~/.config/denki/hosts.json
 //!
-//! Maps friendly names to IPs and protocol type so commands auto-route
-//! to the correct transport (Kasa XOR on port 9999, or KLAP on port 80).
-//!
-//! File format (v2):
-//!   {"floor lamp": {"ip": "192.168.7.254", "protocol": "klap"}, ...}
-//!
-//! Backward compat (v1 plain strings are read as Kasa):
-//!   {"office bulb": "192.168.4.65"}
+//! v2 format: {"floor lamp": {"ip": "192.168.7.254", "protocol": "klap"}, ...}
+//! v1 compat: plain string values are read as Kasa protocol.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -85,7 +79,6 @@ fn save_map(path: &Path, map: &BTreeMap<String, HostEntry>) -> Result<()> {
     Ok(())
 }
 
-/// Normalize a name: lowercase, collapse non-alphanumeric to spaces.
 pub fn normalize(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -101,8 +94,7 @@ pub fn normalize(s: &str) -> String {
         .join(" ")
 }
 
-/// Look up a name — exact match first, then substring.
-/// Returns the HostEntry if exactly one match is found.
+/// Exact match first, then substring (only if unambiguous).
 pub fn lookup(name: &str) -> Option<HostEntry> {
     let map = load_map(&hosts_path()).ok()?;
     let needle = normalize(name);
@@ -127,7 +119,6 @@ pub fn lookup(name: &str) -> Option<HostEntry> {
     None
 }
 
-/// Save (or overwrite) a name→entry alias.
 pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
     let path = hosts_path();
     let mut map = load_map(&path)?;
@@ -141,7 +132,6 @@ pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
     save_map(&path, &map)
 }
 
-/// Remove an alias by exact name. Returns true if it existed.
 pub fn remove(name: &str) -> Result<bool> {
     let path = hosts_path();
     let mut map = load_map(&path)?;
@@ -152,7 +142,6 @@ pub fn remove(name: &str) -> Result<bool> {
     Ok(removed)
 }
 
-/// List all saved aliases sorted by name.
 pub fn list() -> Result<Vec<(String, HostEntry)>> {
     Ok(load_map(&hosts_path())?.into_iter().collect())
 }
@@ -161,14 +150,11 @@ pub fn path_display() -> String {
     hosts_path().display().to_string()
 }
 
-/// Return the saved alias name for a given IP address, if any.
 pub fn lookup_by_ip(ip: &str) -> Option<String> {
     let map = load_map(&hosts_path()).ok()?;
     map.into_iter().find(|(_, v)| v.ip == ip).map(|(k, _)| k)
 }
 
-/// Save a device alias only if its IP is not yet in hosts.json.
-/// Silently skips blank names. Returns true if the alias was saved.
 pub fn save_if_new(name: &str, ip: &str) -> Result<bool> {
     save_if_new_at(name, ip, &hosts_path())
 }
@@ -192,7 +178,6 @@ fn save_if_new_at(name: &str, ip: &str, path: &Path) -> Result<bool> {
     Ok(true)
 }
 
-/// Return all saved KLAP aliases as (name, entry) pairs.
 pub fn klap_aliases() -> Vec<(String, HostEntry)> {
     load_map(&hosts_path())
         .unwrap_or_default()
@@ -207,8 +192,6 @@ mod tests {
     use rstest::rstest;
     use tempfile::TempDir;
 
-    /// Returns a TempDir (kept alive by caller) and a path inside it.
-    /// TempDir deletes itself on drop — tests must hold it for the full scope.
     fn temp_hosts() -> (TempDir, PathBuf) {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("hosts.json");
@@ -222,8 +205,6 @@ mod tests {
         }
     }
 
-    // ── normalize ─────────────────────────────────────────────────────────────
-
     #[rstest]
     #[case("Office Bulb", "office bulb")]
     #[case("Coat-Rack Lights", "coat rack lights")]
@@ -233,8 +214,6 @@ mod tests {
     fn normalize_cases(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(normalize(input), expected);
     }
-
-    // ── load_map ──────────────────────────────────────────────────────────────
 
     #[test]
     fn load_returns_empty_when_file_missing() {
@@ -274,8 +253,6 @@ mod tests {
         assert_eq!(map["office bulb"].protocol, Protocol::Kasa);
     }
 
-    // ── save_map + load_map round-trip ────────────────────────────────────────
-
     #[test]
     fn save_and_load_preserves_kasa_and_klap_entries() {
         let (_dir, path) = temp_hosts();
@@ -308,8 +285,6 @@ mod tests {
         assert!(raw.contains('\n'));
         assert!(serde_json::from_str::<serde_json::Value>(&raw).is_ok());
     }
-
-    // ── lookup (via load_map directly, no real config dir involved) ───────────
 
     #[test]
     fn exact_match_returns_entry() {
@@ -358,8 +333,6 @@ mod tests {
         // Both match "lamp" — lookup should return None in this case
         assert_eq!(hits.len(), 2);
     }
-
-    // ── save_if_new ───────────────────────────────────────────────────────────
 
     #[test]
     fn auto_save_adds_new_device() {

@@ -57,8 +57,6 @@ mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
 
-    // ── Round-trip correctness ─────────────────────────────────────────────────
-
     #[test]
     fn encode_raw_round_trips_with_decode() {
         let plaintext = br#"{"system":{"get_sysinfo":{}}}"#;
@@ -73,8 +71,6 @@ mod tests {
         assert_eq!(len, plaintext.len());
         assert_eq!(decode(&framed[4..]), plaintext);
     }
-
-    // ── TCP vs UDP framing ─────────────────────────────────────────────────────
 
     #[test]
     fn tcp_frame_is_four_bytes_longer_than_raw() {
@@ -109,8 +105,6 @@ mod tests {
         assert_eq!(&framed[..4], &[0x00, 0x00, 0x00, 0x02]); // big-endian len = 2
         assert_eq!(&framed[4..], &[0x9A, 0xA8]);
     }
-
-    // ── Property-based tests ───────────────────────────────────────────────────
 
     proptest! {
         #[test]

@@ -1,37 +1,25 @@
-//! KLAP protocol — transport for Tapo smart devices (P125, etc.)
+//! KLAP protocol — AES-128-CBC over plain HTTP on port 80 (Tapo P125, etc.)
 //!
-//! Tapo devices on port 80 use a two-phase handshake to establish an
-//! AES-128-CBC encrypted session. All communication is over plain HTTP.
-//!
-//! Auth hash (KlapTransportV2, used by current Tapo firmware):
-//!   auth_hash = SHA256(SHA1(username) + SHA1(password))
+//! auth_hash = SHA256(SHA1(username) + SHA1(password))
 //!
 //! Handshake 1 — POST /app/handshake1:
-//!   send:    local_seed  (16 random bytes)
-//!   receive: remote_seed (16 bytes) | server_hash (32 bytes)
-//!   verify:  SHA256(local_seed + remote_seed + auth_hash) == server_hash
-//!   save:    TP_SESSIONID cookie from response headers
+//!   send 16 random bytes (local_seed); receive remote_seed | server_hash.
+//!   Verify SHA256(local_seed + remote_seed + auth_hash) == server_hash.
+//!   Save TP_SESSIONID cookie.
 //!
-//! Handshake 2 — POST /app/handshake2 (with session cookie):
-//!   send:    SHA256(remote_seed + local_seed + auth_hash)
-//!   receive: HTTP 200 on success
+//! Handshake 2 — POST /app/handshake2:
+//!   send SHA256(remote_seed + local_seed + auth_hash).
 //!
-//! Key derivation (all SHA256 over prefixed seeds):
-//!   key     = SHA256(b"lsk" + local_seed + remote_seed + auth_hash)[0..16]
-//!   iv_full = SHA256(b"iv"  + local_seed + remote_seed + auth_hash)
-//!   iv_base = iv_full[0..12]
-//!   seq     = i32::from_be_bytes(iv_full[28..32])  (initial, increments per call)
-//!   sig     = SHA256(b"ldk" + local_seed + remote_seed + auth_hash)[0..28]
+//! Key derivation:
+//!   key     = SHA256(b"lsk" + local_seed + remote_seed + auth_hash)[..16]
+//!   iv_base = SHA256(b"iv"  + local_seed + remote_seed + auth_hash)[..12]
+//!   seq     = i32::from_be_bytes(iv_full[28..32])
+//!   sig     = SHA256(b"ldk" + local_seed + remote_seed + auth_hash)[..28]
 //!
-//! Per-request encryption — POST /app/request?seq={seq}:
-//!   seq    += 1
-//!   iv      = iv_base + seq.to_be_bytes()  (16 bytes total)
-//!   cipher  = AES-128-CBC-PKCS7(key, iv, plaintext_json)
-//!   sig_tag = SHA256(sig + seq.to_be_bytes() + ciphertext)[0..32]
-//!   body    = sig_tag + ciphertext
+//! Per request: seq += 1; iv = iv_base + seq.to_be_bytes(); body = SHA256(sig+seq+cipher) + cipher.
+//! Response: skip 32-byte sig, decrypt the rest.
 //!
-//! Response decryption:
-//!   skip first 32 bytes (signature), AES-128-CBC-PKCS7 decrypt the rest
+//! Uses raw TcpStream (not reqwest) — some Tapo firmware returns 400 for standard HTTP clients.
 
 use aes::Aes128;
 use anyhow::{bail, Result};
@@ -43,13 +31,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
 
-/// Timeout for each KLAP TCP connect + read + write operation.
 const KLAP_TIMEOUT: Duration = Duration::from_secs(10);
 
 type Aes128CbcEnc = cbc::Encryptor<Aes128>;
 type Aes128CbcDec = cbc::Decryptor<Aes128>;
 
-/// An active KLAP session. Holds the derived keys and connection info.
 pub struct KlapSession {
     key: [u8; 16],
     iv_base: [u8; 12],
@@ -79,16 +65,12 @@ fn sha256_multi(parts: &[&[u8]]) -> [u8; 32] {
     h.finalize().into()
 }
 
-/// Generate the auth hash from Tapo account credentials.
-/// Uses KlapTransportV2 format: SHA256(SHA1(username) + SHA1(password))
 pub fn auth_hash(username: &str, password: &str) -> [u8; 32] {
     let un = sha1_of(username.as_bytes());
     let pw = sha1_of(password.as_bytes());
     sha256_of(&[un.as_slice(), pw.as_slice()].concat())
 }
 
-/// Read bytes from stream until the pattern `\r\n\r\n` is found.
-/// Returns all bytes read (including the separator).
 async fn read_headers(stream: &mut TcpStream) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(512);
     loop {
@@ -103,7 +85,6 @@ async fn read_headers(stream: &mut TcpStream) -> Result<Vec<u8>> {
     }
 }
 
-/// Send a raw HTTP POST over a fresh TCP connection, returns (status, headers, body).
 async fn http_post(
     host: &str,
     path: &str,
@@ -169,14 +150,12 @@ async fn http_post(
     Ok((status, headers_str, resp_body))
 }
 
-/// Perform the KLAP handshake and return a ready-to-use session.
 pub async fn handshake(host: &str, username: &str, password: &str) -> Result<KlapSession> {
     let ah = auth_hash(username, password);
 
     let mut local_seed = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut local_seed);
 
-    // ── Handshake 1 ──────────────────────────────────────────────────────────
     let (status1, headers1, body1) = http_post(host, "/app/handshake1", &[], &local_seed).await?;
     if status1 != 200 {
         bail!("Handshake 1 failed: HTTP {status1}");
@@ -212,7 +191,6 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
         bail!("Authentication failed for {host} — check TAPO_USER and TAPO_PASS");
     }
 
-    // ── Handshake 2 ──────────────────────────────────────────────────────────
     let client_proof = sha256_multi(&[&remote_seed, &local_seed, &ah]);
     let (status2, _, _) = http_post(
         host,
@@ -225,7 +203,6 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
         bail!("Handshake 2 failed: HTTP {status2}");
     }
 
-    // ── Key derivation ────────────────────────────────────────────────────────
     let key: [u8; 16] = sha256_multi(&[b"lsk", &local_seed, &remote_seed, &ah])[..16].try_into()?;
 
     let iv_full = sha256_multi(&[b"iv", &local_seed, &remote_seed, &ah]);
@@ -245,7 +222,6 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
 }
 
 impl KlapSession {
-    /// Encrypt a JSON string, POST it to the device, decrypt and return the response.
     pub async fn send(&mut self, json: &str) -> Result<serde_json::Value> {
         let (payload, seq) = self.encrypt(json.as_bytes())?;
         let path = format!("/app/request?seq={seq}");
