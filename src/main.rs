@@ -364,8 +364,16 @@ async fn main() -> Result<()> {
         Command::Scan { timeout } => {
             println!("{}", format!("Scanning network for {timeout}s...").dimmed());
             let mut kasa_count = transport::broadcast_each(timeout, |ip, json| {
+                let ip_str = ip.to_string();
+                // Auto-save new devices using their sysinfo name on first discovery.
+                if let Some(name) = json
+                    .pointer("/system/get_sysinfo/alias")
+                    .and_then(|v| v.as_str())
+                {
+                    let _ = hosts::save_if_new(name, &ip_str);
+                }
                 // Prefer the saved alias name for hints; fall back to the device's IP.
-                let hint = hosts::lookup_by_ip(&ip.to_string()).unwrap_or_else(|| ip.to_string());
+                let hint = hosts::lookup_by_ip(&ip_str).unwrap_or_else(|| ip_str.clone());
                 match detect_kind(&json) {
                     DeviceKind::Bulb => {
                         if let Some(b) = bulb::parse(&json) {
@@ -981,9 +989,8 @@ mod tests {
     //
     // resolve() is the single entry point for all device targeting. These tests
     // cover the three paths: raw IP (no alias needed), saved alias, and unknown
-    // name. The unknown-name case is the most important UX path: after `denki
-    // scan` a user sees the device's sysinfo name and may try to use it directly
-    // without first running `denki alias`.
+    // name. scan auto-saves aliases on discovery, so unknown-name errors are now
+    // rare (e.g. a typo or a device that was never scanned).
 
     #[tokio::test]
     async fn resolve_raw_ip_returns_kasa_protocol() {
@@ -997,9 +1004,7 @@ mod tests {
         // Use a name that will never be in any hosts file.
         let err = resolve("ZZZ_no_such_device_99999").await.unwrap_err();
         let msg = err.to_string();
-        // Error should tell the user they can use an IP directly — this is the
-        // key UX gap: scan shows sysinfo names, not IPs, so the path forward
-        // must be explicit.
+        // Error should still guide the user toward using an IP or running scan.
         assert!(
             msg.contains("192.168.x.x") || msg.contains("IP") || msg.contains("ip"),
             "error should mention using an IP: {msg}"
