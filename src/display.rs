@@ -95,7 +95,7 @@ fn print_light_color(ls: &LightState, indent: &str) {
 
 // ── Bulb display ─────────────────────────────────────────────────────────────
 
-pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
+pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     println!(
         "{} {} {} {}",
         header(&bulb.alias),
@@ -111,7 +111,7 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
         short_fw(&bulb.sw_ver),
     );
     print_light_color(&bulb.light_state, "   ");
-    let a = &bulb.alias;
+    let a = hint_alias;
     let action = if bulb.light_state.is_on() {
         "off"
     } else {
@@ -131,7 +131,7 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb) {
     println!();
 }
 
-pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
+pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
     println!("{}", header(&bulb.alias));
     println!("  Host:       {ip}");
     println!(
@@ -160,7 +160,7 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb) {
         );
     }
     println!("  Features:   {}", caps_label(bulb));
-    let a = &bulb.alias;
+    let a = hint_alias;
     let is_on = bulb.light_state.is_on();
     let hints = devices::lookup(&bulb.model)
         .map(|e| devices::hints(e, a, is_on))
@@ -230,7 +230,7 @@ pub fn print_bulb_presets(json: &serde_json::Value) {
 
 // ── Plug display ─────────────────────────────────────────────────────────────
 
-pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
+pub fn print_plug_summary(ip: IpAddr, plug: &Plug, hint_alias: &str) {
     let energy_tag = if plug.has_energy_monitoring() {
         "  energy".dimmed()
     } else {
@@ -253,7 +253,7 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
     if plug.is_on() {
         println!("   On for: {}", plug.on_time_fmt());
     }
-    let a = &plug.alias;
+    let a = hint_alias;
     let action = if plug.is_on() { "off" } else { "on" };
     let energy_hint = if plug.has_energy_monitoring() {
         format!("  ·  denki energy \"{a}\"")
@@ -267,7 +267,7 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug) {
     println!();
 }
 
-pub fn print_plug_detail(ip: &str, plug: &Plug) {
+pub fn print_plug_detail(ip: &str, plug: &Plug, hint_alias: &str) {
     println!("{}", header(&plug.alias));
     println!("  Host:     {ip}");
     println!("  State:    {}", on_state_detail(plug.is_on()));
@@ -282,7 +282,7 @@ pub fn print_plug_detail(ip: &str, plug: &Plug) {
     if plug.is_on() {
         println!("  On for:   {}", plug.on_time_fmt());
     }
-    let a = &plug.alias;
+    let a = hint_alias;
     let is_on = plug.is_on();
     // Use devices.toml for model-accurate hints (HS105 omits energy; KP115 includes it).
     // Fall back to a minimal hint if the model isn't in the registry yet.
@@ -489,7 +489,7 @@ fn caps_label(bulb: &Bulb) -> String {
 // Light strips share the Bulb struct (same sysinfo shape) but use the
 // smartlife.iot.lightStrip namespace instead of smartbulb.lightingservice.
 
-pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
+pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     println!(
         "{} {} {} {} {}",
         header(&bulb.alias),
@@ -505,7 +505,7 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb) {
         short_fw(&bulb.sw_ver)
     );
     print_light_color(&bulb.light_state, "   ");
-    let a = &bulb.alias;
+    let a = hint_alias;
     println!("   {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  power/color control not yet implemented for KL430").dimmed());
     println!();
 }
@@ -550,7 +550,7 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
 
 // ── Dimmer display ────────────────────────────────────────────────────────────
 
-pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
+pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer, hint_alias: &str) {
     println!(
         "{} {} {} {} {}",
         header(&d.alias),
@@ -566,7 +566,7 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
         short_fw(&d.sw_ver),
         d.brightness
     );
-    let a = &d.alias;
+    let a = hint_alias;
     let action = if d.is_on() { "off" } else { "on" };
     println!(
         "   {}",
@@ -575,7 +575,7 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer) {
     println!();
 }
 
-pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
+pub fn print_dimmer_detail(ip: &str, d: &Dimmer, hint_alias: &str) {
     println!("{} {}", header(&d.alias), "[dimmer]".dimmed());
     println!("  Host:       {ip}");
     println!("  State:      {}", on_state_detail(d.is_on()));
@@ -584,7 +584,7 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
     println!("  Firmware:   {}", d.sw_ver);
     println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
     println!("  Brightness: {}%", d.brightness);
-    let a = &d.alias;
+    let a = hint_alias;
     let is_on = d.is_on();
     let hints = devices::lookup(&d.model)
         .map(|e| devices::hints(e, a, is_on))
@@ -601,7 +601,7 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer) {
 
 // ── Strip display ─────────────────────────────────────────────────────────────
 
-pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
+pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
     let on_count = s.children.iter().filter(|c| c.is_on()).count();
     let total = s.children.len();
     let state = if on_count > 0 {
@@ -640,7 +640,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
         .collect::<Vec<_>>()
         .join("  ");
     println!("   {outlet_line}");
-    let a = &s.alias;
+    let a = hint_alias;
     let energy_hint = if s.has_energy_monitoring() {
         format!("  ·  denki energy \"{a}\" 1")
     } else {
@@ -656,7 +656,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip) {
     println!();
 }
 
-pub fn print_strip_detail(ip: &str, s: &Strip) {
+pub fn print_strip_detail(ip: &str, s: &Strip, hint_alias: &str) {
     let on_count = s.children.iter().filter(|c| c.is_on()).count();
     println!("{} {}", header(&s.alias), "[strip]".dimmed());
     println!("  Host:     {ip}");
@@ -666,7 +666,7 @@ pub fn print_strip_detail(ip: &str, s: &Strip) {
     println!("  Signal:   {} dBm  {}", s.rssi, signal_label(s.rssi));
     println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
-    let a = &s.alias;
+    let a = hint_alias;
     // Start with model-derived hints from devices.toml, then append
     // outlet-specific commands that aren't in the generic feature list.
     let mut hints = devices::lookup(&s.model)
@@ -736,23 +736,29 @@ pub fn print_unknown_summary(ip: IpAddr, json: &serde_json::Value, type_str: &st
 
 // ── Tapo device display ───────────────────────────────────────────────────────
 
-pub fn print_tapo_summary(ip: IpAddr, d: &TapoDevice) {
+pub fn print_tapo_summary(ip: &str, d: &TapoDevice, hint_alias: &str) {
     println!(
-        "{} {} {} {}",
-        header(&d.nickname),
+        "{} {} {} {} {}",
+        header(hint_alias),
+        "[tapo]".dimmed(),
         format!("[{ip}]").dimmed(),
         on_state(d.is_on()),
-        format!("signal:{}", tapo_signal_label(d.signal_level)).as_str(),
+        signal_summary(d.rssi),
     );
     println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, short_fw(&d.fw_ver));
-    let a = &d.nickname;
+    if d.is_on() && d.on_time > 0 {
+        println!("   On for: {}", crate::fmt::duration(d.on_time));
+    }
     let action = if d.is_on() { "off" } else { "on" };
-    println!("   {}", format!("→ denki {action} \"{a}\"").dimmed());
+    println!(
+        "   {}",
+        format!("→ denki {action} \"{hint_alias}\"").dimmed()
+    );
     println!();
 }
 
-pub fn print_tapo_detail(ip: &str, d: &TapoDevice) {
-    println!("{}", header(&d.nickname));
+pub fn print_tapo_detail(ip: &str, d: &TapoDevice, hint_alias: &str) {
+    println!("{}", header(hint_alias));
     println!("  Host:      {ip}");
     println!("  State:     {}", on_state_detail(d.is_on()));
     println!("  Model:     {}", d.model);
@@ -769,9 +775,11 @@ pub fn print_tapo_detail(ip: &str, d: &TapoDevice) {
     if d.overheated {
         println!("  {}", "WARNING: device overheated".red().bold());
     }
-    let a = &d.nickname;
     let action = if d.is_on() { "off" } else { "on" };
-    println!("  {}", format!("→ denki {action} \"{a}\"").dimmed());
+    println!(
+        "  {}",
+        format!("→ denki {action} \"{hint_alias}\"").dimmed()
+    );
 }
 
 fn tapo_signal_label(level: u8) -> colored::ColoredString {

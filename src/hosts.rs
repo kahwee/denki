@@ -161,6 +161,21 @@ pub fn path_display() -> String {
     hosts_path().display().to_string()
 }
 
+/// Return the saved alias name for a given IP address, if any.
+pub fn lookup_by_ip(ip: &str) -> Option<String> {
+    let map = load_map(&hosts_path()).ok()?;
+    map.into_iter().find(|(_, v)| v.ip == ip).map(|(k, _)| k)
+}
+
+/// Return all saved KLAP aliases as (name, entry) pairs.
+pub fn klap_aliases() -> Vec<(String, HostEntry)> {
+    load_map(&hosts_path())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(_, v)| v.protocol == Protocol::Klap)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -266,9 +266,11 @@ fn current_year_month() -> (u16, u8) {
 struct Resolved {
     ip: String,
     protocol: hosts::Protocol,
+    /// The saved alias name, if the input was resolved via hosts.json.
+    saved_name: Option<String>,
 }
 
-/// Resolve a name or IP to (ip, protocol).
+/// Resolve a name or IP to (ip, protocol, saved_name), printing "Using alias…" if matched.
 /// Resolution order:
 ///   1. Already an IP → Kasa (default)
 ///   2. Saved alias in hosts file → uses stored protocol
@@ -278,6 +280,7 @@ async fn resolve(input: &str) -> Result<Resolved> {
         return Ok(Resolved {
             ip: input.to_string(),
             protocol: hosts::Protocol::Kasa,
+            saved_name: None,
         });
     }
     if let Some(entry) = hosts::lookup(input) {
@@ -288,6 +291,35 @@ async fn resolve(input: &str) -> Result<Resolved> {
         return Ok(Resolved {
             ip: entry.ip,
             protocol: entry.protocol,
+            saved_name: Some(input.to_string()),
+        });
+    }
+    bail!(
+        "No device named \"{input}\" found in saved aliases.\n\
+         \n\
+         If you just ran `denki scan`, use the device IP directly:\n\
+         \x20 denki <command> 192.168.x.x\n\
+         \n\
+         To save a friendly name for next time:\n\
+         \x20 denki alias \"<name>\" <ip>"
+    )
+}
+
+/// Like `resolve` but suppresses the "Using alias…" output line.
+/// Used by `info` so the detail header isn't preceded by a redundant name echo.
+async fn resolve_quiet(input: &str) -> Result<Resolved> {
+    if input.parse::<IpAddr>().is_ok() {
+        return Ok(Resolved {
+            ip: input.to_string(),
+            protocol: hosts::Protocol::Kasa,
+            saved_name: None,
+        });
+    }
+    if let Some(entry) = hosts::lookup(input) {
+        return Ok(Resolved {
+            ip: entry.ip,
+            protocol: entry.protocol,
+            saved_name: Some(input.to_string()),
         });
     }
     bail!(
@@ -331,57 +363,76 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Scan { timeout } => {
             println!("{}", format!("Scanning network for {timeout}s...").dimmed());
-            let count = transport::broadcast_each(timeout, |ip, json| match detect_kind(&json) {
-                DeviceKind::Bulb => {
-                    if let Some(b) = bulb::parse(&json) {
-                        display::print_bulb_summary(ip, &b);
+            let mut kasa_count = transport::broadcast_each(timeout, |ip, json| {
+                // Prefer the saved alias name for hints; fall back to the device's IP.
+                let hint = hosts::lookup_by_ip(&ip.to_string()).unwrap_or_else(|| ip.to_string());
+                match detect_kind(&json) {
+                    DeviceKind::Bulb => {
+                        if let Some(b) = bulb::parse(&json) {
+                            display::print_bulb_summary(ip, &b, &hint);
+                        }
                     }
-                }
-                DeviceKind::LightStrip => {
-                    if let Some(b) = bulb::parse(&json) {
-                        display::print_lightstrip_summary(ip, &b);
+                    DeviceKind::LightStrip => {
+                        if let Some(b) = bulb::parse(&json) {
+                            display::print_lightstrip_summary(ip, &b, &hint);
+                        }
                     }
-                }
-                DeviceKind::Dimmer => {
-                    if let Some(d) = dimmer::parse(&json) {
-                        display::print_dimmer_summary(ip, &d);
+                    DeviceKind::Dimmer => {
+                        if let Some(d) = dimmer::parse(&json) {
+                            display::print_dimmer_summary(ip, &d, &hint);
+                        }
                     }
-                }
-                DeviceKind::Strip => {
-                    if let Some(s) = strip::parse(&json) {
-                        display::print_strip_summary(ip, &s);
+                    DeviceKind::Strip => {
+                        if let Some(s) = strip::parse(&json) {
+                            display::print_strip_summary(ip, &s, &hint);
+                        }
                     }
-                }
-                DeviceKind::Plug => {
-                    if let Some(p) = plug::parse(&json) {
-                        display::print_plug_summary(ip, &p);
+                    DeviceKind::Plug => {
+                        if let Some(p) = plug::parse(&json) {
+                            display::print_plug_summary(ip, &p, &hint);
+                        }
                     }
-                }
-                // Tapo devices are routed via KLAP before detect_kind is called;
-                // Unknown covers any novel Kasa type strings.
-                DeviceKind::Tapo => {
-                    display::print_unknown_summary(ip, &json, "tapo");
-                }
-                DeviceKind::Unknown(t) => {
-                    display::print_unknown_summary(ip, &json, &t);
+                    // Tapo devices use KLAP on port 80; they won't respond to this
+                    // UDP probe. Unknown covers any novel Kasa type strings.
+                    DeviceKind::Tapo => {
+                        display::print_unknown_summary(ip, &json, "tapo");
+                    }
+                    DeviceKind::Unknown(t) => {
+                        display::print_unknown_summary(ip, &json, &t);
+                    }
                 }
             })
             .await?;
-            if count == 0 {
+
+            // Probe each saved KLAP alias to include Tapo devices in the scan output.
+            for (name, entry) in hosts::klap_aliases() {
+                if let Ok(mut session) = open_tapo(&entry.ip).await {
+                    if let Ok(json) = ops::tapo_device_info(&mut session).await {
+                        if let Some(d) = tapo::parse(&json) {
+                            display::print_tapo_summary(&entry.ip, &d, &name);
+                            kasa_count += 1;
+                        }
+                    }
+                }
+            }
+
+            if kasa_count == 0 {
                 println!("No devices found.");
             } else {
-                println!("{}", format!("Found {count} device(s)").dimmed());
+                println!("{}", format!("Found {kasa_count} device(s)").dimmed());
             }
         }
 
         Command::Info { host } => {
-            let r = resolve(&host).await?;
+            // resolve_quiet suppresses "Using alias…" — the detail view already shows the name.
+            let r = resolve_quiet(&host).await?;
+            let hint = r.saved_name.as_deref().unwrap_or(&r.ip).to_string();
             match r.protocol {
                 hosts::Protocol::Klap => {
                     let mut session = open_tapo(&r.ip).await?;
                     let json = ops::tapo_device_info(&mut session).await?;
                     match tapo::parse(&json) {
-                        Some(d) => display::print_tapo_detail(&r.ip, &d),
+                        Some(d) => display::print_tapo_detail(&r.ip, &d, &hint),
                         None => bail!("Could not parse Tapo device info from {}", r.ip),
                     }
                 }
@@ -389,7 +440,7 @@ async fn main() -> Result<()> {
                     let json = ops::sysinfo(&r.ip).await?;
                     match detect_kind(&json) {
                         DeviceKind::Bulb => match bulb::parse(&json) {
-                            Some(b) => display::print_bulb_detail(&r.ip, &b),
+                            Some(b) => display::print_bulb_detail(&r.ip, &b, &hint),
                             None => bail!("Could not parse bulb sysinfo from {}", r.ip),
                         },
                         DeviceKind::LightStrip => match bulb::parse(&json) {
@@ -397,15 +448,15 @@ async fn main() -> Result<()> {
                             None => bail!("Could not parse light strip sysinfo from {}", r.ip),
                         },
                         DeviceKind::Dimmer => match dimmer::parse(&json) {
-                            Some(d) => display::print_dimmer_detail(&r.ip, &d),
+                            Some(d) => display::print_dimmer_detail(&r.ip, &d, &hint),
                             None => bail!("Could not parse dimmer sysinfo from {}", r.ip),
                         },
                         DeviceKind::Strip => match strip::parse(&json) {
-                            Some(s) => display::print_strip_detail(&r.ip, &s),
+                            Some(s) => display::print_strip_detail(&r.ip, &s, &hint),
                             None => bail!("Could not parse strip sysinfo from {}", r.ip),
                         },
                         DeviceKind::Plug => match plug::parse(&json) {
-                            Some(p) => display::print_plug_detail(&r.ip, &p),
+                            Some(p) => display::print_plug_detail(&r.ip, &p, &hint),
                             None => bail!("Could not parse plug sysinfo from {}", r.ip),
                         },
                         // Tapo devices are routed via KLAP before detect_kind is called;
