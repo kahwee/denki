@@ -114,7 +114,7 @@ pub fn hint_for(feature: &str, alias: &str) -> Option<String> {
         "dim" => Some(format!("denki dim \"{alias}\" 80")),
         "color_temp" => Some(format!("denki color-temp \"{alias}\" 2700")),
         "color" => Some(format!(
-            "denki color \"{alias}\" --hue 120 --sat 80 --val 100"
+            "denki color \"{alias}\" --hue 120 --saturation 80 --value 100"
         )),
         "energy" => Some(format!("denki energy \"{alias}\"")),
         "schedules" => Some(format!("denki schedules \"{alias}\"")),
@@ -331,5 +331,88 @@ mod tests {
         assert!(h.iter().any(|s| s.contains("color-temp")));
         assert!(h.iter().any(|s| s.contains("dim")));
         assert!(h.iter().any(|s| s.contains("color")));
+    }
+
+    // ── CLI hint round-trips ───────────────────────────────────────────────────
+    // Parse each hint_for() string through Clap to verify the generated args
+    // match the actual CLI definitions. This catches flag renames like --sat → --saturation.
+
+    fn parse_hint(hint: &str) -> Result<crate::cli::Cli, clap::Error> {
+        use clap::Parser;
+        // hint is "denki <subcommand> [args...]" — split naively on whitespace,
+        // stripping surrounding quotes from each token.
+        let args: Vec<String> = hint
+            .split_whitespace()
+            .map(|t| t.trim_matches('"').to_string())
+            .collect();
+        crate::cli::Cli::try_parse_from(args)
+    }
+
+    #[test]
+    fn hint_dim_parses() {
+        let hint = hint_for("dim", "bulb").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_color_temp_parses() {
+        let hint = hint_for("color_temp", "bulb").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_color_parses() {
+        let hint = hint_for("color", "bulb").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_energy_parses() {
+        let hint = hint_for("energy", "plug").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_schedules_parses() {
+        let hint = hint_for("schedules", "plug").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_led_parses() {
+        // hint_for produces "denki led "alias" on|off" which is not parseable as-is;
+        // led requires a concrete on or off value, so test both forms directly.
+        use clap::Parser;
+        for state in ["on", "off"] {
+            let args = ["denki", "led", "plug", state];
+            assert!(
+                crate::cli::Cli::try_parse_from(args).is_ok(),
+                "led {state} failed to parse"
+            );
+        }
+    }
+
+    #[test]
+    fn hint_clock_parses() {
+        let hint = hint_for("clock", "plug").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_outlets_parses() {
+        let hint = hint_for("outlets", "strip").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_specs_parses() {
+        let hint = hint_for("specs", "bulb").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_presets_parses() {
+        let hint = hint_for("presets", "bulb").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
     }
 }

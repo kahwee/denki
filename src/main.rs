@@ -1,239 +1,11 @@
+use denki::cli::{Cli, Command, LedAction};
 use denki::devices::DeviceKind;
 use denki::{bulb, creds, dimmer, display, hosts, klap, ops, plug, strip, tapo, transport};
 
 use anyhow::{bail, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::Parser;
 use colored::Colorize;
 use std::net::IpAddr;
-
-#[derive(Parser)]
-#[command(
-    name = "denki",
-    about = "Control TP-Link Kasa and Tapo devices from the terminal",
-    version
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Scan the network for all smart devices
-    Scan {
-        #[arg(short, long, default_value = "5")]
-        timeout: u64,
-    },
-
-    /// Show detailed info about a device
-    Info {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-    },
-
-    /// Turn a device on
-    On {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based (strips only)
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: Option<u8>,
-    },
-
-    /// Turn a device off
-    Off {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based (strips only)
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: Option<u8>,
-    },
-
-    /// Toggle a device on/off
-    Toggle {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based (strips only)
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: Option<u8>,
-    },
-
-    /// Set brightness 0-100 (KL135 bulbs and HS220 dimmers)
-    Dim {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
-        level: u8,
-    },
-
-    /// Set color temperature in Kelvin 2500-9000 (KL135 bulbs only)
-    ColorTemp {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        #[arg(value_parser = clap::value_parser!(u16).range(2500..=9000))]
-        kelvin: u16,
-    },
-
-    /// Set HSV color (KL135 bulbs only)
-    Color {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Hue 0-360°
-        #[arg(long, short = 'H', value_parser = clap::value_parser!(u16).range(0..=360))]
-        hue: u16,
-        /// Saturation 0-100%
-        #[arg(long, short = 's', value_parser = clap::value_parser!(u8).range(0..=100))]
-        saturation: u8,
-        /// Value (brightness) 0-100%
-        #[arg(long, short = 'v', value_parser = clap::value_parser!(u8).range(0..=100))]
-        value: u8,
-    },
-
-    /// Show real-time energy usage
-    Energy {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based (strips only)
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: Option<u8>,
-    },
-
-    /// Show daily energy usage for a month (YYYY-MM)
-    EnergyDaily {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Month in YYYY-MM format (defaults to current month)
-        month: Option<String>,
-        /// Outlet number, 1-based (strips only)
-        #[arg(long, short = 'o', value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: Option<u8>,
-    },
-
-    /// Show monthly energy usage for a year (bulbs, light strips, and energy-monitoring plugs)
-    EnergyMonthly {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        year: Option<u16>,
-        /// Outlet number, 1-based (strips only)
-        #[arg(long, short = 'o', value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: Option<u8>,
-    },
-
-    /// Show bulb hardware specs — lumens, wattage, CRI (bulbs only)
-    Specs {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-    },
-
-    /// Show saved light presets (bulbs only)
-    Presets {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-    },
-
-    /// Show scheduled rules (plugs, dimmers, and power strips)
-    Schedules {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-    },
-
-    /// Control the LED indicator (plugs, dimmers, and power strips)
-    Led {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        #[arg(value_enum)]
-        state: LedAction,
-    },
-
-    /// Show device clock (plugs, dimmers, and power strips)
-    Clock {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-    },
-
-    /// Rename a device
-    Rename {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        name: String,
-    },
-
-    /// Reboot a device
-    Restart {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-    },
-
-    /// List all outlets on a power strip, showing 1-based outlet numbers, names, and state (strips only)
-    Outlets {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-    },
-
-    /// Rename one outlet on a power strip (1-based outlet number)
-    OutletRename {
-        /// Device name from scan output, or an IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
-        /// Outlet number, 1-based
-        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
-        outlet: u8,
-        /// New name for the outlet
-        name: String,
-    },
-
-    /// Save a friendly name for a device IP (e.g. `denki alias "floor lamp" 192.168.7.254`)
-    Alias {
-        /// Friendly name to save
-        name: String,
-        /// IP address of the device
-        ip: String,
-        /// Mark as a Tapo device (uses KLAP protocol on port 80)
-        #[arg(long)]
-        klap: bool,
-    },
-
-    /// Remove a saved device alias
-    Unalias {
-        /// Friendly name to remove
-        name: String,
-    },
-
-    /// List all saved device aliases
-    Aliases,
-
-    /// Save Tapo account credentials to avoid setting env vars each session
-    Login {
-        /// Tapo account email address
-        email: String,
-        /// Tapo account password (omit to be prompted; never pass on command line in scripts)
-        password: Option<String>,
-    },
-}
-
-#[derive(ValueEnum, Clone)]
-enum LedAction {
-    On,
-    Off,
-}
 
 /// Classify a device from its sysinfo JSON response.
 ///
@@ -541,6 +313,17 @@ fn resolve_outlet(s: &strip::Strip, outlet: u8) -> Result<&strip::StripChild> {
     })
 }
 
+/// Fail with a clear message if the resolved device is not a Kasa device.
+///
+/// KLAP (Tapo) devices don't support the Kasa XOR protocol, so commands that
+/// depend on Kasa sysinfo must call this guard before issuing any network I/O.
+fn require_kasa(r: &Resolved, cmd: &str) -> Result<()> {
+    if r.protocol != hosts::Protocol::Kasa {
+        bail!("`{cmd}` requires Kasa protocol — save the alias without --klap");
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -653,9 +436,7 @@ async fn main() -> Result<()> {
         Command::On { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
-                if r.protocol != hosts::Protocol::Kasa {
-                    bail!("outlet control requires Kasa protocol; save the alias without --klap");
-                }
+                require_kasa(&r, "on <outlet>")?;
                 let json = ops::sysinfo(&r.ip).await?;
                 let s = strip::parse(&json).ok_or_else(|| {
                     anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
@@ -686,9 +467,7 @@ async fn main() -> Result<()> {
         Command::Off { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
-                if r.protocol != hosts::Protocol::Kasa {
-                    bail!("outlet control requires Kasa protocol; save the alias without --klap");
-                }
+                require_kasa(&r, "off <outlet>")?;
                 let json = ops::sysinfo(&r.ip).await?;
                 let s = strip::parse(&json).ok_or_else(|| {
                     anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
@@ -714,9 +493,7 @@ async fn main() -> Result<()> {
         Command::Toggle { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
-                if r.protocol != hosts::Protocol::Kasa {
-                    bail!("outlet control requires Kasa protocol; save the alias without --klap");
-                }
+                require_kasa(&r, "toggle <outlet>")?;
                 let json = ops::sysinfo(&r.ip).await?;
                 let s = strip::parse(&json).ok_or_else(|| {
                     anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
