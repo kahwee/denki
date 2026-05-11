@@ -534,6 +534,7 @@ async fn main() -> Result<()> {
 
         Command::Dim { host, level } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "dim")?;
             let json = ops::sysinfo(&r.ip).await?;
             let kind = detect_kind(&json);
             can_dim(&kind)?;
@@ -559,6 +560,7 @@ async fn main() -> Result<()> {
 
         Command::ColorTemp { host, kelvin } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "color-temp")?;
             let json = ops::sysinfo(&r.ip).await?;
             can_set_color_temp(&detect_kind(&json))?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
@@ -575,6 +577,7 @@ async fn main() -> Result<()> {
             value,
         } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "color")?;
             let json = ops::sysinfo(&r.ip).await?;
             can_set_color(&detect_kind(&json))?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
@@ -586,6 +589,7 @@ async fn main() -> Result<()> {
 
         Command::Energy { host, outlet } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "energy")?;
             let json = ops::sysinfo(&r.ip).await?;
             let kind = detect_kind(&json);
             if let Some(outlet_num) = outlet {
@@ -614,7 +618,9 @@ async fn main() -> Result<()> {
             month,
             outlet,
         } => {
-            let host = resolve(&host).await?.ip;
+            let r = resolve(&host).await?;
+            require_kasa(&r, "energy-daily")?;
+            let host = r.ip;
             let month_str = match month {
                 Some(m) => m,
                 None => {
@@ -658,6 +664,7 @@ async fn main() -> Result<()> {
 
         Command::EnergyMonthly { host, year, outlet } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "energy-monthly")?;
             let year = year.unwrap_or_else(|| current_year_month().0);
             let json = ops::sysinfo(&r.ip).await?;
             let kind = detect_kind(&json);
@@ -686,6 +693,7 @@ async fn main() -> Result<()> {
 
         Command::Specs { host } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "specs")?;
             let json = ops::sysinfo(&r.ip).await?;
             can_get_specs(&detect_kind(&json))?;
             let resp = ops::bulb_specs(&r.ip).await?;
@@ -694,6 +702,7 @@ async fn main() -> Result<()> {
 
         Command::Presets { host } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "presets")?;
             let json = ops::sysinfo(&r.ip).await?;
             can_get_presets(&detect_kind(&json))?;
             let resp = ops::bulb_presets(&r.ip).await?;
@@ -702,6 +711,7 @@ async fn main() -> Result<()> {
 
         Command::Schedules { host } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "schedules")?;
             let json = ops::sysinfo(&r.ip).await?;
             can_get_schedules(&detect_kind(&json))?;
             let resp = ops::device_schedules(&r.ip).await?;
@@ -710,6 +720,7 @@ async fn main() -> Result<()> {
 
         Command::Led { host, state } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "led")?;
             let json = ops::sysinfo(&r.ip).await?;
             can_control_led(&detect_kind(&json))?;
             let on = matches!(state, LedAction::On);
@@ -722,6 +733,7 @@ async fn main() -> Result<()> {
 
         Command::Clock { host } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "clock")?;
             let json = ops::sysinfo(&r.ip).await?;
             can_get_clock(&detect_kind(&json))?;
             let resp = ops::device_time(&r.ip).await?;
@@ -739,19 +751,23 @@ async fn main() -> Result<()> {
         }
 
         Command::Rename { host, name } => {
-            let host = resolve(&host).await?.ip;
-            ops::rename(&host, &name).await?;
+            let r = resolve(&host).await?;
+            require_kasa(&r, "rename")?;
+            ops::rename(&r.ip, &name).await?;
             println!("Renamed to \"{}\"", name.bold());
         }
 
         Command::Restart { host } => {
-            let host = resolve(&host).await?.ip;
-            ops::restart(&host).await?;
-            println!("{} rebooting...", host);
+            let r = resolve(&host).await?;
+            require_kasa(&r, "restart")?;
+            ops::restart(&r.ip).await?;
+            println!("{} rebooting...", r.ip);
         }
 
         Command::Outlets { host } => {
-            let host = resolve(&host).await?.ip;
+            let r = resolve(&host).await?;
+            require_kasa(&r, "outlets")?;
+            let host = r.ip;
             let json = ops::sysinfo(&host).await?;
             match strip::parse(&json) {
                 Some(s) => display::print_strip_outlets(&s),
@@ -761,6 +777,7 @@ async fn main() -> Result<()> {
 
         Command::OutletRename { host, outlet, name } => {
             let r = resolve(&host).await?;
+            require_kasa(&r, "outlet-rename")?;
             let json = ops::sysinfo(&r.ip).await?;
             let s = strip::parse(&json)
                 .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;

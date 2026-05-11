@@ -118,7 +118,7 @@ pub fn hint_for(feature: &str, alias: &str) -> Option<String> {
         )),
         "energy" => Some(format!("denki energy \"{alias}\"")),
         "schedules" => Some(format!("denki schedules \"{alias}\"")),
-        "led" => Some(format!("denki led \"{alias}\" on|off")),
+        "led" => Some(format!("denki led \"{alias}\" on")),
         "clock" => Some(format!("denki clock \"{alias}\"")),
         "outlets" => Some(format!("denki outlets \"{alias}\"")),
         "specs" => Some(format!("denki specs \"{alias}\"")),
@@ -380,16 +380,8 @@ mod tests {
 
     #[test]
     fn hint_led_parses() {
-        // hint_for produces "denki led "alias" on|off" which is not parseable as-is;
-        // led requires a concrete on or off value, so test both forms directly.
-        use clap::Parser;
-        for state in ["on", "off"] {
-            let args = ["denki", "led", "plug", state];
-            assert!(
-                crate::cli::Cli::try_parse_from(args).is_ok(),
-                "led {state} failed to parse"
-            );
-        }
+        let hint = hint_for("led", "plug").unwrap();
+        assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
     }
 
     #[test]
@@ -414,5 +406,19 @@ mod tests {
     fn hint_presets_parses() {
         let hint = hint_for("presets", "bulb").unwrap();
         assert!(parse_hint(&hint).is_ok(), "hint failed to parse: {hint}");
+    }
+
+    #[test]
+    fn hint_outlet_rename_parses() {
+        use clap::Parser;
+        let args = ["denki", "outlet-rename", "strip", "2", "NAS"];
+        assert!(crate::cli::Cli::try_parse_from(args).is_ok());
+    }
+
+    #[test]
+    fn hint_for_unknown_feature_returns_none() {
+        assert!(hint_for("nonexistent", "x").is_none());
+        assert!(hint_for("power", "x").is_none());
+        assert!(hint_for("", "x").is_none());
     }
 }
