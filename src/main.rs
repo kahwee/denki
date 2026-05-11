@@ -39,10 +39,11 @@ async fn kasa_exec_power(
                 == 0
         }
     });
-    if matches!(kind, DeviceKind::Bulb) {
-        if on { ops::bulb_on(ip).await? } else { ops::bulb_off(ip).await? }
-    } else {
-        if on { ops::relay_on(ip).await? } else { ops::relay_off(ip).await? }
+    match (kind, on) {
+        (DeviceKind::Bulb, true) => ops::bulb_on(ip).await?,
+        (DeviceKind::Bulb, false) => ops::bulb_off(ip).await?,
+        (_, true) => ops::relay_on(ip).await?,
+        (_, false) => ops::relay_off(ip).await?,
     }
     Ok(on)
 }
@@ -128,7 +129,8 @@ async fn main() -> Result<()> {
                 }
                 hosts::Protocol::Kasa => {
                     let json = ops::sysinfo(&r.ip).await?;
-                    match devices::detect_kind(&json) {
+                    let kind = devices::detect_kind(&json);
+                    match kind {
                         DeviceKind::Bulb => match bulb::parse(&json) {
                             Some(b) => display::print_bulb_detail(&r.ip, &b, &hint),
                             None => bail!("Could not parse bulb sysinfo from {}", r.ip),
@@ -150,8 +152,7 @@ async fn main() -> Result<()> {
                             None => bail!("Could not parse plug sysinfo from {}", r.ip),
                         },
                         DeviceKind::Tapo | DeviceKind::Unknown(_) => {
-                            let t = devices::detect_kind(&json).to_string();
-                            eprintln!("{}", format!("Unsupported device type: {t}").yellow());
+                            eprintln!("{}", format!("Unsupported device type: {kind}").yellow());
                             eprintln!("Raw sysinfo from {}:", r.ip);
                             println!(
                                 "{}",

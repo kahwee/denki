@@ -2,40 +2,28 @@
 
 `denki` is a command-line tool for controlling TP-Link Kasa and Tapo devices over your local network — no cloud required.
 
-*denki* means “electricity” in Japanese.
-
-## Why this repo exists
-
-This project is intentionally small, local-network-first, and easy to extend. The core ideas are:
-
-- fast control of smart devices from the terminal
-- clear device capability checks before sending requests
-- support for both classic Kasa/XOR and newer Tapo/KLAP devices
-- a clean split between protocol code, device parsing, and CLI orchestration
+*denki* means "electricity" in Japanese.
 
 ## What works today
 
-### Verified support
+### Verified on real hardware
 
 - **KL135 smart bulbs** — power, dimming, color temperature, HSV color, energy, specs, presets
 - **KP115 smart plugs** — power, energy, schedules, clock, LED
 - **HS110 smart plugs** — power, energy, schedules, clock, LED
-- **HS105 smart plugs** — power, schedules, clock, LED; no energy chip
-- **P125 / P125M Tapo plugs** — info and power through a saved `--klap` alias
+- **HS105 smart plugs** — power, schedules, clock, LED (no energy chip)
+- **HS300 power strips** — info, outlet listing, per-outlet power/energy, outlet rename, LED, schedules, clock
+- **P125 / P125M Tapo plugs** — info and power via KLAP
 
 ### Partial support
 
-- **KL430 light strips** — scan/info plus energy monitoring; power/color control not yet implemented
-- **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
-- **HS300 / KP303 power strips** — info, outlet listing, per-outlet power control, per-outlet energy, outlet rename, LED, schedules, and clock for ENE-capable models
+- **KL430 light strips** — scan/info and energy; power/color not yet implemented
+- **HS220 dimmers** — info, power, dimming, schedules, LED, clock
+- **KP303 power strips** — same feature set as HS300
 
-> **Energy note:** KL135 reports `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`). All use the same `energy` command.
-
-Devices listed above have been tested on real hardware.
+> **Energy note:** KL135 reports `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports `voltage`, `current`, `power`. All use the same `energy` command.
 
 ## Quick start
-
-### Build
 
 ```bash
 git clone https://github.com/kahwee/denki.git
@@ -44,13 +32,9 @@ cargo build --release
 ./target/release/denki --help
 ```
 
-### Install
-
 ```bash
 cargo install --path .
 ```
-
-That installs the binary to `~/.cargo/bin/denki`.
 
 ### Common commands
 
@@ -65,7 +49,7 @@ denki color-temp "desk lamp" 2700
 denki color "desk lamp" --hue 275 --sat 50 --val 80
 ```
 
-### Energy and power strip commands
+### Energy
 
 ```bash
 denki energy "desk plug"
@@ -73,26 +57,22 @@ denki energy-daily "desk plug" 2025-03
 denki energy-monthly "desk plug" 2025
 ```
 
+### Power strips
+
 ```bash
-denki outlets "power strip"
-denki on "power strip" 2
-denki off "power strip" 2
-denki toggle "power strip" 2
-denki energy "power strip" 2
-denki energy-daily "power strip" --outlet 2 2025-03
-denki energy-monthly "power strip" --outlet 2 2025
-denki outlet-rename "power strip" 2 "Coffee Maker"
+denki outlets "garage strip"
+denki on "garage strip" 2
+denki off "garage strip" 2
+denki toggle "garage strip" 2
+denki energy "garage strip" 2
+denki energy-daily "garage strip" --outlet 2 2025-03
+denki energy-monthly "garage strip" --outlet 2 2025
+denki outlet-rename "garage strip" 2 "Coffee Maker"
 ```
 
-Notes:
+Outlet numbers are `1`-based and match the order shown by `outlets`. Omit the outlet number to target the whole strip.
 
-- `outlets` shows the strip's outlet numbers, names, and on/off state.
-- Outlet numbers are `1`-based and match the order shown by `outlets`.
-- Omit the outlet number to target the whole strip; include it to target one outlet.
-- Per-outlet energy commands only work on strips with the `ENE` feature flag.
-- `outlet-rename` changes the name shown by `outlets` and `info`.
-
-### Tapo setup
+### Tapo devices
 
 ```bash
 export TAPO_USER="you@example.com"
@@ -103,66 +83,52 @@ denki info "tapo plug"
 denki on "tapo plug"
 ```
 
-Or save credentials locally:
+Or save credentials locally with `denki login`.
 
-```bash
-denki login "you@example.com" "your-tapo-password"
-```
+## Architecture
 
-## Developer notes
+| File | Purpose |
+|------|---------|
+| `src/main.rs` | CLI entry point — command dispatch and device-type routing |
+| `src/cli.rs` | clap command definitions |
+| `src/resolve.rs` | Device name/IP resolution, outlet lookup, protocol guards |
+| `src/devices.rs` | Capability registry (`devices.toml`), `detect_kind`, command guards |
+| `src/ops.rs` | All API calls — `bulb_*`, `relay_*`, `device_*`, `strip_*`, `tapo_*` |
+| `src/transport.rs` | Kasa TCP `send()` and UDP `broadcast_each()` |
+| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP) / `encode_raw` (UDP) |
+| `src/klap.rs` | KLAP handshake and AES-128-CBC session for Tapo devices |
+| `src/hosts.rs` | Alias registry — friendly names → IP + protocol, stored as JSON |
+| `src/creds.rs` | Tapo credential load/save |
+| `src/fmt.rs` | Shared formatting helpers |
+| `src/bulb.rs` | KL135/KL430 sysinfo parsing |
+| `src/plug.rs` | KP115/HS110/HS105 sysinfo parsing |
+| `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
+| `src/strip.rs` | HS300/KP303 power strip sysinfo and per-outlet state |
+| `src/tapo.rs` | Tapo `get_device_info` response parsing |
+| `src/display.rs` | Colored terminal output |
+| `src/lib.rs` | Library re-exports |
 
-This repo is a good fit for local-network device development because it has a narrow scope and a strong test surface.
+`src/resolve.rs` is binary-only (not part of the library API). All other `src/` files except `main.rs` are exported as library modules.
 
-### Architecture at a glance
+### How to extend
 
-- `src/main.rs` — CLI, command dispatch, device-type detection
-- `src/cipher.rs` — XOR autokey cipher helpers
-- `src/transport.rs` — Kasa TCP/UDP transport
-- `src/klap.rs` — Tapo handshake and encrypted session
-- `src/hosts.rs` — alias storage and lookup
-- `src/creds.rs` — Tapo credential loading/saving
-- `src/fmt.rs` — shared formatting helpers
-- `src/bulb.rs` — bulb-specific parsing
-- `src/plug.rs` — plug-specific parsing
-- `src/dimmer.rs` — HS220 dimmer parsing
-- `src/strip.rs` — power strip parsing and outlet control
-- `src/tapo.rs` — Tapo device info parsing
-- `src/ops.rs` — device operations
-- `src/display.rs` — terminal output formatting
-- `src/lib.rs` — library exports
-
-### How to extend it
-
-- add the protocol/request in `src/ops.rs`
-- add or update the parser in the matching device module
-- gate the CLI command with the right device-kind check in `src/main.rs`
-- update the README and inline docs together so behavior and help text stay aligned
-- add a regression test for the CLI parser or device-kind guard when possible
+1. Add the protocol/request in `src/ops.rs`
+2. Add or update the parser in the matching device module
+3. Add the device to `devices.toml` with its supported features
+4. Gate the CLI command with the right `devices::can_*` guard in `src/main.rs`
+5. Update the README and inline docs together
 
 ## Protocol notes
 
-### Kasa (legacy)
+### Kasa (legacy) — port 9999
 
-Classic Kasa devices use TCP port `9999` with an XOR autokey cipher:
+XOR autokey cipher. Key starts at `171`; each output byte is `input XOR previous_output_byte`. TCP adds a 4-byte big-endian length prefix; UDP does not.
 
-- the key starts at `171`
-- each output byte is `input XOR previous_output_byte`
-- TCP adds a 4-byte big-endian length prefix before the ciphertext
-- UDP discovery uses the same cipher without the length prefix
+### KLAP (Tapo) — port 80
 
-### KLAP (Tapo)
-
-Tapo devices use a two-step handshake over plain HTTP on port `80`:
-
-1. `POST /app/handshake1` with 16 random bytes
-2. `POST /app/handshake2` with the client proof
-3. `POST /app/request?seq=N` for encrypted requests
-
-`denki` uses raw `tokio::net::TcpStream` rather than a higher-level HTTP client because some Tapo firmware rejects standard clients.
+Two-step handshake over plain HTTP, then AES-128-CBC for all requests. Uses raw `tokio::net::TcpStream` because some Tapo firmware rejects standard HTTP clients.
 
 ## Library usage
-
-`denki` can also be used as a library from another Rust project:
 
 ```toml
 [dependencies]
@@ -174,23 +140,20 @@ use denki::{klap, ops};
 
 let json = ops::sysinfo("192.168.1.42").await?;
 let mut session = klap::handshake("192.168.1.50", "user@example.com", "pass").await?;
-let info = ops::tapo_device_info(&mut session).await?;
 ops::tapo_on(&mut session).await?;
 ```
 
-## Limitations
+## Not implemented
 
-- energy monitoring for Tapo devices
-- away mode (`anti_theft`) rule creation
-- countdown timer creation
-- schedule creation and deletion
-- firmware updates
-- KL430 light-strip control/effects routing
-- strip-level energy monitoring for HS300/KP303 on non-ENE models
+- Energy monitoring for Tapo devices (P125 doesn't expose emeter locally)
+- Away mode (`anti_theft`) and countdown timer creation
+- Schedule creation and deletion
+- Firmware updates
+- KL430 light-strip power/color/effects control
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, checks, and contribution rules.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## License
 

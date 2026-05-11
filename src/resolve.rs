@@ -9,38 +9,29 @@ use std::net::IpAddr;
 pub struct Resolved {
     pub ip: String,
     pub protocol: hosts::Protocol,
-    /// The saved alias name, if the input was resolved via hosts.json.
     pub saved_name: Option<String>,
 }
 
-const NOT_FOUND_HINT: &str = "No device named \"{input}\" found in saved aliases.\n\
-     \n\
-     If you just ran `denki scan`, use the device IP directly:\n\
-     \x20 denki <command> 192.168.x.x\n\
-     \n\
-     To save a friendly name for next time:\n\
-     \x20 denki alias \"<name>\" <ip>";
+fn not_found(input: &str) -> anyhow::Error {
+    anyhow::anyhow!(
+        "No device named \"{}\" found in saved aliases.\n\
+         \n\
+         If you just ran `denki scan`, use the device IP directly:\n\
+         \x20 denki <command> 192.168.x.x\n\
+         \n\
+         To save a friendly name for next time:\n\
+         \x20 denki alias \"<name>\" <ip>",
+        input
+    )
+}
 
+/// Resolve a name or IP, printing "Using alias…" if matched.
 pub async fn resolve(input: &str) -> Result<Resolved> {
-    if input.parse::<IpAddr>().is_ok() {
-        return Ok(Resolved {
-            ip: input.to_string(),
-            protocol: hosts::Protocol::Kasa,
-            saved_name: None,
-        });
+    let r = resolve_quiet(input).await?;
+    if let Some(name) = &r.saved_name {
+        println!("{}", format!("Using alias \"{name}\" [{}]", r.ip).dimmed());
     }
-    if let Some(entry) = hosts::lookup(input) {
-        println!(
-            "{}",
-            format!("Using alias \"{input}\" [{}]", entry.ip).dimmed()
-        );
-        return Ok(Resolved {
-            ip: entry.ip,
-            protocol: entry.protocol,
-            saved_name: Some(input.to_string()),
-        });
-    }
-    bail!(NOT_FOUND_HINT.replace("{input}", input))
+    Ok(r)
 }
 
 /// Like `resolve` but suppresses the "Using alias…" line.
@@ -60,7 +51,7 @@ pub async fn resolve_quiet(input: &str) -> Result<Resolved> {
             saved_name: Some(input.to_string()),
         });
     }
-    bail!(NOT_FOUND_HINT.replace("{input}", input))
+    Err(not_found(input))
 }
 
 /// Resolve a 1-based outlet number to the matching StripChild.
@@ -136,15 +127,23 @@ mod tests {
 
     #[test]
     fn require_kasa_allows_kasa_protocol() {
-        let r = Resolved { ip: "1.2.3.4".into(), protocol: hosts::Protocol::Kasa, saved_name: None };
+        let r = kasa("1.2.3.4");
         assert!(require_kasa(&r, "energy").is_ok());
     }
 
     #[test]
     fn require_kasa_rejects_klap_protocol() {
-        let r = Resolved { ip: "1.2.3.4".into(), protocol: hosts::Protocol::Klap, saved_name: None };
+        let r = klap("1.2.3.4");
         let err = require_kasa(&r, "energy").unwrap_err();
         assert!(err.to_string().contains("`energy`"), "{err}");
+    }
+
+    fn kasa(ip: &str) -> Resolved {
+        Resolved { ip: ip.into(), protocol: hosts::Protocol::Kasa, saved_name: None }
+    }
+
+    fn klap(ip: &str) -> Resolved {
+        Resolved { ip: ip.into(), protocol: hosts::Protocol::Klap, saved_name: None }
     }
 
     fn make_strip(n: usize) -> strip::Strip {

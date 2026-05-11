@@ -1,19 +1,13 @@
-//! denki — TP-Link smart device library
-//!
-//! Core modules are public so downstream crates can drive Kasa and Tapo
-//! devices without going through the CLI.
-//!
-//! # Quick start
+//! denki — TP-Link Kasa and Tapo device library.
 //!
 //! ```rust,no_run
-//! use denki::{klap, ops, transport};
+//! use denki::{klap, ops};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     // Tapo device via KLAP
 //!     let mut session = klap::handshake("192.168.7.254", "user@example.com", "pass").await?;
 //!     ops::tapo_on(&mut session).await?;
-//!
 //!     // Legacy Kasa device via XOR
 //!     ops::relay_on("192.168.4.23").await?;
 //!     Ok(())
