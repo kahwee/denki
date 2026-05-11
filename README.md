@@ -21,7 +21,7 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 - **KP115 smart plugs** — power, energy, schedules, clock, LED
 - **HS110 smart plugs** — power, energy, schedules, clock, LED
 - **HS105 smart plugs** — power, schedules, clock, LED; no energy chip
-- **P125 / P125M Tapo plugs** — experimental info and power through a saved `--klap` alias
+- **P125 / P125M Tapo plugs** — info and power through a saved `--klap` alias
 
 ### Partial support
 

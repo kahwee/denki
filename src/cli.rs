@@ -96,7 +96,7 @@ pub enum Command {
         value: u8,
     },
 
-    /// Show real-time energy usage
+    /// Show real-time energy usage (bulbs, light strips, and ENE-capable plugs/strips)
     Energy {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -106,7 +106,7 @@ pub enum Command {
         outlet: Option<u8>,
     },
 
-    /// Show daily energy usage for a month (YYYY-MM)
+    /// Show daily energy usage for a month (YYYY-MM) on bulbs, light strips, and ENE-capable plugs/strips
     EnergyDaily {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -118,7 +118,7 @@ pub enum Command {
         outlet: Option<u8>,
     },
 
-    /// Show monthly energy usage for a year (bulbs, light strips, and energy-monitoring plugs)
+    /// Show monthly energy usage for a year on bulbs, light strips, and ENE-capable plugs/strips
     EnergyMonthly {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -166,7 +166,7 @@ pub enum Command {
         host: String,
     },
 
-    /// Rename a device
+    /// Rename a Kasa device
     Rename {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -174,7 +174,7 @@ pub enum Command {
         name: String,
     },
 
-    /// Reboot a device
+    /// Reboot a Kasa device
     Restart {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]

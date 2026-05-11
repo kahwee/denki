@@ -118,9 +118,9 @@ denki toggle <device> [N]                         Toggle (Kasa + Tapo); N = outl
 denki dim <device> <0-100>                        Brightness — KL135 bulbs + HS220 dimmers
 denki color-temp <device> <2500-9000>             Color temperature in Kelvin — KL135 bulbs only
 denki color <device> -H <hue> -s <sat> -v <val>  HSV color — KL135 bulbs only
-denki energy <device> [N]                         Real-time power usage — bulbs + ENE-capable plugs; N = outlet (strips)
-denki energy-daily <device> [YYYY-MM] [-o N]      Daily energy stats; -o = outlet (strips)
-denki energy-monthly <device> [YYYY] [-o N]       Monthly energy stats; -o = outlet (strips)
+denki energy <device> [N]                         Real-time power usage — bulbs + ENE-capable plugs/strips; N = outlet (strips)
+denki energy-daily <device> [YYYY-MM] [-o N]      Daily energy stats — bulbs + ENE-capable plugs/strips; -o = outlet (strips)
+denki energy-monthly <device> [YYYY] [-o N]       Monthly energy stats — bulbs + ENE-capable plugs/strips; -o = outlet (strips)
 denki specs <device>                              Hardware specs — KL135 bulbs only
 denki presets <device>                            Saved light presets — KL135 bulbs only
 denki schedules <device>                          Schedule rules — plugs, dimmers, strips
@@ -128,8 +128,8 @@ denki led <device> on|off                         LED indicator — plugs, dimme
 denki clock <device>                              Device clock — plugs, dimmers, strips
 denki outlets <device>                            Per-outlet state — strips only
 denki outlet-rename <device> <N> <name>           Rename one outlet — strips only
-denki rename <device> <name>                      Rename device (all types)
-denki restart <device>                            Reboot device (all types)
+denki rename <device> <name>                      Rename device (Kasa only)
+denki restart <device>                            Reboot device (Kasa only)
 denki alias <name> <ip> [--klap]                  Save a friendly name for a device
 denki unalias <name>                              Remove a saved alias
 denki aliases                                     List all saved aliases

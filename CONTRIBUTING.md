@@ -16,7 +16,7 @@ cargo clippy -- -D warnings
 ## Development workflow
 
 1. Make a small, focused change.
-2. Update the README and inline docs when behavior changes.
+2. Update the README, `src/cli.rs` help text, and inline docs when behavior changes.
 3. Add or update tests for parser or CLI behavior.
 4. Run the checks above before opening a PR.
 
@@ -39,6 +39,7 @@ cargo clippy -- -D warnings
 If you change command names, supported devices, or output format, update:
 
 - `README.md`
+- `src/cli.rs` clap help text
 - relevant inline doc comments in `src/`
 - any examples in `CLAUDE.md` if they are affected
 
