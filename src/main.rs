@@ -12,7 +12,7 @@ use std::net::IpAddr;
 /// Newer devices use `mic_type`; older devices (HS110, HS105, etc.) use `type`.
 /// Detection order for plug-type devices matters:
 ///   1. "Dimmer" in dev_name → Dimmer (HS220)
-///   2. `children` array present → Strip (HS300, KP303, KP400)
+///   2. `children` array present → Strip (HS300, KP303)
 ///   3. Otherwise → Plug
 ///
 /// For bulb-type devices:

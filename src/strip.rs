@@ -1,4 +1,4 @@
-//! Sysinfo types for TP-Link smart power strips (HS300, KP303, KP400).
+//! Sysinfo types for TP-Link smart power strips (HS300, KP303).
 //!
 //! Power strips are detected by the presence of a `children` array in sysinfo.
 //! Each child represents one controllable outlet.
