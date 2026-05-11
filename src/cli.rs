@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 
 #[derive(Parser)]
 #[command(
@@ -213,6 +214,13 @@ pub enum Command {
 
     /// List all saved device aliases
     Aliases,
+
+    /// Print shell completions to stdout (pipe to your shell's completions dir)
+    #[command(hide = true)]
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 
     /// Save Tapo account credentials to avoid setting env vars each session
     Login {

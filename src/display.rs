@@ -349,6 +349,42 @@ fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
     }
 }
 
+/// Extract energy fields into plain strings for testing and display.
+/// Returns lines like "Power:   5.40 W" without color.
+fn format_energy_lines(d: &serde_json::Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    if d.get("power_mw").is_some() {
+        // KP115 / KL135 milli-unit fields
+        if let Some(mw) = d.get("power_mw").and_then(|v| v.as_f64()) {
+            lines.push(format!("Power:   {:.2} W", mw / 1000.0));
+        }
+        if let Some(mv) = d.get("voltage_mv").and_then(|v| v.as_f64()) {
+            lines.push(format!("Voltage: {:.1} V", mv / 1000.0));
+        }
+        if let Some(ma) = d.get("current_ma").and_then(|v| v.as_f64()) {
+            lines.push(format!("Current: {:.3} A", ma / 1000.0));
+        }
+        if let Some(wh) = d.get("total_wh").and_then(|v| v.as_u64()) {
+            lines.push(format!("Total:   {} Wh", wh));
+        }
+    } else {
+        // HS110 real-unit fields
+        if let Some(w) = d.get("power").and_then(|v| v.as_f64()) {
+            lines.push(format!("Power:   {:.2} W", w));
+        }
+        if let Some(v) = d.get("voltage").and_then(|v| v.as_f64()) {
+            lines.push(format!("Voltage: {:.1} V", v));
+        }
+        if let Some(a) = d.get("current").and_then(|v| v.as_f64()) {
+            lines.push(format!("Current: {:.3} A", a));
+        }
+        if let Some(kwh) = d.get("total").and_then(|v| v.as_f64()) {
+            lines.push(format!("Total:   {:.3} kWh", kwh));
+        }
+    }
+    lines
+}
+
 pub fn print_energy_realtime(json: &serde_json::Value) {
     // Three possible paths:
     //   KL135: /smartlife.iot.common.emeter/get_realtime — power_mw + total_wh only
@@ -367,34 +403,8 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
             println!("{}", format!("Energy not supported: {msg}").yellow());
             return;
         }
-        if d.get("power_mw").is_some() {
-            // KP115 / KL135 milli-unit fields
-            if let Some(mw) = d.get("power_mw").and_then(|v| v.as_f64()) {
-                println!("Power:   {:.2} W", mw / 1000.0);
-            }
-            if let Some(mv) = d.get("voltage_mv").and_then(|v| v.as_f64()) {
-                println!("Voltage: {:.1} V", mv / 1000.0);
-            }
-            if let Some(ma) = d.get("current_ma").and_then(|v| v.as_f64()) {
-                println!("Current: {:.3} A", ma / 1000.0);
-            }
-            if let Some(wh) = d.get("total_wh").and_then(|v| v.as_u64()) {
-                println!("Total:   {} Wh", wh);
-            }
-        } else {
-            // HS110 real-unit fields
-            if let Some(w) = d.get("power").and_then(|v| v.as_f64()) {
-                println!("Power:   {:.2} W", w);
-            }
-            if let Some(v) = d.get("voltage").and_then(|v| v.as_f64()) {
-                println!("Voltage: {:.1} V", v);
-            }
-            if let Some(a) = d.get("current").and_then(|v| v.as_f64()) {
-                println!("Current: {:.3} A", a);
-            }
-            if let Some(kwh) = d.get("total").and_then(|v| v.as_f64()) {
-                println!("Total:   {:.3} kWh", kwh);
-            }
+        for line in format_energy_lines(d) {
+            println!("{line}");
         }
     } else {
         println!(
@@ -764,6 +774,51 @@ fn tapo_signal_label(level: u8) -> colored::ColoredString {
 mod tests {
     use super::*;
     use rstest::rstest;
+    use serde_json::json;
+
+    // ── format_wday ──────────────────────────────────────────────────────────
+
+    fn wday(bits: &[u8]) -> Vec<serde_json::Value> {
+        bits.iter().map(|&b| json!(b)).collect()
+    }
+
+    #[rstest]
+    #[case(None, "every day")]
+    #[case(Some(&[1u8,0,0,0,0,0,0][..]), "Sun")]
+    #[case(Some(&[0,1,0,0,0,0,0][..]), "Mon")]
+    #[case(Some(&[0,0,0,0,0,1,0][..]), "Fri")]
+    #[case(Some(&[0,1,0,1,0,1,0][..]), "Mon Wed Fri")]
+    #[case(Some(&[1,1,1,1,1,1,1][..]), "every day")]
+    #[case(Some(&[0,0,0,0,0,0,0][..]), "no days")]
+    fn format_wday_cases(#[case] bits: Option<&[u8]>, #[case] expected: &str) {
+        let v = bits.map(wday);
+        assert_eq!(format_wday(v.as_ref()), expected);
+    }
+
+    // ── format_energy_lines ──────────────────────────────────────────────────
+
+    #[test]
+    fn energy_lines_kp115_all_fields() {
+        let d = json!({
+            "power_mw": 5400.0, "voltage_mv": 120100.0,
+            "current_ma": 45.0, "total_wh": 12345
+        });
+        insta::assert_snapshot!(format_energy_lines(&d).join("\n"));
+    }
+
+    #[test]
+    fn energy_lines_hs110_all_fields() {
+        let d = json!({
+            "power": 5.4, "voltage": 120.1, "current": 0.045, "total": 12.345
+        });
+        insta::assert_snapshot!(format_energy_lines(&d).join("\n"));
+    }
+
+    #[test]
+    fn energy_lines_kl135_power_and_total_only() {
+        let d = json!({"power_mw": 9000.0, "total_wh": 500});
+        insta::assert_snapshot!(format_energy_lines(&d).join("\n"));
+    }
 
     #[rstest]
     #[case("1.1.1 Build 250908 Rel.112945", "1.1.1")]

@@ -1,0 +1,6 @@
+---
+source: src/display.rs
+expression: "format_energy_lines(&d).join(\"\\n\")"
+---
+Power:   9.00 W
+Total:   500 Wh

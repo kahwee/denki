@@ -44,7 +44,7 @@ pub async fn resolve_quiet(input: &str) -> Result<Resolved> {
             saved_name: None,
         });
     }
-    if let Some(entry) = hosts::lookup(input) {
+    if let Some(entry) = hosts::lookup(input)? {
         return Ok(Resolved {
             ip: entry.ip,
             protocol: entry.protocol,

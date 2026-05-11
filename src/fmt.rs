@@ -19,6 +19,10 @@ pub fn current_year_month() -> (u16, u8) {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() / 86400)
         .unwrap_or(0) as i64;
+    year_month_from_days(days)
+}
+
+fn year_month_from_days(days: i64) -> (u16, u8) {
     let z = days + 719468;
     let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
     let doe = z - era * 146097;
@@ -55,5 +59,15 @@ mod tests {
         let (year, month) = current_year_month();
         assert!(year >= 2024, "year should be 2024 or later, got {year}");
         assert!((1..=12).contains(&month), "month should be 1–12, got {month}");
+    }
+
+    #[rstest]
+    #[case(0, (1970, 1))]     // Unix epoch = Jan 1, 1970
+    #[case(365, (1971, 1))]   // Jan 1, 1971 (1970 is not a leap year)
+    #[case(19723, (2024, 1))] // Jan 1, 2024
+    #[case(19782, (2024, 2))] // Feb 29, 2024 (2024 leap day)
+    #[case(20089, (2025, 1))] // Jan 1, 2025
+    fn year_month_from_days_known_dates(#[case] days: i64, #[case] expected: (u16, u8)) {
+        assert_eq!(year_month_from_days(days), expected);
     }
 }

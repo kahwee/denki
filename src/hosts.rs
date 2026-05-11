@@ -94,29 +94,41 @@ pub fn normalize(s: &str) -> String {
         .join(" ")
 }
 
-/// Exact match first, then substring (only if unambiguous).
-pub fn lookup(name: &str) -> Option<HostEntry> {
-    let map = load_map(&hosts_path()).ok()?;
+/// Exact match first, then substring. Returns Err if the query is ambiguous.
+pub fn lookup(name: &str) -> anyhow::Result<Option<HostEntry>> {
+    let map = load_map(&hosts_path())?;
+    lookup_in(name, &map)
+}
+
+fn lookup_in(
+    name: &str,
+    map: &std::collections::BTreeMap<String, HostEntry>,
+) -> anyhow::Result<Option<HostEntry>> {
     let needle = normalize(name);
 
-    // Exact match
-    for (k, v) in &map {
+    for (k, v) in map {
         if normalize(k) == needle {
-            return Some(v.clone());
+            return Ok(Some(v.clone()));
         }
     }
 
-    // Substring match (only if unambiguous)
-    let hits: Vec<_> = map
-        .values()
-        .zip(map.keys())
-        .filter(|(_, k)| normalize(k).contains(&needle))
-        .map(|(v, _)| v.clone())
-        .collect();
-    if hits.len() == 1 {
-        return Some(hits[0].clone());
+    if needle.is_empty() {
+        return Ok(None);
     }
-    None
+
+    let hits: Vec<(&String, &HostEntry)> = map
+        .iter()
+        .filter(|(k, _)| normalize(k).contains(&needle))
+        .collect();
+
+    match hits.len() {
+        0 => Ok(None),
+        1 => Ok(Some(hits[0].1.clone())),
+        _ => {
+            let names: Vec<&str> = hits.iter().map(|(k, _)| k.as_str()).collect();
+            anyhow::bail!("\"{}\" is ambiguous — matches: {}", name, names.join(", "))
+        }
+    }
 }
 
 pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
@@ -288,50 +300,41 @@ mod tests {
 
     #[test]
     fn exact_match_returns_entry() {
-        let (_dir, path) = temp_hosts();
         let mut map = BTreeMap::new();
         map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
-        save_map(&path, &map).unwrap();
-
-        let loaded = load_map(&path).unwrap();
-        let needle = normalize("floor lamp");
-        let found = loaded.iter().find(|(k, _)| normalize(k) == needle);
-        assert!(found.is_some());
+        let found = lookup_in("floor lamp", &map).unwrap();
+        assert_eq!(found.unwrap().ip, "10.0.0.1");
     }
 
     #[test]
-    fn substring_match_is_unambiguous_when_only_one_entry_matches() {
-        let (_dir, path) = temp_hosts();
-        let mut map = BTreeMap::new();
-        map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
-        map.insert("ceiling fan".to_string(), entry("10.0.0.2", Protocol::Kasa));
-        save_map(&path, &map).unwrap();
-
-        let loaded = load_map(&path).unwrap();
-        let needle = normalize("floor");
-        let hits: Vec<_> = loaded
-            .keys()
-            .filter(|k| normalize(k).contains(&needle))
-            .collect();
-        assert_eq!(hits.len(), 1);
-    }
-
-    #[test]
-    fn ambiguous_substring_matches_multiple_entries() {
-        let (_dir, path) = temp_hosts();
+    fn ambiguous_match_returns_err_with_both_names() {
         let mut map = BTreeMap::new();
         map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
         map.insert("desk lamp".to_string(), entry("10.0.0.2", Protocol::Kasa));
-        save_map(&path, &map).unwrap();
 
-        let loaded = load_map(&path).unwrap();
-        let needle = normalize("lamp");
-        let hits: Vec<_> = loaded
-            .keys()
-            .filter(|k| normalize(k).contains(&needle))
-            .collect();
-        // Both match "lamp" — lookup should return None in this case
-        assert_eq!(hits.len(), 2);
+        let err = lookup_in("lamp", &map).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("ambiguous"), "{msg}");
+        assert!(msg.contains("floor lamp"), "{msg}");
+        assert!(msg.contains("desk lamp"), "{msg}");
+    }
+
+    #[test]
+    fn unambiguous_substring_returns_entry() {
+        let mut map = BTreeMap::new();
+        map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
+        map.insert("ceiling fan".to_string(), entry("10.0.0.2", Protocol::Kasa));
+
+        let found = lookup_in("floor", &map).unwrap();
+        assert_eq!(found.unwrap().ip, "10.0.0.1");
+    }
+
+    #[test]
+    fn unknown_name_returns_none() {
+        let mut map = BTreeMap::new();
+        map.insert("floor lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
+
+        assert!(lookup_in("kitchen", &map).unwrap().is_none());
     }
 
     #[test]

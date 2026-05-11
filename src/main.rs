@@ -6,7 +6,8 @@ use denki::{bulb, creds, dimmer, display, fmt, hosts, klap, ops, plug, strip, ta
 use resolve::{require_kasa, resolve, resolve_outlet, resolve_quiet};
 
 use anyhow::{bail, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 use colored::Colorize;
 
 async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
@@ -14,17 +15,10 @@ async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
     klap::handshake(ip, &user, &pass).await
 }
 
-// Execute on/off/toggle on a Kasa device using an already-fetched sysinfo blob.
-// target_on: Some(true) = on, Some(false) = off, None = toggle (inverts current state).
-// Strip: relay_state is absent on HS300 HW 2.0 — derive from child outlet states instead.
-async fn kasa_exec_power(
-    ip: &str,
-    kind: &DeviceKind,
-    json: &serde_json::Value,
-    target_on: Option<bool>,
-) -> Result<bool> {
-    devices::can_control_power(kind)?;
-    let on = target_on.unwrap_or_else(|| match kind {
+/// Returns the target on/off state when toggling: true = turn on, false = turn off.
+/// Strip: relay_state is absent on HS300 HW 2.0 — derive from child outlet states instead.
+fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
+    match kind {
         DeviceKind::Bulb => {
             json.pointer("/system/get_sysinfo/light_state/on_off")
                 .and_then(|v| v.as_u64())
@@ -38,7 +32,19 @@ async fn kasa_exec_power(
                 .unwrap_or(0)
                 == 0
         }
-    });
+    }
+}
+
+// Execute on/off/toggle on a Kasa device using an already-fetched sysinfo blob.
+// target_on: Some(true) = on, Some(false) = off, None = toggle (inverts current state).
+async fn kasa_exec_power(
+    ip: &str,
+    kind: &DeviceKind,
+    json: &serde_json::Value,
+    target_on: Option<bool>,
+) -> Result<bool> {
+    devices::can_control_power(kind)?;
+    let on = target_on.unwrap_or_else(|| toggle_target(kind, json));
     match (kind, on) {
         (DeviceKind::Bulb, true) => ops::bulb_on(ip).await?,
         (DeviceKind::Bulb, false) => ops::bulb_off(ip).await?,
@@ -57,12 +63,11 @@ async fn main() -> Result<()> {
             println!("{}", format!("Scanning network for {timeout}s...").dimmed());
             let mut kasa_count = transport::broadcast_each(timeout, |ip, json| {
                 let ip_str = ip.to_string();
-                if let Some(name) = json
+                let is_new = json
                     .pointer("/system/get_sysinfo/alias")
                     .and_then(|v| v.as_str())
-                {
-                    let _ = hosts::save_if_new(name, &ip_str);
-                }
+                    .map(|name| hosts::save_if_new(name, &ip_str).unwrap_or(false))
+                    .unwrap_or(false);
                 let hint = hosts::lookup_by_ip(&ip_str).unwrap_or_else(|| ip_str.clone());
                 match devices::detect_kind(&json) {
                     DeviceKind::Bulb => {
@@ -93,6 +98,9 @@ async fn main() -> Result<()> {
                     // Tapo devices use KLAP on port 80 and won't respond to UDP probe.
                     DeviceKind::Tapo => display::print_unknown_summary(ip, &json, "tapo"),
                     DeviceKind::Unknown(t) => display::print_unknown_summary(ip, &json, &t),
+                }
+                if is_new {
+                    println!("{}", "  ↳ (new) alias auto-saved".dimmed());
                 }
             })
             .await?;
@@ -541,6 +549,10 @@ async fn main() -> Result<()> {
                 "(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)"
             );
         }
+
+        Command::Completions { shell } => {
+            generate(shell, &mut Cli::command(), "denki", &mut std::io::stdout());
+        }
     }
 
     Ok(())
@@ -551,6 +563,56 @@ mod tests {
     use super::*;
     use denki::cli::{Cli, Command};
     use serde_json::json;
+
+    #[test]
+    fn toggle_target_bulb_on_returns_false() {
+        let json = json!({"system": {"get_sysinfo": {"light_state": {"on_off": 1}}}});
+        assert!(!toggle_target(&DeviceKind::Bulb, &json));
+    }
+
+    #[test]
+    fn toggle_target_bulb_off_returns_true() {
+        let json = json!({"system": {"get_sysinfo": {"light_state": {"on_off": 0}}}});
+        assert!(toggle_target(&DeviceKind::Bulb, &json));
+    }
+
+    #[test]
+    fn toggle_target_plug_on_returns_false() {
+        let json = json!({"system": {"get_sysinfo": {"relay_state": 1}}});
+        assert!(!toggle_target(&DeviceKind::Plug, &json));
+    }
+
+    #[test]
+    fn toggle_target_plug_off_returns_true() {
+        let json = json!({"system": {"get_sysinfo": {"relay_state": 0}}});
+        assert!(toggle_target(&DeviceKind::Plug, &json));
+    }
+
+    #[test]
+    fn toggle_target_strip_any_on_returns_false() {
+        let json = json!({
+            "system": {"get_sysinfo": {
+                "alias": "Strip", "model": "HS300(US)",
+                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -40, "feature": "TIM",
+                "children": [{"id": "A1", "alias": "Outlet 1", "state": 1},
+                             {"id": "A2", "alias": "Outlet 2", "state": 0}]
+            }}
+        });
+        assert!(!toggle_target(&DeviceKind::Strip, &json));
+    }
+
+    #[test]
+    fn toggle_target_strip_all_off_returns_true() {
+        let json = json!({
+            "system": {"get_sysinfo": {
+                "alias": "Strip", "model": "HS300(US)",
+                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -40, "feature": "TIM",
+                "children": [{"id": "A1", "alias": "Outlet 1", "state": 0},
+                             {"id": "A2", "alias": "Outlet 2", "state": 0}]
+            }}
+        });
+        assert!(toggle_target(&DeviceKind::Strip, &json));
+    }
 
     #[test]
     fn strip_toggle_uses_child_states_not_relay_state() {
