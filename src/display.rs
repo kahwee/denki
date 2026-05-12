@@ -593,7 +593,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
     let state = if on_count > 0 {
         format!("{on_count}/{total} on").green().bold()
     } else {
-        "all off".dimmed().to_string().normal()
+        "all off".dimmed()
     };
     let energy_tag = if s.has_energy_monitoring() {
         "  energy".dimmed()

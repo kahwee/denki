@@ -61,14 +61,19 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Scan { timeout } => {
             println!("{}", format!("Scanning network for {timeout}s...").dimmed());
-            let mut kasa_count = transport::broadcast_each(timeout, |ip, json| {
+            let mut host_map = hosts::load().unwrap_or_default();
+            let mut map_dirty = false;
+            let mut device_count = transport::broadcast_each(timeout, |ip, json| {
                 let ip_str = ip.to_string();
                 let is_new = json
                     .pointer("/system/get_sysinfo/alias")
                     .and_then(|v| v.as_str())
-                    .map(|name| hosts::save_if_new(name, &ip_str).unwrap_or(false))
+                    .map(|name| hosts::save_if_new_in(name, &ip_str, &mut host_map))
                     .unwrap_or(false);
-                let hint = hosts::lookup_by_ip(&ip_str).unwrap_or_else(|| ip_str.clone());
+                if is_new {
+                    map_dirty = true;
+                }
+                let hint = hosts::lookup_by_ip_in(&ip_str, &host_map).unwrap_or_else(|| ip_str.clone());
                 match devices::detect_kind(&json) {
                     DeviceKind::Bulb => {
                         if let Some(b) = bulb::parse(&json) {
@@ -104,22 +109,35 @@ async fn main() -> Result<()> {
                 }
             })
             .await?;
+            if map_dirty {
+                hosts::save(&host_map)?;
+            }
 
-            for (name, entry) in hosts::klap_aliases() {
-                if let Ok(mut session) = open_tapo(&entry.ip).await {
-                    if let Ok(json) = ops::tapo_device_info(&mut session).await {
-                        if let Some(d) = tapo::parse(&json) {
-                            display::print_tapo_summary(&entry.ip, &d, &name);
-                            kasa_count += 1;
-                        }
-                    }
+            let klap_aliases: Vec<(String, hosts::HostEntry)> = host_map
+                .into_iter()
+                .filter(|(_, v)| v.protocol == hosts::Protocol::Klap)
+                .collect();
+            let mut join_set = tokio::task::JoinSet::new();
+            for (name, entry) in klap_aliases {
+                join_set.spawn(async move {
+                    let ip = entry.ip;
+                    let mut session = open_tapo(&ip).await.ok()?;
+                    let json = ops::tapo_device_info(&mut session).await.ok()?;
+                    let d = tapo::parse(&json)?;
+                    Some((ip, name, d))
+                });
+            }
+            while let Some(result) = join_set.join_next().await {
+                if let Ok(Some((ip, name, d))) = result {
+                    display::print_tapo_summary(&ip, &d, &name);
+                    device_count += 1;
                 }
             }
 
-            if kasa_count == 0 {
+            if device_count == 0 {
                 println!("No devices found.");
             } else {
-                println!("{}", format!("Found {kasa_count} device(s)").dimmed());
+                println!("{}", format!("Found {device_count} device(s)").dimmed());
             }
         }
 

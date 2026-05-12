@@ -198,6 +198,37 @@ pub fn klap_aliases() -> Vec<(String, HostEntry)> {
         .collect()
 }
 
+/// Load the full host map from disk.
+pub fn load() -> Result<std::collections::BTreeMap<String, HostEntry>> {
+    load_map(&hosts_path())
+}
+
+/// Save the full host map to disk.
+pub fn save(map: &std::collections::BTreeMap<String, HostEntry>) -> Result<()> {
+    save_map(&hosts_path(), map)
+}
+
+/// Insert name→ip (Kasa) into `map` if no entry for that IP exists. Returns true if inserted.
+pub fn save_if_new_in(
+    name: &str,
+    ip: &str,
+    map: &mut std::collections::BTreeMap<String, HostEntry>,
+) -> bool {
+    if name.is_empty() || map.values().any(|v| v.ip == ip) {
+        return false;
+    }
+    map.insert(name.to_string(), HostEntry { ip: ip.to_string(), protocol: Protocol::Kasa });
+    true
+}
+
+/// Return the alias name for a given IP, if one exists in `map`.
+pub fn lookup_by_ip_in(
+    ip: &str,
+    map: &std::collections::BTreeMap<String, HostEntry>,
+) -> Option<String> {
+    map.iter().find(|(_, v)| v.ip == ip).map(|(k, _)| k.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
