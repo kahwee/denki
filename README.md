@@ -115,29 +115,35 @@ This repo is a good fit for local-network device development because it has a na
 
 ### Architecture at a glance
 
-- `src/main.rs` — CLI, command dispatch, device-type detection
-- `src/cipher.rs` — XOR autokey cipher helpers
-- `src/transport.rs` — Kasa TCP/UDP transport
-- `src/klap.rs` — Tapo handshake and encrypted session
-- `src/hosts.rs` — alias storage and lookup
-- `src/creds.rs` — Tapo credential loading/saving
-- `src/fmt.rs` — shared formatting helpers
-- `src/bulb.rs` — bulb-specific parsing
-- `src/plug.rs` — plug-specific parsing
-- `src/dimmer.rs` — HS220 dimmer parsing
-- `src/strip.rs` — power strip parsing and outlet control
-- `src/tapo.rs` — Tapo device info parsing
-- `src/ops.rs` — device operations
-- `src/display.rs` — terminal output formatting
-- `src/lib.rs` — library exports
+| File | Purpose |
+|------|---------|
+| `src/main.rs` | Command dispatch and async runtime entry point |
+| `src/cli.rs` | Clap argument definitions for all subcommands |
+| `src/resolve.rs` | Device name/IP resolution; `require_kasa` protocol guard |
+| `src/devices.rs` | `DeviceKind`, `detect_kind`, capability guards (`can_*`), `devices.toml` registry |
+| `src/cipher.rs` | XOR autokey cipher: `encode` (TCP, length-prefixed) / `encode_raw` (UDP) |
+| `src/transport.rs` | Kasa TCP `send()` and UDP `broadcast_each()` |
+| `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
+| `src/hosts.rs` | Alias registry — maps friendly names to IP + protocol, stored as JSON |
+| `src/creds.rs` | Tapo credentials from env vars or `denki login` |
+| `src/fmt.rs` | Shared formatting helpers |
+| `src/bulb.rs` | KL135/KL430 sysinfo parsing |
+| `src/plug.rs` | Plug sysinfo parsing + ENE feature detection |
+| `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
+| `src/strip.rs` | HS300/KP303 power strip sysinfo + per-outlet state |
+| `src/tapo.rs` | Tapo `get_device_info` response parsing |
+| `src/ops.rs` | All API calls — `bulb_set_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
+| `src/display.rs` | Colored terminal output for all device types |
+| `src/lib.rs` | Library re-exports |
 
 ### How to extend it
 
-- add the protocol/request in `src/ops.rs`
-- add or update the parser in the matching device module
-- gate the CLI command with the right device-kind check in `src/main.rs`
-- update the README and inline docs together so behavior and help text stay aligned
-- add a regression test for the CLI parser or device-kind guard when possible
+- add the API call in `src/ops.rs`
+- add or update the parser in the matching device module (`bulb.rs`, `plug.rs`, etc.)
+- add a capability guard in `src/devices.rs` and wire it in `src/main.rs`
+- update `devices.toml` to reflect the new capability
+- update the README and inline docs so behavior and help text stay aligned
+- add a regression test for the parser or capability guard
 
 ## Protocol notes
 

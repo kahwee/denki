@@ -1,6 +1,6 @@
 # CLAUDE.md — denki
 
-Rust CLI for controlling TP-Link Kasa and Tapo smart devices over the local network.
+Rust CLI for controlling TP-Link Kasa and Tapo smart devices over the local network. No cloud required.
 
 ## Build & Run
 
@@ -10,121 +10,166 @@ cargo build --release
 ./target/release/denki --help
 ```
 
-## Project Structure
+## Source Files
 
 | File | Purpose |
 |------|---------|
-| `src/main.rs` | CLI (clap) — subcommand definitions, device-type detection, command dispatch |
-| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, length-prefixed) / `encode_raw` (UDP) |
-| `src/transport.rs` | TCP `send()` + UDP `broadcast_each()` / `broadcast()` for Kasa devices |
-| `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
-| `src/hosts.rs` | Alias registry — maps friendly names → IP + protocol, stored as JSON |
-| `src/creds.rs` | Tapo credentials from env vars or `denki login` |
-| `src/fmt.rs` | Shared formatting helpers (duration, etc.) |
-| `src/bulb.rs` | KL135/KL430 sysinfo parsing |
-| `src/plug.rs` | Plug sysinfo parsing + feature detection (KP115, HS110, HS105) |
-| `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
-| `src/strip.rs` | HS300/KP303 power strip sysinfo + per-outlet state |
-| `src/tapo.rs` | Tapo `get_device_info` response parsing |
-| `src/ops.rs` | All API calls — `bulb_set_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
-| `src/display.rs` | Colored terminal output for all device types |
-| `src/lib.rs` | Re-exports all modules as pub for library use |
+| `src/main.rs` | Command dispatch; `open_tapo`, `kasa_exec_power`, `toggle_target`; capability integration tests |
+| `src/cli.rs` | Clap `Cli`, `Command`, `LedAction` — all argument definitions and help text |
+| `src/resolve.rs` | `resolve()`, `resolve_quiet()`, `resolve_outlet()`, `require_kasa()` — private to the binary |
+| `src/devices.rs` | `DeviceKind` enum, `DeviceEntry`, `detect_kind()`, all `can_*` capability guards, `devices.toml` registry |
+| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, 4-byte length-prefixed) / `encode_raw` (UDP) |
+| `src/transport.rs` | TCP `send()` with 5s timeout + UDP `broadcast_each()` for Kasa devices |
+| `src/klap.rs` | KLAP two-phase handshake + AES-128-CBC `KlapSession`; all I/O wrapped with 10s timeouts |
+| `src/hosts.rs` | Alias registry — friendly name → IP + protocol; `~/.config/denki/hosts.json`; v1/v2 compat |
+| `src/creds.rs` | Tapo credentials — `TAPO_USER`/`TAPO_PASS` env vars take precedence over saved file |
+| `src/fmt.rs` | `duration(secs)` + `current_year_month()` via Howard Hinnant civil_from_days (no chrono) |
+| `src/ops.rs` | Every device API call — `bulb_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
+| `src/bulb.rs` | `Bulb` / `LightState` / `DftOnState` — KL135 and KL430; handles off-state field relocation |
+| `src/plug.rs` | `Plug` — relay state, ENE energy flag, on-time |
+| `src/dimmer.rs` | `Dimmer` — HS220 relay state, brightness |
+| `src/strip.rs` | `Strip` + `StripChild` — outlet state; expands short child IDs for HS300 HW 2.0 |
+| `src/tapo.rs` | `TapoDevice` — KLAP `get_device_info` response; base64-decodes nickname field |
+| `src/display.rs` | Colored terminal output — `print_*_summary` and `print_*_detail` for every device type |
+| `src/lib.rs` | Re-exports all modules as `pub`; `main` and `resolve` are binary-only |
+
+## Key Data Files
+
+| File | Purpose |
+|------|---------|
+| `devices.toml` | Canonical device capability registry — model → kind + verified + supported features; embedded at compile time via `include_str!` |
+| `~/.config/denki/hosts.json` | Saved aliases — `{"name": {"ip": "...", "protocol": "kasa"\|"klap"}}` (v2 format); plain string values read as Kasa for v1 compat |
+| `~/.config/denki/credentials.json` | Saved Tapo credentials (mode 0600 on Unix); overridden by env vars |
 
 ## Protocols
 
-### Kasa (legacy) — port 9999
-XOR autokey cipher. Key starts at 171; each output byte = input XOR previous output byte.
-- TCP: 4-byte big-endian length prefix before ciphertext
-- UDP: no length prefix — `encode_raw()` for send, `decode()` for receive
+### Kasa — port 9999
+
+XOR autokey cipher. Starting key `0xAB` (171); each output byte becomes the key for the next byte.
+
+- **Encrypt:** `c = p ^ key;  key = c`
+- **Decrypt:** `p = c ^ key;  key = c`
+- **TCP:** `encode()` prepends a 4-byte big-endian length; receiver reads that many cipher bytes then calls `decode()`
+- **UDP:** `encode_raw()` for send (no prefix), `decode()` for receive — adding a prefix causes garbage
+- **Connect timeout:** 5 seconds
 
 ### KLAP (Tapo) — port 80
-AES-128-CBC over plain HTTP on port 80. Two-phase handshake:
-1. POST `/app/handshake1` — send 16 random bytes, receive `remote_seed | server_hash`, verify auth
-2. POST `/app/handshake2` — send client proof
-3. POST `/app/request?seq=N` — encrypted requests with sequence-numbered IVs
 
-`auth_hash = SHA256(SHA1(username) + SHA1(password))`
+AES-128-CBC over plain HTTP. Uses raw `TcpStream` — some Tapo firmware returns 400 for standard HTTP clients. All I/O is wrapped with a 10-second timeout.
 
-Implemented via raw `tokio::net::TcpStream` (not reqwest) because some Tapo firmware returns 400 for standard HTTP clients.
+**Auth hash:** `SHA256(SHA1(username) || SHA1(password))`
+
+**Handshake:**
+1. `POST /app/handshake1` — send 16 random bytes (`local_seed`); receive `remote_seed || server_hash`; verify `SHA256(local_seed || remote_seed || auth_hash) == server_hash`; save `TP_SESSIONID` cookie
+2. `POST /app/handshake2` — send `SHA256(remote_seed || local_seed || auth_hash)`
+
+**Key derivation:**
+- `key     = SHA256("lsk" || local_seed || remote_seed || auth_hash)[..16]`
+- `iv_base = SHA256("iv"  || local_seed || remote_seed || auth_hash)[..12]`
+- `seq     = i32::from_be_bytes(iv_full[28..32])`
+- `sig     = SHA256("ldk" || local_seed || remote_seed || auth_hash)[..28]`
+
+**Per request:** `seq += 1; iv = iv_base || seq.to_be_bytes(); body = SHA256(sig || seq || cipher) || cipher`
+
+**Response:** skip 32-byte signature prefix, then AES-CBC decrypt the rest.
 
 ## Device Resolution
 
-`resolve()` in `main.rs` resolves a name or IP to `(ip, protocol)`:
-1. Looks like an IP → Kasa (default)
-2. Saved alias in `hosts.json` → uses stored protocol
-3. Unknown name → fail fast with a clear error (no UDP fallback)
+Implemented in `src/resolve.rs` (private to the binary, not in `lib.rs`):
 
-Raw IPs are always treated as Kasa/XOR. Tapo devices must be saved as aliases with `--klap`.
+1. Input parses as an IP address → Kasa protocol, no alias lookup
+2. Exact normalized match in `hosts.json` → stored protocol
+3. Unambiguous substring match → stored protocol
+4. Multiple substring matches → error listing all candidates
+5. No match → fail fast with a clear help message (no UDP fallback)
 
-For Tapo devices, save the alias with `--klap`:
-```bash
-denki alias "tapo plug" 192.168.1.50 --klap
-```
+Alias matching is case- and punctuation-insensitive (`normalize()` collapses non-alphanumeric to spaces). Raw IPs are always Kasa/XOR — Tapo devices must be registered with `denki alias <name> <ip> --klap`.
 
-## Tapo Credentials
+## Device Capability System
 
-Set `TAPO_USER` and `TAPO_PASS` for all commands that resolve to a KLAP device:
-```bash
-export TAPO_USER="you@example.com"
-export TAPO_PASS="your-tapo-password"
-```
+`devices.toml` is the single source of truth for what each model supports. It is embedded at compile time via `include_str!`. Two parts work together:
 
-Or save credentials locally:
-```bash
-denki login "you@example.com" "your-tapo-password"
-```
+1. **Capability guards** (`src/devices.rs`) — `can_*` functions that accept or reject a `DeviceKind`. Called before any network I/O. Return a clear error naming the command and which models support it.
 
-Environment variables take precedence over saved credentials.
+2. **Feature registry** (`devices.toml`) — lists which features each model supports. Capability tests in `src/main.rs` assert that every listed feature is permitted by the matching guard, and every unlisted guarded feature is denied.
+
+**Adding a new feature:**
+1. Add the `can_*` guard in `src/devices.rs`
+2. Add the feature name to `devices.toml` for each model that supports it
+3. Call the guard in `src/main.rs` before dispatching the command
+4. Add a test in `src/main.rs` `capability_tests` if it is a new guard feature string
 
 ## Device Detection (Kasa)
 
-`detect_kind()` reads `mic_type` (newer devices) or `type` (older devices):
-- `IOT.SMARTBULB` + `length` field → LightStrip
-- `IOT.SMARTBULB` → Bulb
-- `IOT.SMARTPLUGSWITCH` + "Dimmer" in `dev_name` → Dimmer
-- `IOT.SMARTPLUGSWITCH` + `children` array → Strip
-- `IOT.SMARTPLUGSWITCH` → Plug
+`detect_kind()` in `src/devices.rs` reads `mic_type` (newer firmware) or `type` (older firmware):
 
-Implementation status per device kind:
+| Condition | Result |
+|-----------|--------|
+| `IOT.SMARTBULB` + `length` field present | `LightStrip` |
+| `IOT.SMARTBULB` | `Bulb` |
+| `IOT.SMARTPLUGSWITCH` + "Dimmer" in `dev_name` | `Dimmer` (checked before Strip) |
+| `IOT.SMARTPLUGSWITCH` + `children` array present | `Strip` |
+| `IOT.SMARTPLUGSWITCH` | `Plug` |
+| anything else | `Unknown(type_str)` |
 
-| Device kind | Power | Dim | Color-temp | Color | Energy | Schedules | LED | Clock | Outlets |
-|-------------|-------|-----|------------|-------|--------|-----------|-----|-------|---------|
-| KL135 Bulb | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
-| KL430 Strip | ❌ not implemented | ❌ | ❌ | ❌ | ✅ (unverified) | — | — | — | — |
-| HS220 Dimmer | ✅ `set_relay_state` | ✅ | — | — | — | ✅ | ✅ | ✅ | — |
-| KP115/HS110 Plug | ✅ `set_relay_state` | — | — | — | ✅ `emeter` (ENE flag) | ✅ | ✅ | ✅ | — |
-| HS300/KP303 Strip | ✅ `set_relay_state` | — | — | — | ✅ per outlet (ENE flag) | ✅ | — | ✅ | ✅ per child_id |
-| Tapo (P125 etc.) | ✅ KLAP `set_device_info` | — | — | — | — | — | — | — | — |
+Tapo devices respond only on port 80 via KLAP and never appear in UDP scan results.
 
-Commands guard unsupported combinations before issuing any network request and
-return a clear message naming the command, the actual device kind, and which
-device models support it.
+## Implementation Status
+
+`✅` = works  `—` = not applicable  `❌` = guard blocks it (not yet implemented)
+
+| Model | Verified | Power | Dim | CT | Color | Energy | Schedules | LED | Clock | Outlets | Specs | Presets |
+|-------|:--------:|:-----:|:---:|:--:|:-----:|:------:|:---------:|:---:|:-----:|:-------:|:-----:|:-------:|
+| KL135 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| LB130 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
+| KL430 | — | ❌¹ | ❌¹ | ❌¹ | ❌¹ | ✅ | — | — | — | — | — | — |
+| HS220 | — | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | — | — | — |
+| KP115 | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| HS110 | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | ✅ | — | — | — |
+| HS105 | ✅ | ✅ | — | — | — | — | ✅ | ✅ | ✅ | — | — | — |
+| HS300 | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
+| KP303 | — | ✅ | — | — | — | — | ✅ | ✅ | ✅ | ✅ | — | — |
+| P125 (Tapo) | ✅ | ✅ | — | — | — | — | — | — | — | — | — | — |
+
+CT = color temperature.
+
+¹ KL430 uses `smartlife.iot.lightStrip` namespace — `smartbulb.lightingservice` commands are rejected by the device. Power/dim/color are not yet routed through the correct namespace.
+
+**Energy notes:**
+- Bulbs and light strips always use `smartlife.iot.common.emeter`; bare `emeter` returns error -2001
+- KP115 reports milli-unit fields (`power_mw`, `voltage_mv`, `current_ma`, `total_wh`)
+- HS110 reports real-unit fields (`power`, `voltage`, `current`, `total` in kWh)
+- Plugs and strips require the `ENE` flag in sysinfo `feature` field (e.g. `"TIM:ENE"`)
+
+**HS300 HW 2.0 quirks:**
+- Omits `relay_state` from sysinfo — strip toggle uses `is_any_on()` over child states instead
+- Child IDs are short ("00"–"05") and must be prefixed with `deviceId` for per-outlet commands
 
 ## Design Principles
 
-- **Return fast** — commands should start outputting immediately when possible; never block the full result to sort or batch
-- **No sorting** — scan and list output preserves arrival/insertion order; do not sort results
-- **Partial returns** — if a command can yield partial data (e.g. multi-device scan), emit each result as it arrives rather than collecting everything first
-- **Fail fast** — unsupported device/command combos return a clear error before any network I/O
+- **Return fast** — emit results as they arrive; never block to collect everything first
+- **No sorting** — scan and list output preserves arrival/insertion order
+- **Fail fast** — unsupported device/command combos error before any network I/O
+- **Fail loudly** — unknown names error immediately with a helpful message; no silent UDP fallback
 
 ## Commands
 
 ```
-denki scan [--timeout N]                          Discover Kasa devices plus saved Tapo aliases on the network
+denki scan [--timeout N]                          Scan LAN for Kasa devices; probe saved Tapo aliases concurrently
 denki info <device>                               Detailed device info (Kasa + Tapo)
-denki on <device> [N]                             Turn on (Kasa + Tapo); N = outlet (strips only, 1-based)
-denki off <device> [N]                            Turn off (Kasa + Tapo); N = outlet (strips only, 1-based)
-denki toggle <device> [N]                         Toggle (Kasa + Tapo); N = outlet (strips only, 1-based)
+denki on <device> [N]                             Turn on; N = outlet number (strips, 1-based)
+denki off <device> [N]                            Turn off; N = outlet number (strips, 1-based)
+denki toggle <device> [N]                         Toggle; N = outlet number (strips, 1-based)
 denki dim <device> <0-100>                        Brightness — KL135 bulbs + HS220 dimmers
 denki color-temp <device> <2500-9000>             Color temperature in Kelvin — KL135 bulbs only
 denki color <device> -H <hue> -s <sat> -v <val>  HSV color — KL135 bulbs only
-denki energy <device> [N]                         Real-time power usage — bulbs + ENE-capable plugs/strips; N = outlet (strips)
-denki energy-daily <device> [YYYY-MM] [-o N]      Daily energy stats — bulbs + ENE-capable plugs/strips; -o = outlet (strips)
-denki energy-monthly <device> [YYYY] [-o N]       Monthly energy stats — bulbs + ENE-capable plugs/strips; -o = outlet (strips)
+denki energy <device> [N]                         Real-time power — bulbs + ENE plugs/strips; N = outlet
+denki energy-daily <device> [YYYY-MM] [-o N]      Daily energy — defaults to current month
+denki energy-monthly <device> [YYYY] [-o N]       Monthly energy — defaults to current year
 denki specs <device>                              Hardware specs — KL135 bulbs only
 denki presets <device>                            Saved light presets — KL135 bulbs only
 denki schedules <device>                          Schedule rules — plugs, dimmers, strips
-denki led <device> on|off                         LED indicator — plugs, dimmers, and strips
+denki led <device> on|off                         LED indicator — plugs, dimmers, strips
 denki clock <device>                              Device clock — plugs, dimmers, strips
 denki outlets <device>                            Per-outlet state — strips only
 denki outlet-rename <device> <N> <name>           Rename one outlet — strips only
@@ -133,26 +178,37 @@ denki restart <device>                            Reboot device (Kasa only)
 denki alias <name> <ip> [--klap]                  Save a friendly name for a device
 denki unalias <name>                              Remove a saved alias
 denki aliases                                     List all saved aliases
-denki login <email> <password>                    Save Tapo credentials for KLAP commands
+denki login <email> [password]                    Save Tapo credentials (prompts if password omitted)
 ```
 
-## ops.rs naming conventions
+## ops.rs Naming Conventions
 
-- `relay_on` / `relay_off` — `set_relay_state` commands (plugs, dimmers, strips)
-- `device_*` — emeter/schedule/time/led operations that span all relay devices
-- `bulb_set_*` — bulb-specific lighting operations (brightness, color-temp, color)
-- `strip_*` — per-outlet strip operations using `context.child_ids`
-- `tapo_*` — KLAP session operations
+| Prefix | Used for |
+|--------|---------|
+| `relay_on` / `relay_off` | `set_relay_state` — plugs, dimmers, strips |
+| `device_*` | emeter / schedule / time / LED — spans all relay devices |
+| `bulb_set_*` | brightness, color-temp, color via `smartlife.iot.smartbulb.lightingservice` |
+| `strip_*` | per-outlet commands using `context.child_ids` |
+| `tapo_*` | KLAP session operations |
+
+## hosts.rs Public API
+
+The scan command loads hosts.json once before the UDP broadcast, updates the map in memory as devices respond, and writes it once at the end only if new aliases were added (was N reads + N writes; now 1 read + 0 or 1 write).
+
+| Function | Purpose |
+|----------|---------|
+| `load()` | Read hosts.json from disk; returns `BTreeMap<String, HostEntry>` |
+| `save(map)` | Write hosts.json from in-memory map |
+| `save_if_new_in(name, ip, map)` | Insert if IP not already present; returns `bool` (dirty flag) |
+| `lookup_by_ip_in(ip, map)` | Reverse lookup alias name from an in-memory map |
+| `lookup(name)` | Exact-then-substring match; errors on ambiguity |
+| `normalize(s)` | Lowercase + collapse non-alphanumeric to spaces for fuzzy matching |
 
 ## Not Implemented
 
 - Energy monitoring for Tapo devices (P125 does not expose emeter locally)
+- KL430 power, dim, color — uses `smartlife.iot.lightStrip`, not `smartbulb.lightingservice`
 - Away mode (`anti_theft`) rule creation
 - Countdown timer creation
-- Schedule creation/deletion
+- Schedule creation and deletion
 - Firmware updates (intentionally excluded)
-- KL430 light-strip control/effects routing
-
-## Docs to update together
-
-If you change behavior, update the README plus the inline comments/doc comments in the affected source file.
