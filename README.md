@@ -1,74 +1,71 @@
 # denki (電気)
 
-I built this to turn my lights on and off from the terminal. That's it.
+`denki` is a command-line tool for controlling TP-Link Kasa and Tapo devices over your local network — no cloud required.
 
-I have a few KL135 bulbs, some Kasa switches, and a Tapo plug. I got tired of reaching for my phone, so I wrote a CLI. *denki* means "electricity" in Japanese.
+*denki* means “electricity” in Japanese.
 
-My day-to-day usage looks like this:
+## Why this repo exists
+
+This project is intentionally small, local-network-first, and easy to extend. The core ideas are:
+
+- fast control of smart devices from the terminal
+- clear device capability checks before sending requests
+- support for both classic Kasa/XOR and newer Tapo/KLAP devices
+- a clean split between protocol code, device parsing, and CLI orchestration
+
+## What works today
+
+### Verified support
+
+- **KL135 smart bulbs** — power, dimming, color temperature, HSV color, energy, specs, presets
+- **KP115 smart plugs** — power, energy, schedules, clock, LED
+- **HS110 smart plugs** — power, energy, schedules, clock, LED
+- **HS105 smart plugs** — power, schedules, clock, LED; no energy chip
+- **P125 / P125M Tapo plugs** — info and power through a saved `--klap` alias
+
+### Partial support
+
+- **KL430 light strips** — scan/info plus energy monitoring (unverified); power/color control not yet implemented
+- **HS220 dimmers** — info, power, dimming, schedules, LED, and clock (unverified)
+- **HS300 / KP303 power strips** — info, outlet listing, per-outlet power control, per-outlet energy, outlet rename, LED, schedules, and clock for ENE-capable models; KP303 is unverified
+
+> **Energy note:** KL135 reports `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`). All use the same `energy` command.
+
+Devices marked `verified` in `devices.toml` have been tested on real hardware.
+
+## Quick start
+
+### Build
 
 ```bash
-denki on "desk lamp"
-denki off "desk lamp"
-denki dim "desk lamp" 40
-denki scan
+git clone https://github.com/kahwee/denki.git
+cd denki
+cargo build --release
+./target/release/denki --help
 ```
 
-That's what I actively maintain and use. Everything else in here — energy monitoring, power strips, color control — I've written and it works on my hardware, but I'm not adding more to it myself.
-
-If you have a device or use case that isn't covered, contributions are welcome. The code is structured to make that straightforward.
-
-## My devices
-
-These work on hardware I own:
-
-- **KL135 bulbs** — power, dim, color temp, HSV color, energy
-- **KP115 plugs** — power, energy
-- **HS105 plugs** — power (no energy chip)
-- **HS300 power strips** — power per outlet, energy per outlet
-- **P125 Tapo plug** — power via KLAP
-
-Also implemented but I don't actively use:
-
-- **HS110 plugs** — power, energy
-- **HS220 dimmers** — power, dim
-- **KP303 strips** — same as HS300
-- **KL430 light strips** — scan and energy only; power/color not implemented
-
-## Install
+### Install
 
 ```bash
 cargo install --path .
 ```
 
-Or build directly:
+That installs the binary to `~/.cargo/bin/denki`.
+
+### Common commands
 
 ```bash
-cargo build --release
-./target/release/denki --help
-```
-
-## Usage
-
-```bash
-denki scan                              # find devices on the network
-denki info "desk lamp"                  # detailed info
+denki scan
+denki info "desk lamp"
 denki on "desk lamp"
 denki off "desk lamp"
 denki toggle "desk lamp"
-denki dim "desk lamp" 50               # 0–100
-denki color-temp "desk lamp" 2700      # Kelvin
-denki color "desk lamp" --hue 275 --sat 50 --val 80
+denki dim "desk lamp" 50
+denki color-temp "desk lamp" 2700
+denki color "desk lamp" --hue 275 --saturation 50 --value 80
 ```
 
-Aliases are saved on first scan. You can also set them manually:
-
-```bash
-denki alias "desk lamp" 192.168.1.42
-denki aliases
-denki unalias "desk lamp"
-```
-
-### Energy
+### Energy and power strip commands
 
 ```bash
 denki energy "desk plug"
@@ -76,71 +73,124 @@ denki energy-daily "desk plug" 2025-03
 denki energy-monthly "desk plug" 2025
 ```
 
-### Power strips
-
 ```bash
-denki outlets "garage strip"           # list outlets
-denki on "garage strip" 2             # outlet 2 on
-denki off "garage strip" 2
-denki energy "garage strip" 2
-denki outlet-rename "garage strip" 2 "Coffee Maker"
+denki outlets "power strip"
+denki on "power strip" 2
+denki off "power strip" 2
+denki toggle "power strip" 2
+denki energy "power strip" 2
+denki energy-daily "power strip" 2025-03 -o 2
+denki energy-monthly "power strip" 2025 -o 2
+denki outlet-rename "power strip" 2 "Coffee Maker"
 ```
 
-Outlet numbers are 1-based and match the order from `outlets`.
+Notes:
 
-### Tapo devices
+- `outlets` shows the strip's outlet numbers, names, and on/off state.
+- Outlet numbers are `1`-based and match the order shown by `outlets`.
+- Omit the outlet number to target the whole strip; include it to target one outlet.
+- Per-outlet energy commands only work on strips with the `ENE` feature flag.
+- `outlet-rename` changes the name shown by `outlets` and `info`.
+
+### Tapo setup
 
 ```bash
 export TAPO_USER="you@example.com"
 export TAPO_PASS="your-tapo-password"
 
 denki alias "tapo plug" 192.168.1.50 --klap
+denki info "tapo plug"
 denki on "tapo plug"
 ```
 
-Or save credentials with `denki login` so you don't have to export every time.
+Or save credentials locally:
 
-## Contributing
+```bash
+denki login "you@example.com" "your-tapo-password"
+```
 
-I don't plan to expand the feature set beyond what I personally use, but I'll review and merge contributions that add support for other devices or use cases. The code is reasonably well structured for that.
+## Developer notes
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local setup and workflow.
+This repo is a good fit for local-network device development because it has a narrow scope and a strong test surface.
 
-A few useful entry points:
+### Architecture at a glance
 
-- New API calls go in `src/ops.rs`
-- New device parsers go in their own module (see `src/plug.rs` for a simple example)
-- Add the device to `devices.toml` with its capabilities
-- Gate the CLI command with a `devices::can_*` guard in `src/main.rs`
+- `src/main.rs` — CLI, command dispatch, device-type detection
+- `src/cipher.rs` — XOR autokey cipher helpers
+- `src/transport.rs` — Kasa TCP/UDP transport
+- `src/klap.rs` — Tapo handshake and encrypted session
+- `src/hosts.rs` — alias storage and lookup
+- `src/creds.rs` — Tapo credential loading/saving
+- `src/fmt.rs` — shared formatting helpers
+- `src/bulb.rs` — bulb-specific parsing
+- `src/plug.rs` — plug-specific parsing
+- `src/dimmer.rs` — HS220 dimmer parsing
+- `src/strip.rs` — power strip parsing and outlet control
+- `src/tapo.rs` — Tapo device info parsing
+- `src/ops.rs` — device operations
+- `src/display.rs` — terminal output formatting
+- `src/lib.rs` — library exports
 
-## Architecture
+### How to extend it
 
-| File | Purpose |
-|------|---------|
-| `src/main.rs` | CLI entry point — command dispatch and device-type routing |
-| `src/cli.rs` | clap command definitions |
-| `src/resolve.rs` | Device name/IP resolution, outlet lookup, protocol guards |
-| `src/devices.rs` | Capability registry (`devices.toml`), `detect_kind`, command guards |
-| `src/ops.rs` | All API calls — `bulb_*`, `relay_*`, `device_*`, `strip_*`, `tapo_*` |
-| `src/transport.rs` | Kasa TCP `send()` and UDP `broadcast_each()` |
-| `src/cipher.rs` | XOR autokey cipher — `encode` (TCP) / `encode_raw` (UDP) |
-| `src/klap.rs` | KLAP handshake and AES-128-CBC session for Tapo devices |
-| `src/hosts.rs` | Alias registry — friendly names → IP + protocol, stored as JSON |
-| `src/creds.rs` | Tapo credential load/save |
-| `src/fmt.rs` | Shared formatting helpers |
-| `src/bulb.rs` | KL135/KL430 sysinfo parsing |
-| `src/plug.rs` | KP115/HS110/HS105 sysinfo parsing |
-| `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
-| `src/strip.rs` | HS300/KP303 power strip sysinfo and per-outlet state |
-| `src/tapo.rs` | Tapo `get_device_info` response parsing |
-| `src/display.rs` | Colored terminal output |
-| `src/lib.rs` | Library re-exports |
+- add the protocol/request in `src/ops.rs`
+- add or update the parser in the matching device module
+- gate the CLI command with the right device-kind check in `src/main.rs`
+- update the README and inline docs together so behavior and help text stay aligned
+- add a regression test for the CLI parser or device-kind guard when possible
 
 ## Protocol notes
 
-**Kasa (port 9999):** XOR autokey cipher, key starts at `171`. TCP adds a 4-byte big-endian length prefix; UDP does not.
+### Kasa (legacy)
 
-**KLAP / Tapo (port 80):** Two-step handshake, then AES-128-CBC. Uses raw `tokio::net::TcpStream` because some Tapo firmware rejects standard HTTP clients.
+Classic Kasa devices use TCP port `9999` with an XOR autokey cipher:
+
+- the key starts at `171`
+- each output byte is `input XOR previous_output_byte`
+- TCP adds a 4-byte big-endian length prefix before the ciphertext
+- UDP discovery uses the same cipher without the length prefix
+
+### KLAP (Tapo)
+
+Tapo devices use a two-step handshake over plain HTTP on port `80`:
+
+1. `POST /app/handshake1` with 16 random bytes
+2. `POST /app/handshake2` with the client proof
+3. `POST /app/request?seq=N` for encrypted requests
+
+`denki` uses raw `tokio::net::TcpStream` rather than a higher-level HTTP client because some Tapo firmware rejects standard clients.
+
+## Library usage
+
+`denki` can also be used as a library from another Rust project:
+
+```toml
+[dependencies]
+denki = { git = "https://github.com/kahwee/denki" }
+```
+
+```rust
+use denki::{klap, ops};
+
+let json = ops::sysinfo("192.168.1.42").await?;
+let mut session = klap::handshake("192.168.1.50", "user@example.com", "pass").await?;
+let info = ops::tapo_device_info(&mut session).await?;
+ops::tapo_on(&mut session).await?;
+```
+
+## Limitations
+
+- energy monitoring for Tapo devices
+- away mode (`anti_theft`) rule creation
+- countdown timer creation
+- schedule creation and deletion
+- firmware updates
+- KL430 light-strip control/effects routing
+- strip-level energy monitoring for HS300/KP303 on non-ENE models
+
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, checks, and contribution rules.
 
 ## License
 

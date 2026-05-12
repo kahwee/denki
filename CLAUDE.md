@@ -110,7 +110,7 @@ device models support it.
 ## Commands
 
 ```
-denki scan [--timeout N]                          Discover all Kasa devices on the network
+denki scan [--timeout N]                          Discover Kasa devices plus saved Tapo aliases on the network
 denki info <device>                               Detailed device info (Kasa + Tapo)
 denki on <device> [N]                             Turn on (Kasa + Tapo); N = outlet (strips only, 1-based)
 denki off <device> [N]                            Turn off (Kasa + Tapo); N = outlet (strips only, 1-based)
