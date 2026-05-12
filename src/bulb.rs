@@ -13,8 +13,6 @@ pub struct Bulb {
     pub hw_ver: String,
     pub sw_ver: String,
     pub rssi: i32,
-    #[allow(dead_code)]
-    pub dev_state: String,
     #[serde(default)]
     pub is_color: u8,
     #[serde(default)]

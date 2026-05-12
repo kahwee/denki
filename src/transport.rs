@@ -94,9 +94,3 @@ where
     Ok(count)
 }
 
-/// Collect version of broadcast_each. Prefer broadcast_each when streaming output.
-pub async fn broadcast(timeout_secs: u64) -> Result<Vec<(std::net::IpAddr, serde_json::Value)>> {
-    let mut results = Vec::new();
-    broadcast_each(timeout_secs, |ip, json| results.push((ip, json))).await?;
-    Ok(results)
-}

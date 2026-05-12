@@ -107,6 +107,7 @@ pub enum Command {
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Month in YYYY-MM format (defaults to current month)
+        #[arg(value_name = "YYYY-MM")]
         month: Option<String>,
         /// Outlet number, 1-based (strips only)
         #[arg(long, short = 'o', value_parser = clap::value_parser!(u8).range(1..))]
@@ -118,6 +119,7 @@ pub enum Command {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
+        #[arg(value_name = "YYYY")]
         year: Option<u16>,
         /// Outlet number, 1-based (strips only)
         #[arg(long, short = 'o', value_parser = clap::value_parser!(u8).range(1..))]
