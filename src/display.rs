@@ -707,7 +707,7 @@ pub fn print_unknown_summary(ip: IpAddr, json: &serde_json::Value, type_str: &st
         .unwrap_or("?");
     println!(
         "{} {} [{}]",
-        format!("== {alias} ==").bold(),
+        header(alias),
         format!("[{ip}]").dimmed(),
         type_str.dimmed(),
     );

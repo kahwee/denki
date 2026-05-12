@@ -225,11 +225,9 @@ impl KlapSession {
     pub async fn send(&mut self, json: &str) -> Result<serde_json::Value> {
         let (payload, seq) = self.encrypt(json.as_bytes())?;
         let path = format!("/app/request?seq={seq}");
-        let cookie = self.cookie.clone();
-        let host = self.host.clone();
 
         let (status, _, resp_body) =
-            http_post(&host, &path, &[("Cookie", &cookie)], &payload).await?;
+            http_post(&self.host, &path, &[("Cookie", &self.cookie)], &payload).await?;
 
         if status != 200 {
             bail!("Request failed: HTTP {status}");

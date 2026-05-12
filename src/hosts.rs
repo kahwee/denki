@@ -162,42 +162,6 @@ pub fn path_display() -> String {
     hosts_path().display().to_string()
 }
 
-pub fn lookup_by_ip(ip: &str) -> Option<String> {
-    let map = load_map(&hosts_path()).ok()?;
-    map.into_iter().find(|(_, v)| v.ip == ip).map(|(k, _)| k)
-}
-
-pub fn save_if_new(name: &str, ip: &str) -> Result<bool> {
-    save_if_new_at(name, ip, &hosts_path())
-}
-
-fn save_if_new_at(name: &str, ip: &str, path: &Path) -> Result<bool> {
-    if name.is_empty() {
-        return Ok(false);
-    }
-    let mut map = load_map(path)?;
-    if map.values().any(|v| v.ip == ip) {
-        return Ok(false);
-    }
-    map.insert(
-        name.to_string(),
-        HostEntry {
-            ip: ip.to_string(),
-            protocol: Protocol::Kasa,
-        },
-    );
-    save_map(path, &map)?;
-    Ok(true)
-}
-
-pub fn klap_aliases() -> Vec<(String, HostEntry)> {
-    load_map(&hosts_path())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(_, v)| v.protocol == Protocol::Klap)
-        .collect()
-}
-
 /// Load the full host map from disk.
 pub fn load() -> Result<std::collections::BTreeMap<String, HostEntry>> {
     load_map(&hosts_path())
@@ -370,37 +334,29 @@ mod tests {
 
     #[test]
     fn auto_save_adds_new_device() {
-        let (_dir, path) = temp_hosts();
-        save_map(&path, &BTreeMap::new()).unwrap();
-
-        let saved = save_if_new_at("Coat Rack", "192.168.7.203", &path).unwrap();
+        let mut map = BTreeMap::new();
+        let saved = save_if_new_in("Coat Rack", "192.168.7.203", &mut map);
         assert!(saved);
-        assert_eq!(load_map(&path).unwrap()["Coat Rack"].ip, "192.168.7.203");
+        assert_eq!(map["Coat Rack"].ip, "192.168.7.203");
     }
 
     #[test]
     fn auto_save_preserves_existing_alias() {
-        let (_dir, path) = temp_hosts();
         let mut map = BTreeMap::new();
         map.insert("hummer".to_string(), entry("192.168.4.36", Protocol::Kasa));
-        save_map(&path, &map).unwrap();
 
         // Sysinfo reports "Hummer" but IP is already saved as "hummer" — skip.
-        let saved = save_if_new_at("Hummer", "192.168.4.36", &path).unwrap();
+        let saved = save_if_new_in("Hummer", "192.168.4.36", &mut map);
         assert!(!saved);
-
-        let loaded = load_map(&path).unwrap();
-        assert!(loaded.contains_key("hummer"));
-        assert!(!loaded.contains_key("Hummer"));
+        assert!(map.contains_key("hummer"));
+        assert!(!map.contains_key("Hummer"));
     }
 
     #[test]
     fn auto_save_skips_blank_sysinfo_name() {
-        let (_dir, path) = temp_hosts();
-        save_map(&path, &BTreeMap::new()).unwrap();
-
-        let saved = save_if_new_at("", "192.168.4.99", &path).unwrap();
+        let mut map = BTreeMap::new();
+        let saved = save_if_new_in("", "192.168.4.99", &mut map);
         assert!(!saved);
-        assert!(load_map(&path).unwrap().is_empty());
+        assert!(map.is_empty());
     }
 }

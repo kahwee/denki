@@ -477,6 +477,8 @@ async fn main() -> Result<()> {
                     t["min"].as_u64().unwrap_or(0),
                     t["sec"].as_u64().unwrap_or(0),
                 );
+            } else {
+                bail!("Unexpected response from {}: no time data", r.ip);
             }
         }
 
