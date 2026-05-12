@@ -14,7 +14,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Scan the network for Kasa devices plus saved Tapo aliases
+    /// Scan the network for Kasa devices plus saved Tapo aliases; auto-save new aliases
     Scan {
         #[arg(short, long, default_value = "5")]
         timeout: u64,
