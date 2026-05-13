@@ -35,23 +35,34 @@ fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
     }
 }
 
-// Execute on/off/toggle on a Kasa device using an already-fetched sysinfo blob.
-// target_on: Some(true) = on, Some(false) = off, None = toggle (inverts current state).
-async fn kasa_exec_power(
-    ip: &str,
-    kind: &DeviceKind,
-    json: &serde_json::Value,
-    target_on: Option<bool>,
-) -> Result<bool> {
+// Execute on or off on a Kasa device.
+async fn kasa_set_power(ip: &str, kind: &DeviceKind, on: bool) -> Result<()> {
     devices::can_control_power(kind)?;
-    let on = target_on.unwrap_or_else(|| toggle_target(kind, json));
     match (kind, on) {
         (DeviceKind::Bulb, true) => ops::bulb_on(ip).await?,
         (DeviceKind::Bulb, false) => ops::bulb_off(ip).await?,
         (_, true) => ops::relay_on(ip).await?,
         (_, false) => ops::relay_off(ip).await?,
     }
-    Ok(on)
+    Ok(())
+}
+
+// Returns the resolved strip, child_id, and child_alias for per-outlet energy commands.
+// Fails clearly if the JSON is not a strip, the strip has no ENE chip, or the outlet is out of range.
+fn strip_for_energy_outlet(
+    json: &serde_json::Value,
+    ip: &str,
+    outlet: u8,
+) -> Result<(strip::Strip, String, String)> {
+    let s = strip::parse(json)
+        .ok_or_else(|| anyhow::anyhow!("{ip} does not appear to be a power strip"))?;
+    if !s.has_energy_monitoring() {
+        anyhow::bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
+    }
+    let child = resolve_outlet(&s, outlet)?;
+    let id = child.id.clone();
+    let alias = child.alias.clone();
+    Ok((s, id, alias))
 }
 
 #[tokio::main]
@@ -209,7 +220,7 @@ async fn main() -> Result<()> {
                     }
                     hosts::Protocol::Kasa => {
                         let json = ops::sysinfo(&r.ip).await?;
-                        kasa_exec_power(&r.ip, &devices::detect_kind(&json), &json, Some(true)).await?;
+                        kasa_set_power(&r.ip, &devices::detect_kind(&json), true).await?;
                     }
                 }
                 println!("{} {}", r.ip, "on".green().bold());
@@ -234,7 +245,7 @@ async fn main() -> Result<()> {
                     }
                     hosts::Protocol::Kasa => {
                         let json = ops::sysinfo(&r.ip).await?;
-                        kasa_exec_power(&r.ip, &devices::detect_kind(&json), &json, Some(false)).await?;
+                        kasa_set_power(&r.ip, &devices::detect_kind(&json), false).await?;
                     }
                 }
                 println!("{} {}", r.ip, "off".dimmed());
@@ -266,7 +277,10 @@ async fn main() -> Result<()> {
                     }
                     hosts::Protocol::Kasa => {
                         let json = ops::sysinfo(&r.ip).await?;
-                        kasa_exec_power(&r.ip, &devices::detect_kind(&json), &json, None).await?
+                        let kind = devices::detect_kind(&json);
+                        let on = toggle_target(&kind, &json);
+                        kasa_set_power(&r.ip, &kind, on).await?;
+                        on
                     }
                 };
                 let label = if now_on { "on".green().bold() } else { "off".dimmed() };
@@ -329,14 +343,10 @@ async fn main() -> Result<()> {
             let json = ops::sysinfo(&r.ip).await?;
             let kind = devices::detect_kind(&json);
             if let Some(outlet_num) = outlet {
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-                if !s.has_energy_monitoring() {
-                    bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
-                }
-                let child = resolve_outlet(&s, outlet_num)?;
-                let resp = ops::strip_outlet_energy(&r.ip, &child.id).await?;
-                println!("Outlet {} ({})", outlet_num, child.alias.bold());
+                let (_s, child_id, child_alias) =
+                    strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
+                let resp = ops::strip_outlet_energy(&r.ip, &child_id).await?;
+                println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_realtime(&resp);
             } else {
                 devices::require_energy(&json, &kind)?;
@@ -351,7 +361,7 @@ async fn main() -> Result<()> {
         Command::EnergyDaily { host, month, outlet } => {
             let r = resolve(&host).await?;
             require_kasa(&r, "energy-daily")?;
-            let host = r.ip;
+            let ip = r.ip;
             let month_str = match month {
                 Some(m) => m,
                 None => {
@@ -368,25 +378,21 @@ async fn main() -> Result<()> {
             if !(1..=12).contains(&mo) {
                 bail!("Month must be 01–12, got {mo:02}");
             }
-            let json = ops::sysinfo(&host).await?;
+            let json = ops::sysinfo(&ip).await?;
             let kind = devices::detect_kind(&json);
             if let Some(outlet_num) = outlet {
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{host} does not appear to be a power strip"))?;
-                if !s.has_energy_monitoring() {
-                    bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
-                }
-                let child = resolve_outlet(&s, outlet_num)?;
-                let resp = ops::strip_outlet_energy_daily(&host, &child.id, year, mo).await?;
-                println!("Outlet {} ({})", outlet_num, child.alias.bold());
+                let (_s, child_id, child_alias) =
+                    strip_for_energy_outlet(&json, &ip, outlet_num)?;
+                let resp = ops::strip_outlet_energy_daily(&ip, &child_id, year, mo).await?;
+                println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_daily(&resp, &month_str);
             } else {
                 devices::require_energy(&json, &kind)?;
                 let resp = match &kind {
                     DeviceKind::Bulb | DeviceKind::LightStrip => {
-                        ops::bulb_energy_daily(&host, year, mo).await?
+                        ops::bulb_energy_daily(&ip, year, mo).await?
                     }
-                    _ => ops::device_energy_daily(&host, year, mo).await?,
+                    _ => ops::device_energy_daily(&ip, year, mo).await?,
                 };
                 display::print_energy_daily(&resp, &month_str);
             }
@@ -399,15 +405,10 @@ async fn main() -> Result<()> {
             let json = ops::sysinfo(&r.ip).await?;
             let kind = devices::detect_kind(&json);
             if let Some(outlet_num) = outlet {
-                let s = strip::parse(&json).ok_or_else(|| {
-                    anyhow::anyhow!("{} does not appear to be a power strip", r.ip)
-                })?;
-                if !s.has_energy_monitoring() {
-                    bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
-                }
-                let child = resolve_outlet(&s, outlet_num)?;
-                let resp = ops::strip_outlet_energy_monthly(&r.ip, &child.id, year).await?;
-                println!("Outlet {} ({})", outlet_num, child.alias.bold());
+                let (_s, child_id, child_alias) =
+                    strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
+                let resp = ops::strip_outlet_energy_monthly(&r.ip, &child_id, year).await?;
+                println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_monthly(&resp, year);
             } else {
                 devices::require_energy(&json, &kind)?;
@@ -793,6 +794,81 @@ mod tests {
         let parts: Vec<&str> = month_str.split('-').collect();
         let mo: u8 = parts[1].parse().unwrap();
         assert!(!(1u8..=12).contains(&mo));
+    }
+
+    // ── strip_for_energy_outlet ───────────────────────────────────────────────
+
+    fn ene_strip_json(n: u8) -> serde_json::Value {
+        let children: Vec<serde_json::Value> = (0..n)
+            .map(|i| json!({"id": format!("ID{i:02}"), "state": 0, "alias": format!("Outlet {}", i + 1)}))
+            .collect();
+        json!({
+            "system": { "get_sysinfo": {
+                "alias": "Test Strip", "model": "HS300(US)",
+                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -40,
+                "feature": "TIM:ENE", "children": children
+            }}
+        })
+    }
+
+    fn no_ene_strip_json() -> serde_json::Value {
+        json!({
+            "system": { "get_sysinfo": {
+                "alias": "Basic Strip", "model": "KP303(US)",
+                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -50,
+                "feature": "TIM",
+                "children": [{"id": "A1", "state": 0, "alias": "Outlet 1"}]
+            }}
+        })
+    }
+
+    #[test]
+    fn strip_for_energy_outlet_succeeds_on_ene_strip() {
+        let json = ene_strip_json(3);
+        let (_s, id, alias) = strip_for_energy_outlet(&json, "1.2.3.4", 2).unwrap();
+        assert_eq!(id, "ID01");
+        assert_eq!(alias, "Outlet 2");
+    }
+
+    #[test]
+    fn strip_for_energy_outlet_fails_on_non_strip_json() {
+        let err = strip_for_energy_outlet(&json!({}), "1.2.3.4", 1).unwrap_err();
+        assert!(err.to_string().contains("power strip"), "{err}");
+    }
+
+    #[test]
+    fn strip_for_energy_outlet_fails_without_ene() {
+        let json = no_ene_strip_json();
+        let err = strip_for_energy_outlet(&json, "1.2.3.4", 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("energy monitoring"), "{msg}");
+        assert!(msg.contains("KP303"), "{msg}");
+    }
+
+    #[test]
+    fn strip_for_energy_outlet_fails_on_out_of_range_outlet() {
+        let json = ene_strip_json(2);
+        let err = strip_for_energy_outlet(&json, "1.2.3.4", 5).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("outlet 5"), "{msg}");
+        assert!(msg.contains("2 outlets"), "{msg}");
+    }
+
+    #[test]
+    fn strip_for_energy_outlet_outlet_1_succeeds() {
+        let json = ene_strip_json(1);
+        let (_s, id, alias) = strip_for_energy_outlet(&json, "1.2.3.4", 1).unwrap();
+        assert_eq!(id, "ID00");
+        assert_eq!(alias, "Outlet 1");
+    }
+
+    // ── toggle_target (kasa_set_power logic covered by integration) ───────────
+
+    #[test]
+    fn toggle_target_missing_fields_defaults_to_on() {
+        // Missing relay_state → unwrap_or(0) → should return true (turn on)
+        let json = json!({"system": {"get_sysinfo": {}}});
+        assert!(toggle_target(&DeviceKind::Plug, &json));
     }
 }
 

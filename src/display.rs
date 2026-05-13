@@ -106,22 +106,7 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     );
     print_light_color(&bulb.light_state, "   ");
     let a = hint_alias;
-    let action = if bulb.light_state.is_on() {
-        "off"
-    } else {
-        "on"
-    };
-    let color_hint = if bulb.is_color == 1 {
-        format!("  ·  denki color-temp \"{a}\" 2700  ·  denki dim \"{a}\" 80")
-    } else if bulb.is_dimmable == 1 {
-        format!("  ·  denki dim \"{a}\" 80")
-    } else {
-        String::new()
-    };
-    println!(
-        "   {}",
-        format!("→ denki {action} \"{a}\"{color_hint}").dimmed()
-    );
+    println!("   {}", format!("→ {}", bulb_hints(bulb, a).join("  ·  ")).dimmed());
     println!();
 }
 
@@ -155,14 +140,7 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
     }
     println!("  Features:   {}", caps_label(bulb));
     let a = hint_alias;
-    let is_on = bulb.light_state.is_on();
-    let hints = devices::lookup(&bulb.model)
-        .map(|e| devices::hints(e, a, is_on))
-        .unwrap_or_else(|| {
-            let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} \"{a}\"")]
-        });
-    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
+    println!("  {}", format!("→ {}", bulb_hints(bulb, a).join("  ·  ")).dimmed());
 }
 
 pub fn print_bulb_specs(json: &serde_json::Value) {
@@ -246,16 +224,7 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug, hint_alias: &str) {
         println!("   On for: {}", plug.on_time_fmt());
     }
     let a = hint_alias;
-    let action = if plug.is_on() { "off" } else { "on" };
-    let energy_hint = if plug.has_energy_monitoring() {
-        format!("  ·  denki energy \"{a}\"")
-    } else {
-        String::new()
-    };
-    println!(
-        "   {}",
-        format!("→ denki {action} \"{a}\"{energy_hint}").dimmed()
-    );
+    println!("   {}", format!("→ {}", plug_hints(plug, a).join("  ·  ")).dimmed());
     println!();
 }
 
@@ -275,22 +244,7 @@ pub fn print_plug_detail(ip: &str, plug: &Plug, hint_alias: &str) {
         println!("  On for:   {}", plug.on_time_fmt());
     }
     let a = hint_alias;
-    let is_on = plug.is_on();
-    // Runtime ENE flag overrides the static devices.toml entry:
-    // if the sysinfo says no energy chip, drop the energy hint.
-    let hints = devices::lookup(&plug.model)
-        .map(|e| {
-            let mut h = devices::hints(e, a, is_on);
-            if !plug.has_energy_monitoring() {
-                h.retain(|s| !s.contains("energy"));
-            }
-            h
-        })
-        .unwrap_or_else(|| {
-            let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} \"{a}\"")]
-        });
-    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
+    println!("  {}", format!("→ {}", plug_hints(plug, a).join("  ·  ")).dimmed());
 }
 
 pub fn print_schedules(json: &serde_json::Value) {
@@ -422,11 +376,7 @@ pub fn print_energy_daily(json: &serde_json::Value, month: &str) {
 
     if let Some(list) = days {
         println!("{}", format!("Daily energy usage for {month}:").bold());
-        let mut sorted: Vec<_> = list.iter().collect();
-        sorted.sort_by_key(|d| d["day"].as_u64().unwrap_or(0));
-        for d in sorted {
-            let day = d["day"].as_u64().unwrap_or(0);
-            let wh = wh_from(d);
+        for (day, wh) in sort_daily_entries(list) {
             let bar = "#".repeat((wh / 10).min(40) as usize);
             println!("  Day {:2}: {:4} Wh  {}", day, wh, bar.yellow());
         }
@@ -441,9 +391,7 @@ pub fn print_energy_monthly(json: &serde_json::Value, year: u16) {
 
     if let Some(list) = months {
         println!("{}", format!("Monthly energy usage for {year}:").bold());
-        for m in list {
-            let month = m["month"].as_u64().unwrap_or(0);
-            let wh = wh_from(m);
+        for (month, wh) in sort_monthly_entries(list) {
             let bar = "#".repeat((wh / 100).min(40) as usize);
             println!("  Month {:2}: {:5} Wh  {}", month, wh, bar.yellow());
         }
@@ -476,6 +424,86 @@ fn caps_label(bulb: &Bulb) -> String {
         caps.push("dimmable");
     }
     caps.join(", ")
+}
+
+// ── Sorting helpers ───────────────────────────────────────────────────────────
+
+/// Extract and sort energy entries by day number (1-based). Returns (day, Wh) pairs.
+fn sort_daily_entries(list: &[serde_json::Value]) -> Vec<(u64, u64)> {
+    let mut entries: Vec<(u64, u64)> = list
+        .iter()
+        .map(|d| (d["day"].as_u64().unwrap_or(0), wh_from(d)))
+        .collect();
+    entries.sort_by_key(|(day, _)| *day);
+    entries
+}
+
+/// Extract and sort energy entries by month number (1–12). Returns (month, Wh) pairs.
+fn sort_monthly_entries(list: &[serde_json::Value]) -> Vec<(u64, u64)> {
+    let mut entries: Vec<(u64, u64)> = list
+        .iter()
+        .map(|m| (m["month"].as_u64().unwrap_or(0), wh_from(m)))
+        .collect();
+    entries.sort_by_key(|(month, _)| *month);
+    entries
+}
+
+// ── Hint builders (shared between summary and detail views) ──────────────────
+
+fn bulb_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
+    let is_on = bulb.light_state.is_on();
+    devices::lookup(&bulb.model)
+        .map(|e| devices::hints(e, alias, is_on))
+        .unwrap_or_else(|| {
+            let action = if is_on { "off" } else { "on" };
+            vec![format!("denki {action} \"{alias}\"")]
+        })
+}
+
+fn plug_hints(plug: &Plug, alias: &str) -> Vec<String> {
+    let is_on = plug.is_on();
+    devices::lookup(&plug.model)
+        .map(|e| {
+            let mut h = devices::hints(e, alias, is_on);
+            // Runtime ENE flag overrides devices.toml: drop energy hint if chip absent.
+            if !plug.has_energy_monitoring() {
+                h.retain(|s| !s.contains("energy"));
+            }
+            h
+        })
+        .unwrap_or_else(|| {
+            let action = if is_on { "off" } else { "on" };
+            vec![format!("denki {action} \"{alias}\"")]
+        })
+}
+
+fn dimmer_hints(d: &Dimmer, alias: &str) -> Vec<String> {
+    let is_on = d.is_on();
+    devices::lookup(&d.model)
+        .map(|e| devices::hints(e, alias, is_on))
+        .unwrap_or_else(|| {
+            let action = if is_on { "off" } else { "on" };
+            vec![format!("denki {action} \"{alias}\"")]
+        })
+}
+
+fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
+    let mut hints = devices::lookup(&s.model)
+        .map(|e| {
+            let mut h = devices::hints(e, alias, s.children.iter().any(|c| c.is_on()));
+            if !s.has_energy_monitoring() {
+                h.retain(|h| !h.contains("energy"));
+            }
+            h
+        })
+        .unwrap_or_default();
+    hints.push(format!("denki on \"{alias}\" 1"));
+    hints.push(format!("denki off \"{alias}\" 1"));
+    hints.push(format!("denki outlet-rename \"{alias}\" 1 \"Name\""));
+    if s.has_energy_monitoring() {
+        hints.push(format!("denki energy \"{alias}\" 1"));
+    }
+    hints
 }
 
 // Light strips share the Bulb struct but use the smartlife.iot.lightStrip namespace.
@@ -555,11 +583,7 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer, hint_alias: &str) {
         d.brightness
     );
     let a = hint_alias;
-    let action = if d.is_on() { "off" } else { "on" };
-    println!(
-        "   {}",
-        format!("→ denki {action} \"{a}\"  ·  denki dim \"{a}\" 80").dimmed()
-    );
+    println!("   {}", format!("→ {}", dimmer_hints(d, a).join("  ·  ")).dimmed());
     println!();
 }
 
@@ -573,14 +597,7 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer, hint_alias: &str) {
     println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
     println!("  Brightness: {}%", d.brightness);
     let a = hint_alias;
-    let is_on = d.is_on();
-    let hints = devices::lookup(&d.model)
-        .map(|e| devices::hints(e, a, is_on))
-        .unwrap_or_else(|| {
-            let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} \"{a}\"")]
-        });
-    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
+    println!("  {}", format!("→ {}", dimmer_hints(d, a).join("  ·  ")).dimmed());
     println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()
@@ -626,18 +643,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
         .join("  ");
     println!("   {outlet_line}");
     let a = hint_alias;
-    let energy_hint = if s.has_energy_monitoring() {
-        format!("  ·  denki energy \"{a}\" 1")
-    } else {
-        String::new()
-    };
-    println!(
-        "   {}",
-        format!(
-            "→ denki outlets \"{a}\"  ·  denki on \"{a}\" 1  ·  denki off \"{a}\" 1{energy_hint}"
-        )
-        .dimmed()
-    );
+    println!("   {}", format!("→ {}", strip_hints(s, a).join("  ·  ")).dimmed());
     println!();
 }
 
@@ -652,22 +658,7 @@ pub fn print_strip_detail(ip: &str, s: &Strip, hint_alias: &str) {
     println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
     let a = hint_alias;
-    let mut hints = devices::lookup(&s.model)
-        .map(|e| {
-            let mut h = devices::hints(e, a, s.children.iter().any(|c| c.is_on()));
-            if !s.has_energy_monitoring() {
-                h.retain(|s| !s.contains("energy"));
-            }
-            h
-        })
-        .unwrap_or_default();
-    hints.push(format!("denki on \"{a}\" 1"));
-    hints.push(format!("denki off \"{a}\" 1"));
-    hints.push(format!("denki outlet-rename \"{a}\" 1 \"Name\""));
-    if s.has_energy_monitoring() {
-        hints.push(format!("denki energy \"{a}\" 1"));
-    }
-    println!("  {}", format!("→ {}", hints.join("  ·  ")).dimmed());
+    println!("  {}", format!("→ {}", strip_hints(s, a).join("  ·  ")).dimmed());
     let verified = devices::lookup(&s.model).is_some_and(|e| e.verified);
     if !verified {
         println!(
@@ -873,5 +864,145 @@ mod tests {
         let (r, g, b) = hsv_to_rgb(308, 65, 100);
         assert!(r > g, "expected red > green for purple: ({r},{g},{b})");
         assert!(b > g, "expected blue > green for purple: ({r},{g},{b})");
+    }
+
+    // ── sort helpers ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn sort_daily_entries_orders_ascending() {
+        let list = vec![
+            json!({"day": 3, "energy_wh": 300}),
+            json!({"day": 1, "energy_wh": 100}),
+            json!({"day": 2, "energy_wh": 200}),
+        ];
+        let sorted = sort_daily_entries(&list);
+        assert_eq!(sorted.iter().map(|(d, _)| *d).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(sorted[0].1, 100);
+    }
+
+    #[test]
+    fn sort_daily_entries_empty_list() {
+        assert!(sort_daily_entries(&[]).is_empty());
+    }
+
+    #[test]
+    fn sort_monthly_entries_orders_ascending() {
+        let list = vec![
+            json!({"month": 12, "energy_wh": 1200}),
+            json!({"month":  3, "energy_wh":  300}),
+            json!({"month":  7, "energy_wh":  700}),
+        ];
+        let sorted = sort_monthly_entries(&list);
+        assert_eq!(sorted.iter().map(|(m, _)| *m).collect::<Vec<_>>(), [3, 7, 12]);
+        assert_eq!(sorted[0].1, 300);
+        assert_eq!(sorted[2].1, 1200);
+    }
+
+    #[test]
+    fn sort_monthly_entries_already_sorted_is_stable() {
+        let list = vec![
+            json!({"month": 1, "energy_wh": 100}),
+            json!({"month": 2, "energy_wh": 200}),
+        ];
+        let sorted = sort_monthly_entries(&list);
+        assert_eq!(sorted[0].0, 1);
+        assert_eq!(sorted[1].0, 2);
+    }
+
+    // ── hint builders ────────────────────────────────────────────────────────
+
+    fn make_plug_for_hints(model: &str, is_on: bool, ene: bool) -> crate::plug::Plug {
+        crate::plug::Plug {
+            alias: "Test".to_string(),
+            model: model.to_string(),
+            hw_ver: "1.0".to_string(),
+            sw_ver: "1.0.0".to_string(),
+            rssi: -50,
+            relay_state: u8::from(is_on),
+            on_time: 0,
+            led_off: 0,
+            feature: if ene { Some("TIM:ENE".to_string()) } else { Some("TIM".to_string()) },
+        }
+    }
+
+    fn make_strip_for_hints(model: &str, ene: bool) -> crate::strip::Strip {
+        crate::strip::Strip {
+            alias: "Test".to_string(),
+            model: model.to_string(),
+            hw_ver: "1.0".to_string(),
+            sw_ver: "1.0.0".to_string(),
+            rssi: -40,
+            relay_state: 0,
+            feature: if ene { Some("TIM:ENE".to_string()) } else { Some("TIM".to_string()) },
+            children: vec![],
+        }
+    }
+
+    #[test]
+    fn plug_hints_ene_plug_includes_energy() {
+        let p = make_plug_for_hints("KP115", false, true);
+        let h = plug_hints(&p, "plug");
+        assert!(h.iter().any(|s| s.contains("energy")), "hints: {h:?}");
+    }
+
+    #[test]
+    fn plug_hints_no_ene_excludes_energy() {
+        let p = make_plug_for_hints("HS105", false, false);
+        let h = plug_hints(&p, "plug");
+        assert!(!h.iter().any(|s| s.contains("energy")), "hints: {h:?}");
+    }
+
+    #[test]
+    fn plug_hints_on_plug_starts_with_off() {
+        let p = make_plug_for_hints("KP115", true, true);
+        assert_eq!(plug_hints(&p, "p")[0], "denki off \"p\"");
+    }
+
+    #[test]
+    fn plug_hints_off_plug_starts_with_on() {
+        let p = make_plug_for_hints("KP115", false, true);
+        assert_eq!(plug_hints(&p, "p")[0], "denki on \"p\"");
+    }
+
+    #[test]
+    fn strip_hints_ene_strip_includes_per_outlet_energy() {
+        let s = make_strip_for_hints("HS300", true);
+        let h = strip_hints(&s, "strip");
+        assert!(h.iter().any(|s| s.contains("energy") && s.contains(" 1")), "hints: {h:?}");
+    }
+
+    #[test]
+    fn strip_hints_no_ene_excludes_energy() {
+        let s = make_strip_for_hints("KP303", false);
+        let h = strip_hints(&s, "strip");
+        assert!(!h.iter().any(|s| s.contains("energy")), "hints: {h:?}");
+    }
+
+    #[test]
+    fn strip_hints_always_includes_per_outlet_on_off() {
+        let s = make_strip_for_hints("HS300", true);
+        let h = strip_hints(&s, "strip");
+        assert!(h.iter().any(|s| s.contains("on") && s.contains(" 1")));
+        assert!(h.iter().any(|s| s.contains("off") && s.contains(" 1")));
+    }
+
+    #[test]
+    fn strip_hints_includes_outlet_rename() {
+        let s = make_strip_for_hints("HS300", true);
+        let h = strip_hints(&s, "strip");
+        assert!(h.iter().any(|s| s.contains("outlet-rename")), "hints: {h:?}");
+    }
+
+    #[test]
+    fn dimmer_hints_includes_dim_and_schedules() {
+        use crate::dimmer::Dimmer;
+        let d = Dimmer {
+            alias: "d".to_string(), model: "HS220".to_string(),
+            hw_ver: "1.0".to_string(), sw_ver: "1.0.0".to_string(),
+            rssi: -50, relay_state: 0, brightness: 80, feature: None,
+        };
+        let h = dimmer_hints(&d, "d");
+        assert!(h.iter().any(|s| s.contains("dim")), "hints: {h:?}");
+        assert!(h.iter().any(|s| s.contains("schedules")), "hints: {h:?}");
     }
 }
