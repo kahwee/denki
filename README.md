@@ -4,16 +4,33 @@
 
 *denki* means “electricity” in Japanese.
 
-## Why this repo exists
+## Why this exists
 
-This project is intentionally small, local-network-first, and easy to extend. The core ideas are:
+`denki` is intentionally small, local-network-first, and easy to extend. It focuses on a few things:
 
-- fast control of smart devices from the terminal
-- clear device capability checks before sending requests
+- fast terminal control for smart devices on your LAN
+- clear capability checks before any network request is sent
 - support for both classic Kasa/XOR and newer Tapo/KLAP devices
 - a clean split between protocol code, device parsing, and CLI orchestration
 
-## What works today
+## Install
+
+```bash
+cargo install --path .
+```
+
+That installs the binary to `~/.cargo/bin/denki`.
+
+## Build from source
+
+```bash
+git clone https://github.com/kahwee/denki.git
+cd denki
+cargo build --release
+./target/release/denki --help
+```
+
+## Supported devices
 
 ### Verified support
 
@@ -21,7 +38,7 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 - **KP115 smart plugs** — power, energy, schedules, clock, LED
 - **HS110 smart plugs** — power, energy, schedules, clock, LED
 - **HS105 smart plugs** — power, schedules, clock, LED; no energy chip
-- **P125 / P125M Tapo plugs** — info and power through a saved `--klap` alias
+- **P125 Tapo plugs** — info and power through a saved `--klap` alias
 
 ### Partial support
 
@@ -33,47 +50,44 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 
 Devices marked `verified` in `devices.toml` have been tested on real hardware.
 
-## Quick start
+## Everyday commands
 
-### Build
-
-```bash
-git clone https://github.com/kahwee/denki.git
-cd denki
-cargo build --release
-./target/release/denki --help
-```
-
-### Install
-
-```bash
-cargo install --path .
-```
-
-That installs the binary to `~/.cargo/bin/denki`.
-
-### Common commands
+### Discover devices
 
 ```bash
 denki scan
+```
+
+`scan` auto-saves newly discovered aliases and also probes saved `--klap` Tapo aliases.
+
+### Inspect and control power
+
+```bash
 denki info "desk lamp"
 denki on "desk lamp"
 denki off "desk lamp"
 denki toggle "desk lamp"
+```
+
+### Bulbs and dimmers
+
+```bash
 denki dim "desk lamp" 50
 denki color-temp "desk lamp" 2700
 denki color "desk lamp" --hue 275 --saturation 50 --value 80
 ```
 
-`scan` auto-saves newly discovered aliases and also probes saved `--klap` Tapo aliases concurrently.
-
-### Energy and power strip commands
+### Energy
 
 ```bash
 denki energy "desk plug"
 denki energy-daily "desk plug" 2025-03
 denki energy-monthly "desk plug" 2025
 ```
+
+`energy-daily` defaults to the current month, and `energy-monthly` defaults to the current year.
+
+### Power strips
 
 ```bash
 denki outlets "power strip"
@@ -94,26 +108,93 @@ Notes:
 - Per-outlet energy commands only work on strips with the `ENE` feature flag.
 - `outlet-rename` changes the name shown by `outlets` and `info`.
 
-### Tapo setup
+### Device metadata
 
 ```bash
-export TAPO_USER="you@example.com"
-export TAPO_PASS="your-tapo-password"
+denki specs "desk lamp"
+denki presets "desk lamp"
+denki schedules "desk plug"
+denki led "desk plug" on
+denki clock "desk plug"
+denki rename "desk plug" "Office Plug"
+denki restart "desk plug"
+```
 
-denki alias "tapo plug" 192.168.1.50 --klap
+## Aliases and Tapo setup
+
+### Save a friendly name for a device
+
+```bash
+denki alias "floor lamp" 192.168.1.50
+```
+
+Add `--klap` for Tapo devices:
+
+```bash
+denki alias "tapo plug" 192.168.1.51 --klap
+```
+
+Then use the alias anywhere you would use an IP address:
+
+```bash
 denki info "tapo plug"
 denki on "tapo plug"
 ```
 
-Or save credentials locally:
+### Remove or list aliases
 
 ```bash
-denki login "you@example.com" "your-tapo-password"
+denki aliases
+denki unalias "tapo plug"
+```
+
+Aliases are stored in `~/.config/denki/hosts.json`.
+
+### Save Tapo credentials locally
+
+```bash
+export TAPO_USER="you@example.com"
+export TAPO_PASS="your-tapo-password"
+```
+
+Or save them once:
+
+```bash
+denki login "you@example.com"
+```
+
+You can also pass the password on the command line, but prompting is safer for day-to-day use.
+
+Tapo credentials are stored in `~/.config/denki/credentials.json`, and `TAPO_USER` / `TAPO_PASS` override the saved file.
+
+## How device lookup works
+
+- Device names can come from `scan` output or from a raw IP address.
+- Exact alias matches win first, then substring matches.
+- Raw IP addresses are treated as Kasa devices.
+- Tapo devices must be added with `denki alias <name> <ip> --klap`.
+
+## Library usage
+
+`denki` can also be used as a library from another Rust project:
+
+```toml
+[dependencies]
+denki = { git = "https://github.com/kahwee/denki" }
+```
+
+```rust
+use denki::{klap, ops};
+
+let json = ops::sysinfo("192.168.1.42").await?;
+let mut session = klap::handshake("192.168.1.50", "user@example.com", "pass").await?;
+let info = ops::tapo_device_info(&mut session).await?;
+ops::tapo_on(&mut session).await?;
 ```
 
 ## Developer notes
 
-This repo is a good fit for local-network device development because it has a narrow scope and a strong test surface.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, checks, and contribution rules.
 
 ### Architecture at a glance
 
@@ -168,24 +249,6 @@ Tapo devices use a two-step handshake over plain HTTP on port `80`:
 
 `denki` uses raw `tokio::net::TcpStream` rather than a higher-level HTTP client because some Tapo firmware rejects standard clients.
 
-## Library usage
-
-`denki` can also be used as a library from another Rust project:
-
-```toml
-[dependencies]
-denki = { git = "https://github.com/kahwee/denki" }
-```
-
-```rust
-use denki::{klap, ops};
-
-let json = ops::sysinfo("192.168.1.42").await?;
-let mut session = klap::handshake("192.168.1.50", "user@example.com", "pass").await?;
-let info = ops::tapo_device_info(&mut session).await?;
-ops::tapo_on(&mut session).await?;
-```
-
 ## Limitations
 
 - energy monitoring for Tapo devices
@@ -198,7 +261,7 @@ ops::tapo_on(&mut session).await?;
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, checks, and contribution rules.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## License
 
