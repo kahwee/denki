@@ -496,7 +496,7 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     );
     print_light_color(&bulb.light_state, "   ");
     let a = hint_alias;
-    println!("   {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  power/color control not yet implemented for KL430").dimmed());
+    println!("   {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  power/dim/color-temp/color control not yet implemented for KL430").dimmed());
     println!();
 }
 
@@ -530,7 +530,7 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
     }
     println!(
         "  {}",
-        "→ power and color control not yet implemented for KL430".dimmed()
+        "→ power/dim/color-temp/color control not yet implemented for KL430".dimmed()
     );
     println!(
         "  {}",

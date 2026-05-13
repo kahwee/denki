@@ -25,7 +25,7 @@ This project is intentionally small, local-network-first, and easy to extend. Th
 
 ### Partial support
 
-- **KL430 light strips** — scan/info plus energy monitoring (unverified); power/color control not yet implemented
+- **KL430 light strips** — scan/info plus energy monitoring (unverified); power, dimming, color temperature, and HSV color control are not yet implemented
 - **HS220 dimmers** — info, power, dimming, schedules, LED, and clock (unverified)
 - **HS300 / KP303 power strips** — info, outlet listing, per-outlet power control, per-outlet energy, outlet rename, LED, schedules, and clock for ENE-capable models; KP303 is unverified
 
@@ -64,6 +64,8 @@ denki dim "desk lamp" 50
 denki color-temp "desk lamp" 2700
 denki color "desk lamp" --hue 275 --saturation 50 --value 80
 ```
+
+`scan` auto-saves newly discovered aliases and also probes saved `--klap` Tapo aliases concurrently.
 
 ### Energy and power strip commands
 
@@ -191,7 +193,7 @@ ops::tapo_on(&mut session).await?;
 - countdown timer creation
 - schedule creation and deletion
 - firmware updates
-- KL430 light-strip control/effects routing
+- KL430 power, dim, color-temp, and HSV color control
 - strip-level energy monitoring for HS300/KP303 on non-ENE models
 
 ## Contributing

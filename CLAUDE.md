@@ -133,7 +133,7 @@ Tapo devices respond only on port 80 via KLAP and never appear in UDP scan resul
 
 CT = color temperature.
 
-¹ KL430 uses `smartlife.iot.lightStrip` namespace — `smartbulb.lightingservice` commands are rejected by the device. Power/dim/color are not yet routed through the correct namespace.
+¹ KL430 uses `smartlife.iot.lightStrip` namespace — `smartbulb.lightingservice` commands are rejected by the device. Power, dim, color-temp, and color are not yet routed through the correct namespace.
 
 **Energy notes:**
 - Bulbs and light strips always use `smartlife.iot.common.emeter`; bare `emeter` returns error -2001
@@ -207,7 +207,7 @@ The scan command loads hosts.json once before the UDP broadcast, updates the map
 ## Not Implemented
 
 - Energy monitoring for Tapo devices (P125 does not expose emeter locally)
-- KL430 power, dim, color — uses `smartlife.iot.lightStrip`, not `smartbulb.lightingservice`
+- KL430 power, dim, color-temp, color — uses `smartlife.iot.lightStrip`, not `smartbulb.lightingservice`
 - Away mode (`anti_theft`) rule creation
 - Countdown timer creation
 - Schedule creation and deletion
