@@ -14,7 +14,7 @@ cargo build --release
 
 | File | Purpose |
 |------|---------|
-| `src/main.rs` | Command dispatch; `open_tapo`, `kasa_exec_power`, `toggle_target`; capability integration tests |
+| `src/main.rs` | Command dispatch; `open_tapo`, `kasa_set_power`, `toggle_target`; capability integration tests |
 | `src/cli.rs` | Clap `Cli`, `Command`, `LedAction` — all argument definitions and help text |
 | `src/resolve.rs` | `resolve()`, `resolve_quiet()`, `resolve_outlet()`, `require_kasa()` — private to the binary |
 | `src/devices.rs` | `DeviceKind` enum, `DeviceEntry`, `detect_kind()`, all `can_*` capability guards, `devices.toml` registry |

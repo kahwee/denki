@@ -32,7 +32,7 @@ fn short_fw(fw: &str) -> &str {
     fw.split_whitespace().next().unwrap_or(fw)
 }
 
-/// KP115/KL135 use `energy_wh` (integer Wh); HS110 uses `energy` (float kWh).
+/// Energy entries may expose `energy_wh` (integer Wh) or `energy` (float kWh).
 fn wh_from(entry: &serde_json::Value) -> u64 {
     entry
         .get("energy_wh")
