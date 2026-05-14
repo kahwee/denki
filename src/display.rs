@@ -33,24 +33,26 @@ fn short_fw(fw: &str) -> &str {
 }
 
 /// Energy entries may expose `energy_wh` (integer Wh) or `energy` (float kWh).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn wh_from(entry: &serde_json::Value) -> u64 {
     entry
         .get("energy_wh")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .or_else(|| {
             entry
                 .get("energy")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .map(|kwh| (kwh * 1000.0).round() as u64)
         })
         .unwrap_or(0)
 }
 
 /// Convert HSV (h: 0–360, s: 0–100, v: 0–100) to (r, g, b) each 0–255.
+#[allow(clippy::many_single_char_names, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn hsv_to_rgb(h: u16, s: u8, v: u8) -> (u8, u8, u8) {
-    let s = s as f32 / 100.0;
-    let v = v as f32 / 100.0;
-    let h = h as f32;
+    let s = f32::from(s) / 100.0;
+    let v = f32::from(v) / 100.0;
+    let h = f32::from(h);
     let c = v * s;
     let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
     let m = v - c;
@@ -189,15 +191,9 @@ pub fn print_bulb_presets(json: &serde_json::Value) {
             let hue = s["hue"].as_u64().unwrap_or(0);
             let sat = s["saturation"].as_u64().unwrap_or(0);
             if color_temp > 0 {
-                println!(
-                    "  Preset {idx}: {}% brightness  {}K",
-                    brightness, color_temp
-                );
+                println!("  Preset {idx}: {brightness}% brightness  {color_temp}K");
             } else {
-                println!(
-                    "  Preset {idx}: {}% brightness  hue={hue} sat={sat}",
-                    brightness
-                );
+                println!("  Preset {idx}: {brightness}% brightness  hue={hue} sat={sat}");
             }
         }
     }
@@ -259,13 +255,13 @@ pub fn print_schedules(json: &serde_json::Value) {
         }
         println!("{}", "Schedules:".bold());
         for r in rules {
-            let enabled = r.get("enable").and_then(|v| v.as_u64()).unwrap_or(0) == 1;
+            let enabled = r.get("enable").and_then(serde_json::Value::as_u64).unwrap_or(0) == 1;
             let name = r
                 .get("name")
-                .and_then(|v| v.as_str())
+                .and_then(serde_json::Value::as_str)
                 .unwrap_or("(unnamed)");
-            let smin = r.get("smin").and_then(|v| v.as_u64()).unwrap_or(0);
-            let sact = r.get("sact").and_then(|v| v.as_i64()).unwrap_or(1);
+            let smin = r.get("smin").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let sact = r.get("sact").and_then(serde_json::Value::as_i64).unwrap_or(1);
             let action = if sact == 1 { "on".green() } else { "off".red() };
             let time = format!("{:02}:{:02}", smin / 60, smin % 60);
             let days = format_wday(r.get("wday").and_then(|v| v.as_array()));
@@ -310,31 +306,31 @@ fn format_energy_lines(d: &serde_json::Value) -> Vec<String> {
     let mut lines = Vec::new();
     if d.get("power_mw").is_some() {
         // KP115 / color-bulb milli-unit fields (KL135, LB130)
-        if let Some(mw) = d.get("power_mw").and_then(|v| v.as_f64()) {
+        if let Some(mw) = d.get("power_mw").and_then(serde_json::Value::as_f64) {
             lines.push(format!("Power:   {:.2} W", mw / 1000.0));
         }
-        if let Some(mv) = d.get("voltage_mv").and_then(|v| v.as_f64()) {
+        if let Some(mv) = d.get("voltage_mv").and_then(serde_json::Value::as_f64) {
             lines.push(format!("Voltage: {:.1} V", mv / 1000.0));
         }
-        if let Some(ma) = d.get("current_ma").and_then(|v| v.as_f64()) {
+        if let Some(ma) = d.get("current_ma").and_then(serde_json::Value::as_f64) {
             lines.push(format!("Current: {:.3} A", ma / 1000.0));
         }
-        if let Some(wh) = d.get("total_wh").and_then(|v| v.as_u64()) {
-            lines.push(format!("Total:   {} Wh", wh));
+        if let Some(wh) = d.get("total_wh").and_then(serde_json::Value::as_u64) {
+            lines.push(format!("Total:   {wh} Wh"));
         }
     } else {
         // HS110 real-unit fields
-        if let Some(w) = d.get("power").and_then(|v| v.as_f64()) {
-            lines.push(format!("Power:   {:.2} W", w));
+        if let Some(w) = d.get("power").and_then(serde_json::Value::as_f64) {
+            lines.push(format!("Power:   {w:.2} W"));
         }
-        if let Some(v) = d.get("voltage").and_then(|v| v.as_f64()) {
-            lines.push(format!("Voltage: {:.1} V", v));
+        if let Some(v) = d.get("voltage").and_then(serde_json::Value::as_f64) {
+            lines.push(format!("Voltage: {v:.1} V"));
         }
-        if let Some(a) = d.get("current").and_then(|v| v.as_f64()) {
-            lines.push(format!("Current: {:.3} A", a));
+        if let Some(a) = d.get("current").and_then(serde_json::Value::as_f64) {
+            lines.push(format!("Current: {a:.3} A"));
         }
-        if let Some(kwh) = d.get("total").and_then(|v| v.as_f64()) {
-            lines.push(format!("Total:   {:.3} kWh", kwh));
+        if let Some(kwh) = d.get("total").and_then(serde_json::Value::as_f64) {
+            lines.push(format!("Total:   {kwh:.3} kWh"));
         }
     }
     lines
@@ -350,7 +346,7 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
         .or_else(|| json.pointer("/smartlife.iot.common.emeter/get_realtime"));
 
     if let Some(d) = data {
-        if d.get("err_code").and_then(|v| v.as_i64()).unwrap_or(0) != 0 {
+        if d.get("err_code").and_then(serde_json::Value::as_i64).unwrap_or(0) != 0 {
             let msg = d
                 .get("err_msg")
                 .and_then(|v| v.as_str())
@@ -443,12 +439,13 @@ fn sort_energy_entries(list: &[serde_json::Value], key: &str) -> Vec<(u64, u64)>
 
 /// Registry-based hints, falling back to a bare on/off hint for unknown models.
 fn model_hints(model: &str, alias: &str, is_on: bool) -> Vec<String> {
-    devices::lookup(model)
-        .map(|e| devices::hints(e, alias, is_on))
-        .unwrap_or_else(|| {
+    devices::lookup(model).map_or_else(
+        || {
             let action = if is_on { "off" } else { "on" };
             vec![format!("denki {action} \"{alias}\"")]
-        })
+        },
+        |e| devices::hints(e, alias, is_on),
+    )
 }
 
 fn bulb_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
@@ -488,7 +485,7 @@ fn lightstrip_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
 fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
     let mut hints = devices::lookup(&s.model)
         .map(|e| {
-            let mut h = devices::hints(e, alias, s.children.iter().any(|c| c.is_on()));
+            let mut h = devices::hints(e, alias, s.children.iter().any(crate::strip::StripChild::is_on));
             if !s.has_energy_monitoring() {
                 h.retain(|h| !h.contains("energy"));
             }

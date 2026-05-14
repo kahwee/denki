@@ -147,7 +147,7 @@ pub async fn relay_off(host: &str) -> Result<()> {
 pub async fn device_led(host: &str, on: bool) -> Result<()> {
     transport::send(
         host,
-        json!({"system": {"set_led_off": {"off": if on { 0 } else { 1 }}}}),
+        json!({"system": {"set_led_off": {"off": i32::from(!on)}}}),
     )
     .await?;
     Ok(())
@@ -291,7 +291,7 @@ pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
     let info = tapo_device_info(session).await?;
     let is_on = info
         .pointer("/result/device_on")
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     if is_on {
         tapo_off(session).await?;
@@ -303,7 +303,7 @@ pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
 }
 
 fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
-    let code = resp.get("error_code").and_then(|v| v.as_i64()).unwrap_or(0);
+    let code = resp.get("error_code").and_then(serde_json::Value::as_i64).unwrap_or(0);
     if code != 0 {
         anyhow::bail!("Tapo device error: code {code}");
     }

@@ -21,14 +21,14 @@ fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
     match kind {
         DeviceKind::Bulb => {
             json.pointer("/system/get_sysinfo/light_state/on_off")
-                .and_then(|v| v.as_u64())
+                .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0)
                 == 0
         }
-        DeviceKind::Strip => !strip::parse(json).map(|s| s.is_any_on()).unwrap_or(false),
+        DeviceKind::Strip => !strip::parse(json).is_some_and(|s| s.is_any_on()),
         _ => {
             json.pointer("/system/get_sysinfo/relay_state")
-                .and_then(|v| v.as_u64())
+                .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0)
                 == 0
         }
@@ -165,9 +165,8 @@ async fn main() -> Result<()> {
                 let ip_str = ip.to_string();
                 let is_new = json
                     .pointer("/system/get_sysinfo/alias")
-                    .and_then(|v| v.as_str())
-                    .map(|name| hosts::save_if_new_in(name, &ip_str, &mut host_map))
-                    .unwrap_or(false);
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|name| hosts::save_if_new_in(name, &ip_str, &mut host_map));
                 if is_new {
                     map_dirty = true;
                 }
@@ -328,7 +327,7 @@ async fn main() -> Result<()> {
                     true
                 };
                 let label = if now_on { "on".green().bold() } else { "off".dimmed() };
-                println!("Outlet {} ({}) -> {label}", outlet_num, child_alias);
+                println!("Outlet {outlet_num} ({child_alias}) -> {label}");
             } else {
                 let now_on = match r.protocol {
                     hosts::Protocol::Klap => {
@@ -527,7 +526,7 @@ async fn main() -> Result<()> {
 
         Command::Unalias { name } => {
             if hosts::remove(&name)? {
-                println!("Removed alias \"{}\"", name);
+                println!("Removed alias \"{name}\"");
             } else {
                 bail!("No alias named \"{name}\" found");
             }

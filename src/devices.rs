@@ -204,7 +204,7 @@ fn require_relay_device(kind: &DeviceKind, cmd: &str) -> Result<()> {
 }
 
 pub fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
-    require_bulb(kind, "color-temp", "bulbs")
+    require_bulb(kind, "color-temp", "color bulbs (e.g. KL135)")
 }
 
 pub fn can_set_color(kind: &DeviceKind) -> Result<()> {

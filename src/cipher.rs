@@ -16,6 +16,7 @@ pub fn encode(plaintext: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(plaintext.len() + 4);
     // Big-endian byte count of the plaintext, prepended so the receiver
     // knows exactly how many bytes to read before decoding.
+    #[allow(clippy::cast_possible_truncation)]
     out.extend_from_slice(&(plaintext.len() as u32).to_be_bytes());
     out.extend_from_slice(&encode_raw(plaintext));
     out

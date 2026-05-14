@@ -23,6 +23,7 @@
 
 use aes::Aes128;
 use anyhow::{bail, Result};
+use std::fmt::Write as FmtWrite;
 use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use rand::RngCore;
 use sha1::{Digest as Sha1Digest, Sha1};
@@ -96,7 +97,7 @@ async fn http_post(
         body.len()
     );
     for (k, v) in extra_headers {
-        req.push_str(&format!("{k}: {v}\r\n"));
+        let _ = write!(req, "{k}: {v}\r\n");
     }
     req.push_str("\r\n");
 
@@ -217,7 +218,7 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
 
 impl KlapSession {
     pub async fn send(&mut self, json: &str) -> Result<serde_json::Value> {
-        let (payload, seq) = self.encrypt(json.as_bytes())?;
+        let (payload, seq) = self.encrypt(json.as_bytes());
         let path = format!("/app/request?seq={seq}");
 
         let (status, _, resp_body) =
@@ -241,7 +242,7 @@ impl KlapSession {
         iv
     }
 
-    fn encrypt(&mut self, plaintext: &[u8]) -> Result<(Vec<u8>, i32)> {
+    fn encrypt(&mut self, plaintext: &[u8]) -> (Vec<u8>, i32) {
         self.seq = self.seq.wrapping_add(1);
         let iv = self.iv_for_seq(self.seq);
 
@@ -254,7 +255,7 @@ impl KlapSession {
         payload.extend_from_slice(&sig_tag);
         payload.extend_from_slice(&ciphertext);
 
-        Ok((payload, self.seq))
+        (payload, self.seq)
     }
 
     fn decrypt(&self, data: &[u8]) -> Result<String> {
