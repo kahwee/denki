@@ -109,7 +109,7 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     println!();
 }
 
-/// Print brightness + colour-temperature or HSV colour for any light state.
+/// Print brightness + color-temperature or HSV color for any light state.
 /// Used by both bulb and light-strip detail views.
 fn print_light_state_detail(ls: &LightState) {
     println!("  Brightness: {}%", ls.brightness());
