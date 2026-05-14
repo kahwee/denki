@@ -105,9 +105,25 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
         short_fw(&bulb.sw_ver),
     );
     print_light_color(&bulb.light_state, "   ");
-    let a = hint_alias;
-    println!("   {}", format!("→ {}", bulb_hints(bulb, a).join("  ·  ")).dimmed());
+    println!("   {}", format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed());
     println!();
+}
+
+/// Print brightness + colour-temperature or HSV colour for any light state.
+/// Used by both bulb and light-strip detail views.
+fn print_light_state_detail(ls: &LightState) {
+    println!("  Brightness: {}%", ls.brightness());
+    if ls.color_temp() > 0 {
+        println!("  Warmth:     {}K", ls.color_temp());
+    } else {
+        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
+        println!(
+            "  Color:      {} {}° hue  {} sat",
+            "██".truecolor(r, g, b),
+            ls.hue(),
+            ls.saturation()
+        );
+    }
 }
 
 pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
@@ -125,22 +141,9 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
         bulb.rssi,
         signal_label(bulb.rssi)
     );
-    let ls = &bulb.light_state;
-    println!("  Brightness: {}%", ls.brightness());
-    if ls.color_temp() > 0 {
-        println!("  Warmth:     {}K", ls.color_temp());
-    } else {
-        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
-        println!(
-            "  Color:      {} {}° hue  {} sat",
-            "██".truecolor(r, g, b),
-            ls.hue(),
-            ls.saturation()
-        );
-    }
+    print_light_state_detail(&bulb.light_state);
     println!("  Features:   {}", caps_label(bulb));
-    let a = hint_alias;
-    println!("  {}", format!("→ {}", bulb_hints(bulb, a).join("  ·  ")).dimmed());
+    println!("  {}", format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed());
 }
 
 pub fn print_bulb_specs(json: &serde_json::Value) {
@@ -223,8 +226,7 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug, hint_alias: &str) {
     if plug.is_on() {
         println!("   On for: {}", plug.on_time_fmt());
     }
-    let a = hint_alias;
-    println!("   {}", format!("→ {}", plug_hints(plug, a).join("  ·  ")).dimmed());
+    println!("   {}", format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed());
     println!();
 }
 
@@ -243,8 +245,7 @@ pub fn print_plug_detail(ip: &str, plug: &Plug, hint_alias: &str) {
     if plug.is_on() {
         println!("  On for:   {}", plug.on_time_fmt());
     }
-    let a = hint_alias;
-    println!("  {}", format!("→ {}", plug_hints(plug, a).join("  ·  ")).dimmed());
+    println!("  {}", format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed());
 }
 
 pub fn print_schedules(json: &serde_json::Value) {
@@ -450,41 +451,31 @@ fn sort_monthly_entries(list: &[serde_json::Value]) -> Vec<(u64, u64)> {
 
 // ── Hint builders (shared between summary and detail views) ──────────────────
 
-fn bulb_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
-    let is_on = bulb.light_state.is_on();
-    devices::lookup(&bulb.model)
+/// Registry-based hints, falling back to a bare on/off hint for unknown models.
+fn model_hints(model: &str, alias: &str, is_on: bool) -> Vec<String> {
+    devices::lookup(model)
         .map(|e| devices::hints(e, alias, is_on))
         .unwrap_or_else(|| {
             let action = if is_on { "off" } else { "on" };
             vec![format!("denki {action} \"{alias}\"")]
         })
+}
+
+fn bulb_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
+    model_hints(&bulb.model, alias, bulb.light_state.is_on())
 }
 
 fn plug_hints(plug: &Plug, alias: &str) -> Vec<String> {
-    let is_on = plug.is_on();
-    devices::lookup(&plug.model)
-        .map(|e| {
-            let mut h = devices::hints(e, alias, is_on);
-            // Runtime ENE flag overrides devices.toml: drop energy hint if chip absent.
-            if !plug.has_energy_monitoring() {
-                h.retain(|s| !s.contains("energy"));
-            }
-            h
-        })
-        .unwrap_or_else(|| {
-            let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} \"{alias}\"")]
-        })
+    // Runtime ENE flag overrides devices.toml: drop energy hint if chip absent.
+    let mut h = model_hints(&plug.model, alias, plug.is_on());
+    if !plug.has_energy_monitoring() {
+        h.retain(|s| !s.contains("energy"));
+    }
+    h
 }
 
 fn dimmer_hints(d: &Dimmer, alias: &str) -> Vec<String> {
-    let is_on = d.is_on();
-    devices::lookup(&d.model)
-        .map(|e| devices::hints(e, alias, is_on))
-        .unwrap_or_else(|| {
-            let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} \"{alias}\"")]
-        })
+    model_hints(&d.model, alias, d.is_on())
 }
 
 fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
@@ -543,19 +534,7 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
         bulb.rssi,
         signal_label(bulb.rssi)
     );
-    let ls = &bulb.light_state;
-    println!("  Brightness: {}%", ls.brightness());
-    if ls.color_temp() > 0 {
-        println!("  Warmth:     {}K", ls.color_temp());
-    } else {
-        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
-        println!(
-            "  Color:      {} {}° hue  {} sat",
-            "██".truecolor(r, g, b),
-            ls.hue(),
-            ls.saturation()
-        );
-    }
+    print_light_state_detail(&bulb.light_state);
     println!(
         "  {}",
         "→ power/dim/color-temp/color control not yet implemented for KL430".dimmed()
@@ -582,8 +561,7 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer, hint_alias: &str) {
         short_fw(&d.sw_ver),
         d.brightness
     );
-    let a = hint_alias;
-    println!("   {}", format!("→ {}", dimmer_hints(d, a).join("  ·  ")).dimmed());
+    println!("   {}", format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed());
     println!();
 }
 
@@ -596,8 +574,7 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer, hint_alias: &str) {
     println!("  Firmware:   {}", d.sw_ver);
     println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
     println!("  Brightness: {}%", d.brightness);
-    let a = hint_alias;
-    println!("  {}", format!("→ {}", dimmer_hints(d, a).join("  ·  ")).dimmed());
+    println!("  {}", format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed());
     println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()

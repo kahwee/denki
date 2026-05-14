@@ -51,12 +51,6 @@ fn sha1_of(data: &[u8]) -> [u8; 20] {
     h.finalize().into()
 }
 
-fn sha256_of(data: &[u8]) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(data);
-    h.finalize().into()
-}
-
 fn sha256_multi(parts: &[&[u8]]) -> [u8; 32] {
     let mut h = Sha256::new();
     for p in parts {
@@ -68,7 +62,7 @@ fn sha256_multi(parts: &[&[u8]]) -> [u8; 32] {
 pub fn auth_hash(username: &str, password: &str) -> [u8; 32] {
     let un = sha1_of(username.as_bytes());
     let pw = sha1_of(password.as_bytes());
-    sha256_of(&[un.as_slice(), pw.as_slice()].concat())
+    sha256_multi(&[&un, &pw])
 }
 
 async fn read_headers(stream: &mut TcpStream) -> Result<Vec<u8>> {
@@ -133,7 +127,7 @@ async fn http_post(
         .lines()
         .find_map(|l| {
             if l.to_lowercase().starts_with("content-length:") {
-                l[15..].trim().parse().ok()
+                l["content-length:".len()..].trim().parse().ok()
             } else {
                 None
             }

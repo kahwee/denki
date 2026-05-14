@@ -10,7 +10,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use colored::Colorize;
 
-async fn open_tapo(ip: &str) -> Result<klap::KlapSession> {
+async fn tapo_session(ip: &str) -> Result<klap::KlapSession> {
     let (user, pass) = creds::load()?;
     klap::handshake(ip, &user, &pass).await
 }
@@ -47,22 +47,94 @@ async fn kasa_set_power(ip: &str, kind: &DeviceKind, on: bool) -> Result<()> {
     Ok(())
 }
 
+// Resolve an outlet on a strip: require Kasa, fetch sysinfo, parse strip, return
+// (child_id, child_alias, child_is_on). Used by on/off/toggle outlet paths.
+async fn resolve_strip_outlet(
+    r: &resolve::Resolved,
+    cmd: &str,
+    outlet: u8,
+) -> Result<(String, String, bool)> {
+    require_kasa(r, cmd)?;
+    let json = ops::sysinfo(&r.ip).await?;
+    let s = strip::parse(&json)
+        .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
+    let child = resolve_outlet(&s, outlet)?;
+    Ok((child.id.clone(), child.alias.clone(), child.is_on()))
+}
+
 // Returns the resolved strip, child_id, and child_alias for per-outlet energy commands.
 // Fails clearly if the JSON is not a strip, the strip has no ENE chip, or the outlet is out of range.
 fn strip_for_energy_outlet(
     json: &serde_json::Value,
     ip: &str,
     outlet: u8,
-) -> Result<(strip::Strip, String, String)> {
+) -> Result<(String, String)> {
     let s = strip::parse(json)
         .ok_or_else(|| anyhow::anyhow!("{ip} does not appear to be a power strip"))?;
     if !s.has_energy_monitoring() {
         anyhow::bail!("{} ({}) does not have energy monitoring", s.alias, s.model);
     }
     let child = resolve_outlet(&s, outlet)?;
-    let id = child.id.clone();
-    let alias = child.alias.clone();
-    Ok((s, id, alias))
+    Ok((child.id.clone(), child.alias.clone()))
+}
+
+/// Parse "YYYY-MM" and validate month is 1–12.
+fn parse_year_month(s: &str) -> Result<(u16, u8)> {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 2 {
+        bail!("Month must be in YYYY-MM format");
+    }
+    let year: u16 = parts[0].parse()?;
+    let mo: u8 = parts[1].parse()?;
+    if !(1..=12).contains(&mo) {
+        bail!("Month must be 01–12, got {mo:02}");
+    }
+    Ok((year, mo))
+}
+
+/// Resolve a Kasa host, require Kasa protocol, fetch sysinfo, and detect device kind.
+async fn kasa_sysinfo(
+    host: &str,
+    cmd: &str,
+) -> Result<(resolve::Resolved, serde_json::Value, DeviceKind)> {
+    let r = resolve(host).await?;
+    require_kasa(&r, cmd)?;
+    let json = ops::sysinfo(&r.ip).await?;
+    let kind = devices::detect_kind(&json);
+    Ok((r, json, kind))
+}
+
+/// Dispatch real-time energy to the correct namespace (bulb vs relay device).
+async fn energy_realtime_for(ip: &str, kind: &DeviceKind) -> Result<serde_json::Value> {
+    match kind {
+        DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(ip).await,
+        _ => ops::device_energy(ip).await,
+    }
+}
+
+/// Dispatch daily energy to the correct namespace.
+async fn energy_daily_for(
+    ip: &str,
+    kind: &DeviceKind,
+    year: u16,
+    mo: u8,
+) -> Result<serde_json::Value> {
+    match kind {
+        DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy_daily(ip, year, mo).await,
+        _ => ops::device_energy_daily(ip, year, mo).await,
+    }
+}
+
+/// Dispatch monthly energy to the correct namespace.
+async fn energy_monthly_for(
+    ip: &str,
+    kind: &DeviceKind,
+    year: u16,
+) -> Result<serde_json::Value> {
+    match kind {
+        DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy_monthly(ip, year).await,
+        _ => ops::device_energy_monthly(ip, year).await,
+    }
 }
 
 #[tokio::main]
@@ -132,7 +204,7 @@ async fn main() -> Result<()> {
             for (name, entry) in klap_aliases {
                 join_set.spawn(async move {
                     let ip = entry.ip;
-                    let mut session = open_tapo(&ip).await.ok()?;
+                    let mut session = tapo_session(&ip).await.ok()?;
                     let json = ops::tapo_device_info(&mut session).await.ok()?;
                     let d = tapo::parse(&json)?;
                     Some((ip, name, d))
@@ -157,7 +229,7 @@ async fn main() -> Result<()> {
             let hint = r.saved_name.as_deref().unwrap_or(&r.ip).to_string();
             match r.protocol {
                 hosts::Protocol::Klap => {
-                    let mut session = open_tapo(&r.ip).await?;
+                    let mut session = tapo_session(&r.ip).await?;
                     let json = ops::tapo_device_info(&mut session).await?;
                     match tapo::parse(&json) {
                         Some(d) => display::print_tapo_detail(&r.ip, &d, &hint),
@@ -205,17 +277,14 @@ async fn main() -> Result<()> {
         Command::On { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
-                require_kasa(&r, "on <outlet>")?;
-                let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-                let child = resolve_outlet(&s, outlet_num)?;
-                ops::strip_outlet_on(&r.ip, &child.id).await?;
-                println!("Outlet {} ({}) {}", outlet_num, child.alias, "on".green().bold());
+                let (child_id, child_alias, _) =
+                    resolve_strip_outlet(&r, "on <outlet>", outlet_num).await?;
+                ops::strip_outlet_on(&r.ip, &child_id).await?;
+                println!("Outlet {} ({}) {}", outlet_num, child_alias, "on".green().bold());
             } else {
                 match r.protocol {
                     hosts::Protocol::Klap => {
-                        let mut s = open_tapo(&r.ip).await?;
+                        let mut s = tapo_session(&r.ip).await?;
                         ops::tapo_on(&mut s).await?;
                     }
                     hosts::Protocol::Kasa => {
@@ -230,17 +299,14 @@ async fn main() -> Result<()> {
         Command::Off { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
-                require_kasa(&r, "off <outlet>")?;
-                let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-                let child = resolve_outlet(&s, outlet_num)?;
-                ops::strip_outlet_off(&r.ip, &child.id).await?;
-                println!("Outlet {} ({}) {}", outlet_num, child.alias, "off".dimmed());
+                let (child_id, child_alias, _) =
+                    resolve_strip_outlet(&r, "off <outlet>", outlet_num).await?;
+                ops::strip_outlet_off(&r.ip, &child_id).await?;
+                println!("Outlet {} ({}) {}", outlet_num, child_alias, "off".dimmed());
             } else {
                 match r.protocol {
                     hosts::Protocol::Klap => {
-                        let mut s = open_tapo(&r.ip).await?;
+                        let mut s = tapo_session(&r.ip).await?;
                         ops::tapo_off(&mut s).await?;
                     }
                     hosts::Protocol::Kasa => {
@@ -255,24 +321,21 @@ async fn main() -> Result<()> {
         Command::Toggle { host, outlet } => {
             let r = resolve(&host).await?;
             if let Some(outlet_num) = outlet {
-                require_kasa(&r, "toggle <outlet>")?;
-                let json = ops::sysinfo(&r.ip).await?;
-                let s = strip::parse(&json)
-                    .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
-                let child = resolve_outlet(&s, outlet_num)?;
-                let now_on = if child.is_on() {
-                    ops::strip_outlet_off(&r.ip, &child.id).await?;
+                let (child_id, child_alias, was_on) =
+                    resolve_strip_outlet(&r, "toggle <outlet>", outlet_num).await?;
+                let now_on = if was_on {
+                    ops::strip_outlet_off(&r.ip, &child_id).await?;
                     false
                 } else {
-                    ops::strip_outlet_on(&r.ip, &child.id).await?;
+                    ops::strip_outlet_on(&r.ip, &child_id).await?;
                     true
                 };
                 let label = if now_on { "on".green().bold() } else { "off".dimmed() };
-                println!("Outlet {} ({}) -> {label}", outlet_num, child.alias);
+                println!("Outlet {} ({}) -> {label}", outlet_num, child_alias);
             } else {
                 let now_on = match r.protocol {
                     hosts::Protocol::Klap => {
-                        let mut s = open_tapo(&r.ip).await?;
+                        let mut s = tapo_session(&r.ip).await?;
                         ops::tapo_toggle(&mut s).await?
                     }
                     hosts::Protocol::Kasa => {
@@ -289,10 +352,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Dim { host, level } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "dim")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            let kind = devices::detect_kind(&json);
+            let (r, json, kind) = kasa_sysinfo(&host, "dim").await?;
             devices::can_dim(&kind)?;
             match kind {
                 DeviceKind::Bulb => {
@@ -314,10 +374,8 @@ async fn main() -> Result<()> {
         }
 
         Command::ColorTemp { host, kelvin } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "color-temp")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            devices::can_set_color_temp(&devices::detect_kind(&json))?;
+            let (r, json, kind) = kasa_sysinfo(&host, "color-temp").await?;
+            devices::can_set_color_temp(&kind)?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                 ops::bulb_on(&r.ip).await?;
             }
@@ -326,10 +384,8 @@ async fn main() -> Result<()> {
         }
 
         Command::Color { host, hue, saturation, value } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "color")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            devices::can_set_color(&devices::detect_kind(&json))?;
+            let (r, json, kind) = kasa_sysinfo(&host, "color").await?;
+            devices::can_set_color(&kind)?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
                 ops::bulb_on(&r.ip).await?;
             }
@@ -338,135 +394,85 @@ async fn main() -> Result<()> {
         }
 
         Command::Energy { host, outlet } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "energy")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            let kind = devices::detect_kind(&json);
+            let (r, json, kind) = kasa_sysinfo(&host, "energy").await?;
             if let Some(outlet_num) = outlet {
-                let (_s, child_id, child_alias) =
+                let (child_id, child_alias) =
                     strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
                 let resp = ops::strip_outlet_energy(&r.ip, &child_id).await?;
                 println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_realtime(&resp);
             } else {
                 devices::require_energy(&json, &kind)?;
-                let resp = match &kind {
-                    DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(&r.ip).await?,
-                    _ => ops::device_energy(&r.ip).await?,
-                };
-                display::print_energy_realtime(&resp);
+                display::print_energy_realtime(&energy_realtime_for(&r.ip, &kind).await?);
             }
         }
 
         Command::EnergyDaily { host, month, outlet } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "energy-daily")?;
-            let ip = r.ip;
-            let month_str = match month {
-                Some(m) => m,
-                None => {
-                    let (y, m) = fmt::current_year_month();
-                    format!("{y}-{m:02}")
-                }
-            };
-            let parts: Vec<&str> = month_str.split('-').collect();
-            if parts.len() != 2 {
-                bail!("Month must be in YYYY-MM format");
-            }
-            let year: u16 = parts[0].parse()?;
-            let mo: u8 = parts[1].parse()?;
-            if !(1..=12).contains(&mo) {
-                bail!("Month must be 01–12, got {mo:02}");
-            }
-            let json = ops::sysinfo(&ip).await?;
-            let kind = devices::detect_kind(&json);
+            let (r, json, kind) = kasa_sysinfo(&host, "energy-daily").await?;
+            let month_str = month.unwrap_or_else(|| {
+                let (y, m) = fmt::current_year_month();
+                format!("{y}-{m:02}")
+            });
+            let (year, mo) = parse_year_month(&month_str)?;
             if let Some(outlet_num) = outlet {
-                let (_s, child_id, child_alias) =
-                    strip_for_energy_outlet(&json, &ip, outlet_num)?;
-                let resp = ops::strip_outlet_energy_daily(&ip, &child_id, year, mo).await?;
+                let (child_id, child_alias) =
+                    strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
+                let resp = ops::strip_outlet_energy_daily(&r.ip, &child_id, year, mo).await?;
                 println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_daily(&resp, &month_str);
             } else {
                 devices::require_energy(&json, &kind)?;
-                let resp = match &kind {
-                    DeviceKind::Bulb | DeviceKind::LightStrip => {
-                        ops::bulb_energy_daily(&ip, year, mo).await?
-                    }
-                    _ => ops::device_energy_daily(&ip, year, mo).await?,
-                };
-                display::print_energy_daily(&resp, &month_str);
+                display::print_energy_daily(
+                    &energy_daily_for(&r.ip, &kind, year, mo).await?,
+                    &month_str,
+                );
             }
         }
 
         Command::EnergyMonthly { host, year, outlet } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "energy-monthly")?;
+            let (r, json, kind) = kasa_sysinfo(&host, "energy-monthly").await?;
             let year = year.unwrap_or_else(|| fmt::current_year_month().0);
-            let json = ops::sysinfo(&r.ip).await?;
-            let kind = devices::detect_kind(&json);
             if let Some(outlet_num) = outlet {
-                let (_s, child_id, child_alias) =
+                let (child_id, child_alias) =
                     strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
                 let resp = ops::strip_outlet_energy_monthly(&r.ip, &child_id, year).await?;
                 println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_monthly(&resp, year);
             } else {
                 devices::require_energy(&json, &kind)?;
-                let resp = match &kind {
-                    DeviceKind::Bulb | DeviceKind::LightStrip => {
-                        ops::bulb_energy_monthly(&r.ip, year).await?
-                    }
-                    _ => ops::device_energy_monthly(&r.ip, year).await?,
-                };
-                display::print_energy_monthly(&resp, year);
+                display::print_energy_monthly(&energy_monthly_for(&r.ip, &kind, year).await?, year);
             }
         }
 
         Command::Specs { host } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "specs")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            devices::can_get_specs(&devices::detect_kind(&json))?;
-            let resp = ops::bulb_specs(&r.ip).await?;
-            display::print_bulb_specs(&resp);
+            let (r, _, kind) = kasa_sysinfo(&host, "specs").await?;
+            devices::can_get_specs(&kind)?;
+            display::print_bulb_specs(&ops::bulb_specs(&r.ip).await?);
         }
 
         Command::Presets { host } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "presets")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            devices::can_get_presets(&devices::detect_kind(&json))?;
-            let resp = ops::bulb_presets(&r.ip).await?;
-            display::print_bulb_presets(&resp);
+            let (r, _, kind) = kasa_sysinfo(&host, "presets").await?;
+            devices::can_get_presets(&kind)?;
+            display::print_bulb_presets(&ops::bulb_presets(&r.ip).await?);
         }
 
         Command::Schedules { host } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "schedules")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            devices::can_get_schedules(&devices::detect_kind(&json))?;
-            let resp = ops::device_schedules(&r.ip).await?;
-            display::print_schedules(&resp);
+            let (r, _, kind) = kasa_sysinfo(&host, "schedules").await?;
+            devices::can_get_schedules(&kind)?;
+            display::print_schedules(&ops::device_schedules(&r.ip).await?);
         }
 
         Command::Led { host, state } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "led")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            devices::can_control_led(&devices::detect_kind(&json))?;
+            let (r, _, kind) = kasa_sysinfo(&host, "led").await?;
+            devices::can_control_led(&kind)?;
             let on = matches!(state, LedAction::On);
             ops::device_led(&r.ip, on).await?;
-            println!(
-                "LED indicator {}",
-                if on { "on".green() } else { "off".dimmed() }
-            );
+            println!("LED indicator {}", if on { "on".green() } else { "off".dimmed() });
         }
 
         Command::Clock { host } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "clock")?;
-            let json = ops::sysinfo(&r.ip).await?;
-            devices::can_get_clock(&devices::detect_kind(&json))?;
+            let (r, _, kind) = kasa_sysinfo(&host, "clock").await?;
+            devices::can_get_clock(&kind)?;
             let resp = ops::device_time(&r.ip).await?;
             if let Some(t) = resp.pointer("/time/get_time") {
                 println!(
@@ -498,20 +504,15 @@ async fn main() -> Result<()> {
         }
 
         Command::Outlets { host } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "outlets")?;
-            let host = r.ip;
-            let json = ops::sysinfo(&host).await?;
+            let (r, json, _) = kasa_sysinfo(&host, "outlets").await?;
             match strip::parse(&json) {
                 Some(s) => display::print_strip_outlets(&s),
-                None => bail!("{host} does not appear to be a power strip"),
+                None => bail!("{} does not appear to be a power strip", r.ip),
             }
         }
 
         Command::OutletRename { host, outlet, name } => {
-            let r = resolve(&host).await?;
-            require_kasa(&r, "outlet-rename")?;
-            let json = ops::sysinfo(&r.ip).await?;
+            let (r, json, _) = kasa_sysinfo(&host, "outlet-rename").await?;
             let s = strip::parse(&json)
                 .ok_or_else(|| anyhow::anyhow!("{} does not appear to be a power strip", r.ip))?;
             let child = resolve_outlet(&s, outlet)?;
@@ -781,19 +782,26 @@ mod tests {
     }
 
     #[test]
-    fn energy_daily_rejects_month_zero() {
-        let month_str = "2025-00";
-        let parts: Vec<&str> = month_str.split('-').collect();
-        let mo: u8 = parts[1].parse().unwrap();
-        assert!(!(1u8..=12).contains(&mo));
+    fn parse_year_month_valid() {
+        assert_eq!(parse_year_month("2025-03").unwrap(), (2025, 3));
+        assert_eq!(parse_year_month("2024-12").unwrap(), (2024, 12));
+        assert_eq!(parse_year_month("2025-01").unwrap(), (2025, 1));
     }
 
     #[test]
-    fn energy_daily_rejects_month_13() {
-        let month_str = "2025-13";
-        let parts: Vec<&str> = month_str.split('-').collect();
-        let mo: u8 = parts[1].parse().unwrap();
-        assert!(!(1u8..=12).contains(&mo));
+    fn parse_year_month_rejects_month_zero() {
+        assert!(parse_year_month("2025-00").is_err());
+    }
+
+    #[test]
+    fn parse_year_month_rejects_month_13() {
+        assert!(parse_year_month("2025-13").is_err());
+    }
+
+    #[test]
+    fn parse_year_month_rejects_wrong_format() {
+        assert!(parse_year_month("202503").is_err());
+        assert!(parse_year_month("2025-03-01").is_err());
     }
 
     // ── strip_for_energy_outlet ───────────────────────────────────────────────
@@ -825,7 +833,7 @@ mod tests {
     #[test]
     fn strip_for_energy_outlet_succeeds_on_ene_strip() {
         let json = ene_strip_json(3);
-        let (_s, id, alias) = strip_for_energy_outlet(&json, "1.2.3.4", 2).unwrap();
+        let (id, alias) = strip_for_energy_outlet(&json, "1.2.3.4", 2).unwrap();
         assert_eq!(id, "ID01");
         assert_eq!(alias, "Outlet 2");
     }
@@ -857,7 +865,7 @@ mod tests {
     #[test]
     fn strip_for_energy_outlet_outlet_1_succeeds() {
         let json = ene_strip_json(1);
-        let (_s, id, alias) = strip_for_energy_outlet(&json, "1.2.3.4", 1).unwrap();
+        let (id, alias) = strip_for_energy_outlet(&json, "1.2.3.4", 1).unwrap();
         assert_eq!(id, "ID00");
         assert_eq!(alias, "Outlet 1");
     }
