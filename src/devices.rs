@@ -149,6 +149,17 @@ pub fn detect_kind(json: &serde_json::Value) -> DeviceKind {
     }
 }
 
+/// Returns true if sysinfo is from a plug or switch device (mic_type or type field).
+/// Used by plug::parse and dimmer::parse to reject bulb sysinfo early.
+pub fn is_plug_switch(sysinfo: &serde_json::Value) -> bool {
+    let type_str = sysinfo
+        .get("mic_type")
+        .or_else(|| sysinfo.get("type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    type_str.contains("PLUG") || type_str.contains("SWITCH")
+}
+
 // Command capability guards — pure functions, called before any network I/O.
 
 pub fn can_control_power(kind: &DeviceKind) -> Result<()> {
@@ -175,65 +186,49 @@ pub fn can_dim(kind: &DeviceKind) -> Result<()> {
     }
 }
 
-pub fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
+fn require_bulb(kind: &DeviceKind, cmd: &str, models: &str) -> Result<()> {
     match kind {
         DeviceKind::Bulb => Ok(()),
+        other => anyhow::bail!("`{cmd}` is only supported on {models}, not {other}"),
+    }
+}
+
+fn require_relay_device(kind: &DeviceKind, cmd: &str) -> Result<()> {
+    match kind {
+        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
         other => anyhow::bail!(
-            "`color-temp` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
+            "`{cmd}` is only supported on plugs, dimmers, and strips \
+             (e.g. KP115, HS220, HS300), not {other}"
         ),
     }
+}
+
+pub fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
+    require_bulb(kind, "color-temp", "KL135-style color bulbs (e.g. KL135)")
 }
 
 pub fn can_set_color(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!(
-            "`color` is only supported on KL135-style color bulbs (e.g. KL135), not {other}"
-        ),
-    }
+    require_bulb(kind, "color", "KL135-style color bulbs (e.g. KL135)")
 }
 
 pub fn can_get_specs(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!("`specs` is only supported on KL135-style bulbs, not {other}"),
-    }
+    require_bulb(kind, "specs", "KL135-style bulbs")
 }
 
 pub fn can_get_presets(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!("`presets` is only supported on KL135-style bulbs, not {other}"),
-    }
+    require_bulb(kind, "presets", "KL135-style bulbs")
 }
 
 pub fn can_get_schedules(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!(
-            "`schedules` is only supported on plugs, dimmers, and strips \
-             (e.g. KP115, HS220, HS300), not {other}"
-        ),
-    }
+    require_relay_device(kind, "schedules")
 }
 
 pub fn can_control_led(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!(
-            "`led` is only supported on plugs, dimmers, and strips (e.g. KP115, HS220, HS300), not {other}"
-        ),
-    }
+    require_relay_device(kind, "led")
 }
 
 pub fn can_get_clock(kind: &DeviceKind) -> Result<()> {
-    match kind {
-        DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!(
-            "`clock` is only supported on plugs, dimmers, and strips \
-             (e.g. KP115, HS220, HS300), not {other}"
-        ),
-    }
+    require_relay_device(kind, "clock")
 }
 
 // Energy support is a runtime/instance property, not static/kind-level:

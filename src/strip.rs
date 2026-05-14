@@ -48,11 +48,7 @@ impl StripChild {
     }
 
     pub fn on_time_fmt(&self) -> String {
-        if self.on_time == 0 {
-            "off".to_string()
-        } else {
-            crate::fmt::duration(self.on_time)
-        }
+        crate::fmt::on_time(self.on_time)
     }
 }
 

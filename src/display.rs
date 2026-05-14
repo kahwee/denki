@@ -377,7 +377,7 @@ pub fn print_energy_daily(json: &serde_json::Value, month: &str) {
 
     if let Some(list) = days {
         println!("{}", format!("Daily energy usage for {month}:").bold());
-        for (day, wh) in sort_daily_entries(list) {
+        for (day, wh) in sort_energy_entries(list, "day") {
             let bar = "#".repeat((wh / 10).min(40) as usize);
             println!("  Day {:2}: {:4} Wh  {}", day, wh, bar.yellow());
         }
@@ -392,7 +392,7 @@ pub fn print_energy_monthly(json: &serde_json::Value, year: u16) {
 
     if let Some(list) = months {
         println!("{}", format!("Monthly energy usage for {year}:").bold());
-        for (month, wh) in sort_monthly_entries(list) {
+        for (month, wh) in sort_energy_entries(list, "month") {
             let bar = "#".repeat((wh / 100).min(40) as usize);
             println!("  Month {:2}: {:5} Wh  {}", month, wh, bar.yellow());
         }
@@ -429,23 +429,13 @@ fn caps_label(bulb: &Bulb) -> String {
 
 // ── Sorting helpers ───────────────────────────────────────────────────────────
 
-/// Extract and sort energy entries by day number (1-based). Returns (day, Wh) pairs.
-fn sort_daily_entries(list: &[serde_json::Value]) -> Vec<(u64, u64)> {
+/// Extract and sort energy entries by `key` (e.g. "day" or "month"). Returns (key, Wh) pairs.
+fn sort_energy_entries(list: &[serde_json::Value], key: &str) -> Vec<(u64, u64)> {
     let mut entries: Vec<(u64, u64)> = list
         .iter()
-        .map(|d| (d["day"].as_u64().unwrap_or(0), wh_from(d)))
+        .map(|e| (e[key].as_u64().unwrap_or(0), wh_from(e)))
         .collect();
-    entries.sort_by_key(|(day, _)| *day);
-    entries
-}
-
-/// Extract and sort energy entries by month number (1–12). Returns (month, Wh) pairs.
-fn sort_monthly_entries(list: &[serde_json::Value]) -> Vec<(u64, u64)> {
-    let mut entries: Vec<(u64, u64)> = list
-        .iter()
-        .map(|m| (m["month"].as_u64().unwrap_or(0), wh_from(m)))
-        .collect();
-    entries.sort_by_key(|(month, _)| *month);
+    entries.sort_by_key(|(k, _)| *k);
     entries
 }
 
@@ -476,6 +466,23 @@ fn plug_hints(plug: &Plug, alias: &str) -> Vec<String> {
 
 fn dimmer_hints(d: &Dimmer, alias: &str) -> Vec<String> {
     model_hints(&d.model, alias, d.is_on())
+}
+
+fn lightstrip_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
+    devices::lookup(&bulb.model)
+        .map(|e| {
+            let mut h = devices::hints(e, alias, bulb.light_state.is_on());
+            // Remove the unconditional on/off hint when power is not yet implemented
+            if !e.supports.iter().any(|f| f == "power") {
+                h.remove(0);
+            }
+            if e.supports.iter().any(|f| f == "energy") {
+                h.push(format!("denki energy-daily \"{alias}\""));
+                h.push(format!("denki energy-monthly \"{alias}\""));
+            }
+            h
+        })
+        .unwrap_or_default()
 }
 
 fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
@@ -514,12 +521,11 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
         short_fw(&bulb.sw_ver)
     );
     print_light_color(&bulb.light_state, "   ");
-    let a = hint_alias;
-    println!("   {}", format!("→ denki energy \"{a}\"  ·  denki energy-daily \"{a}\"  ·  denki energy-monthly \"{a}\"  ·  power/dim/color-temp/color control not yet implemented for KL430").dimmed());
+    println!("   {}", format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed());
     println!();
 }
 
-pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
+pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
     println!("{} {}", header(&bulb.alias), "[light strip]".dimmed());
     println!("  Host:       {ip}");
     println!(
@@ -535,10 +541,7 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb) {
         signal_label(bulb.rssi)
     );
     print_light_state_detail(&bulb.light_state);
-    println!(
-        "  {}",
-        "→ power/dim/color-temp/color control not yet implemented for KL430".dimmed()
-    );
+    println!("  {}", format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed());
     println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()
@@ -846,44 +849,30 @@ mod tests {
     // ── sort helpers ─────────────────────────────────────────────────────────
 
     #[test]
-    fn sort_daily_entries_orders_ascending() {
-        let list = vec![
+    fn sort_energy_entries_orders_ascending_by_key() {
+        let days = vec![
             json!({"day": 3, "energy_wh": 300}),
             json!({"day": 1, "energy_wh": 100}),
             json!({"day": 2, "energy_wh": 200}),
         ];
-        let sorted = sort_daily_entries(&list);
-        assert_eq!(sorted.iter().map(|(d, _)| *d).collect::<Vec<_>>(), [1, 2, 3]);
+        let sorted = sort_energy_entries(&days, "day");
+        assert_eq!(sorted.iter().map(|(k, _)| *k).collect::<Vec<_>>(), [1, 2, 3]);
         assert_eq!(sorted[0].1, 100);
-    }
 
-    #[test]
-    fn sort_daily_entries_empty_list() {
-        assert!(sort_daily_entries(&[]).is_empty());
-    }
-
-    #[test]
-    fn sort_monthly_entries_orders_ascending() {
-        let list = vec![
+        let months = vec![
             json!({"month": 12, "energy_wh": 1200}),
             json!({"month":  3, "energy_wh":  300}),
             json!({"month":  7, "energy_wh":  700}),
         ];
-        let sorted = sort_monthly_entries(&list);
-        assert_eq!(sorted.iter().map(|(m, _)| *m).collect::<Vec<_>>(), [3, 7, 12]);
+        let sorted = sort_energy_entries(&months, "month");
+        assert_eq!(sorted.iter().map(|(k, _)| *k).collect::<Vec<_>>(), [3, 7, 12]);
         assert_eq!(sorted[0].1, 300);
         assert_eq!(sorted[2].1, 1200);
     }
 
     #[test]
-    fn sort_monthly_entries_already_sorted_is_stable() {
-        let list = vec![
-            json!({"month": 1, "energy_wh": 100}),
-            json!({"month": 2, "energy_wh": 200}),
-        ];
-        let sorted = sort_monthly_entries(&list);
-        assert_eq!(sorted[0].0, 1);
-        assert_eq!(sorted[1].0, 2);
+    fn sort_energy_entries_empty_list() {
+        assert!(sort_energy_entries(&[], "day").is_empty());
     }
 
     // ── hint builders ────────────────────────────────────────────────────────

@@ -31,12 +31,7 @@ pub fn parse(json: &serde_json::Value) -> Option<Dimmer> {
     let sysinfo = json.pointer("/system/get_sysinfo")?;
     // Structural guard: reject non-switch types (e.g. bulbs). The finer
     // "Dimmer" vs plug/strip discrimination is detect_kind's responsibility.
-    let type_str = sysinfo
-        .get("mic_type")
-        .or_else(|| sysinfo.get("type"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if !type_str.contains("PLUG") && !type_str.contains("SWITCH") {
+    if !crate::devices::is_plug_switch(sysinfo) {
         return None;
     }
     serde_json::from_value(sysinfo.clone()).ok()

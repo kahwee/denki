@@ -34,21 +34,13 @@ impl Plug {
     }
 
     pub fn on_time_fmt(&self) -> String {
-        if self.on_time == 0 {
-            return "off".to_string();
-        }
-        crate::fmt::duration(self.on_time)
+        crate::fmt::on_time(self.on_time)
     }
 }
 
 pub fn parse(json: &serde_json::Value) -> Option<Plug> {
     let sysinfo = json.pointer("/system/get_sysinfo")?;
-    // Newer devices (KP115) use `mic_type`; older devices (HS110) use `type`
-    let type_str = sysinfo
-        .get("mic_type")
-        .or_else(|| sysinfo.get("type"))
-        .and_then(|v| v.as_str())?;
-    if !type_str.contains("PLUG") && !type_str.contains("SWITCH") {
+    if !crate::devices::is_plug_switch(sysinfo) {
         return None;
     }
     serde_json::from_value(sysinfo.clone()).ok()

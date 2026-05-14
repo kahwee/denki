@@ -12,6 +12,11 @@ pub fn duration(secs: u64) -> String {
     }
 }
 
+/// Format an on_time field: "off" when zero, human duration otherwise.
+pub fn on_time(secs: u64) -> String {
+    if secs == 0 { "off".to_string() } else { duration(secs) }
+}
+
 /// Returns (year, month) using Howard Hinnant's civil_from_days algorithm — no date crate.
 pub fn current_year_month() -> (u16, u8) {
     use std::time::{SystemTime, UNIX_EPOCH};

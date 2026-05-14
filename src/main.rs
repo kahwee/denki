@@ -47,6 +47,21 @@ async fn kasa_set_power(ip: &str, kind: &DeviceKind, on: bool) -> Result<()> {
     Ok(())
 }
 
+// Turn a resolved device on or off, handling both Tapo (KLAP) and Kasa protocols.
+async fn set_device_power(r: &resolve::Resolved, on: bool) -> Result<()> {
+    match r.protocol {
+        hosts::Protocol::Klap => {
+            let mut s = tapo_session(&r.ip).await?;
+            if on { ops::tapo_on(&mut s).await? } else { ops::tapo_off(&mut s).await? }
+        }
+        hosts::Protocol::Kasa => {
+            let json = ops::sysinfo(&r.ip).await?;
+            kasa_set_power(&r.ip, &devices::detect_kind(&json), on).await?;
+        }
+    }
+    Ok(())
+}
+
 // Resolve an outlet on a strip: require Kasa, fetch sysinfo, parse strip, return
 // (child_id, child_alias, child_is_on). Used by on/off/toggle outlet paths.
 async fn resolve_strip_outlet(
@@ -245,7 +260,7 @@ async fn main() -> Result<()> {
                             None => bail!("Could not parse bulb sysinfo from {}", r.ip),
                         },
                         DeviceKind::LightStrip => match bulb::parse(&json) {
-                            Some(b) => display::print_lightstrip_detail(&r.ip, &b),
+                            Some(b) => display::print_lightstrip_detail(&r.ip, &b, &hint),
                             None => bail!("Could not parse light strip sysinfo from {}", r.ip),
                         },
                         DeviceKind::Dimmer => match dimmer::parse(&json) {
@@ -282,16 +297,7 @@ async fn main() -> Result<()> {
                 ops::strip_outlet_on(&r.ip, &child_id).await?;
                 println!("Outlet {} ({}) {}", outlet_num, child_alias, "on".green().bold());
             } else {
-                match r.protocol {
-                    hosts::Protocol::Klap => {
-                        let mut s = tapo_session(&r.ip).await?;
-                        ops::tapo_on(&mut s).await?;
-                    }
-                    hosts::Protocol::Kasa => {
-                        let json = ops::sysinfo(&r.ip).await?;
-                        kasa_set_power(&r.ip, &devices::detect_kind(&json), true).await?;
-                    }
-                }
+                set_device_power(&r, true).await?;
                 println!("{} {}", r.ip, "on".green().bold());
             }
         }
@@ -304,16 +310,7 @@ async fn main() -> Result<()> {
                 ops::strip_outlet_off(&r.ip, &child_id).await?;
                 println!("Outlet {} ({}) {}", outlet_num, child_alias, "off".dimmed());
             } else {
-                match r.protocol {
-                    hosts::Protocol::Klap => {
-                        let mut s = tapo_session(&r.ip).await?;
-                        ops::tapo_off(&mut s).await?;
-                    }
-                    hosts::Protocol::Kasa => {
-                        let json = ops::sysinfo(&r.ip).await?;
-                        kasa_set_power(&r.ip, &devices::detect_kind(&json), false).await?;
-                    }
-                }
+                set_device_power(&r, false).await?;
                 println!("{} {}", r.ip, "off".dimmed());
             }
         }
