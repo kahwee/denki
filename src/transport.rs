@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 
-/// Port used by all legacy Kasa devices (KL135, KP115, HS series, etc.)
+/// Port used by all legacy Kasa devices (KL135/LB130, KP115, HS series, etc.)
 const PORT: u16 = 9999;
 
 pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::Value> {

@@ -309,7 +309,7 @@ fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
 fn format_energy_lines(d: &serde_json::Value) -> Vec<String> {
     let mut lines = Vec::new();
     if d.get("power_mw").is_some() {
-        // KP115 / KL135 milli-unit fields
+        // KP115 / color-bulb milli-unit fields (KL135, LB130)
         if let Some(mw) = d.get("power_mw").and_then(|v| v.as_f64()) {
             lines.push(format!("Power:   {:.2} W", mw / 1000.0));
         }
@@ -342,7 +342,7 @@ fn format_energy_lines(d: &serde_json::Value) -> Vec<String> {
 
 pub fn print_energy_realtime(json: &serde_json::Value) {
     // Three possible paths:
-    //   KL135: /smartlife.iot.common.emeter/get_realtime — power_mw + total_wh only
+    //   KL135/LB130: /smartlife.iot.common.emeter/get_realtime — power_mw + total_wh only
     //   KP115: /emeter/get_realtime — milli-unit fields (mv, ma, mw, wh)
     //   HS110: /emeter/get_realtime — real-unit fields (V, A, W, kWh)
     let data = json

@@ -1,4 +1,4 @@
-//! Sysinfo for TP-Link KL135 bulbs and KL430 light strips (mic_type: IOT.SMARTBULB).
+//! Sysinfo for TP-Link KL135/LB130 bulbs and KL430 light strips (mic_type: IOT.SMARTBULB).
 //!
 //! HW 1.0 (FW 1.0.15): basic color, dim, CCT. Energy via smartlife.iot.common.emeter only
 //!   (bare "emeter" returns -2001). No schedule, countdown, time, or LED control.

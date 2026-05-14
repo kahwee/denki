@@ -40,13 +40,14 @@ cargo build --release
 - **HS105 smart plugs** — power, schedules, clock, LED; no energy chip
 - **P125 Tapo plugs** — info and power through a saved `--klap` alias
 
-### Partial support
+### Supported but unverified
 
-- **KL430 light strips** — scan/info plus energy monitoring (unverified); power, dimming, color temperature, and HSV color control are not yet implemented
-- **HS220 dimmers** — info, power, dimming, schedules, LED, and clock (unverified)
+- **LB130 smart bulbs** — same bulb commands as KL135; unverified
+- **KL430 light strips** — scan/info plus energy monitoring; power, dimming, color temperature, and HSV color control are not yet implemented
+- **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
 - **HS300 / KP303 power strips** — info, outlet listing, per-outlet power control, per-outlet energy, outlet rename, LED, schedules, and clock for ENE-capable models; KP303 is unverified
 
-> **Energy note:** KL135 reports `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`). All use the same `energy` command.
+> **Energy note:** KL135 / LB130 report `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`). All use the same `energy` command.
 
 Devices marked `verified` in `devices.toml` have been tested on real hardware.
 
@@ -210,7 +211,7 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, check
 | `src/hosts.rs` | Alias registry — maps friendly names to IP + protocol, stored as JSON |
 | `src/creds.rs` | Tapo credentials from env vars or `denki login` |
 | `src/fmt.rs` | Shared formatting helpers |
-| `src/bulb.rs` | KL135/KL430 sysinfo parsing |
+| `src/bulb.rs` | Bulb and light-strip sysinfo parsing |
 | `src/plug.rs` | Plug sysinfo parsing + ENE feature detection |
 | `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
 | `src/strip.rs` | HS300/KP303 power strip sysinfo + per-outlet state |

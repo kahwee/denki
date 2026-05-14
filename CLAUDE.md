@@ -25,7 +25,7 @@ cargo build --release
 | `src/creds.rs` | Tapo credentials — `TAPO_USER`/`TAPO_PASS` env vars take precedence over saved file |
 | `src/fmt.rs` | `duration(secs)` + `current_year_month()` via Howard Hinnant civil_from_days (no chrono) |
 | `src/ops.rs` | Every device API call — `bulb_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
-| `src/bulb.rs` | `Bulb` / `LightState` / `DftOnState` — KL135 and KL430; handles off-state field relocation |
+| `src/bulb.rs` | `Bulb` / `LightState` / `DftOnState` — KL135/LB130 bulbs and KL430; handles off-state field relocation |
 | `src/plug.rs` | `Plug` — relay state, ENE energy flag, on-time |
 | `src/dimmer.rs` | `Dimmer` — HS220 relay state, brightness |
 | `src/strip.rs` | `Strip` + `StripChild` — outlet state; expands short child IDs for HS300 HW 2.0 |
@@ -160,14 +160,14 @@ denki info <device>                               Detailed device info (Kasa + T
 denki on <device> [N]                             Turn on; N = outlet number (strips, 1-based)
 denki off <device> [N]                            Turn off; N = outlet number (strips, 1-based)
 denki toggle <device> [N]                         Toggle; N = outlet number (strips, 1-based)
-denki dim <device> <0-100>                        Brightness — KL135 bulbs + HS220 dimmers
-denki color-temp <device> <2500-9000>             Color temperature in Kelvin — KL135 bulbs only
-denki color <device> -H <hue> -s <sat> -v <val>  HSV color — KL135 bulbs only
+denki dim <device> <0-100>                        Brightness — bulbs + HS220 dimmers
+denki color-temp <device> <2500-9000>             Color temperature in Kelvin — bulbs only
+denki color <device> -H <hue> -s <sat> -v <val>  HSV color — bulbs only
 denki energy <device> [N]                         Real-time power — bulbs + ENE plugs/strips; N = outlet
 denki energy-daily <device> [YYYY-MM] [-o N]      Daily energy — defaults to current month
 denki energy-monthly <device> [YYYY] [-o N]       Monthly energy — defaults to current year
-denki specs <device>                              Hardware specs — KL135 bulbs only
-denki presets <device>                            Saved light presets — KL135 bulbs only
+denki specs <device>                              Hardware specs — bulbs only
+denki presets <device>                            Saved light presets — bulbs only
 denki schedules <device>                          Schedule rules — plugs, dimmers, strips
 denki led <device> on|off                         LED indicator — plugs, dimmers, strips
 denki clock <device>                              Device clock — plugs, dimmers, strips

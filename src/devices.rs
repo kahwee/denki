@@ -181,7 +181,7 @@ pub fn can_dim(kind: &DeviceKind) -> Result<()> {
              (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)"
         ),
         other => anyhow::bail!(
-            "`dim` is only supported on KL135-style bulbs and HS220 dimmers, not {other}"
+            "`dim` is only supported on bulbs and HS220 dimmers, not {other}"
         ),
     }
 }
@@ -204,19 +204,19 @@ fn require_relay_device(kind: &DeviceKind, cmd: &str) -> Result<()> {
 }
 
 pub fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
-    require_bulb(kind, "color-temp", "KL135-style color bulbs (e.g. KL135)")
+    require_bulb(kind, "color-temp", "bulbs")
 }
 
 pub fn can_set_color(kind: &DeviceKind) -> Result<()> {
-    require_bulb(kind, "color", "KL135-style color bulbs (e.g. KL135)")
+    require_bulb(kind, "color", "bulbs")
 }
 
 pub fn can_get_specs(kind: &DeviceKind) -> Result<()> {
-    require_bulb(kind, "specs", "KL135-style bulbs")
+    require_bulb(kind, "specs", "bulbs")
 }
 
 pub fn can_get_presets(kind: &DeviceKind) -> Result<()> {
-    require_bulb(kind, "presets", "KL135-style bulbs")
+    require_bulb(kind, "presets", "bulbs")
 }
 
 pub fn can_get_schedules(kind: &DeviceKind) -> Result<()> {

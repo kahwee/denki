@@ -57,7 +57,7 @@ pub enum Command {
         outlet: Option<u8>,
     },
 
-    /// Set brightness 0-100 (KL135 bulbs and HS220 dimmers)
+    /// Set brightness 0-100 (bulbs and HS220 dimmers)
     Dim {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -66,7 +66,7 @@ pub enum Command {
         level: u8,
     },
 
-    /// Set color temperature in Kelvin 2500-9000 (KL135 bulbs only)
+    /// Set color temperature in Kelvin 2500-9000 (bulbs only)
     ColorTemp {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]
@@ -75,7 +75,7 @@ pub enum Command {
         kelvin: u16,
     },
 
-    /// Set HSV color (KL135 bulbs only)
+    /// Set HSV color (bulbs only)
     Color {
         /// Device name from scan output, or an IP address
         #[arg(value_name = "DEVICE")]

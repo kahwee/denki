@@ -1,6 +1,6 @@
 //! Device operations — one function per API call, grouped by device type.
 //!
-//! KL135 energy: use smartlife.iot.common.emeter, NOT bare "emeter" (that returns -2001).
+//! Color-bulb energy: use smartlife.iot.common.emeter, NOT bare "emeter" (that returns -2001).
 //! LED control: set_led_off with off:0 = LED on, off:1 = LED off (inverted naming).
 
 use crate::klap::KlapSession;
@@ -93,7 +93,7 @@ pub async fn bulb_presets(host: &str) -> Result<serde_json::Value> {
     .await
 }
 
-// KL135 uses smartlife.iot.common.emeter — bare "emeter" returns -2001 on bulbs.
+// Color bulbs use smartlife.iot.common.emeter — bare "emeter" returns -2001 on bulbs.
 pub async fn bulb_energy(host: &str) -> Result<serde_json::Value> {
     transport::send(
         host,
