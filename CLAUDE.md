@@ -137,6 +137,7 @@ CT = color temperature.
 
 **Energy notes:**
 - Bulbs and light strips always use `smartlife.iot.common.emeter`; bare `emeter` returns error -2001
+- ENE-capable plugs use `emeter`; ENE-capable strips use `emeter` with `context.child_ids` for per-outlet queries
 - KP115 reports milli-unit fields (`power_mw`, `voltage_mv`, `current_ma`, `total_wh`)
 - HS110 reports real-unit fields (`power`, `voltage`, `current`, `total` in kWh)
 - Plugs and strips require the `ENE` flag in sysinfo `feature` field (e.g. `"TIM:ENE"`)

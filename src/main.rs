@@ -119,7 +119,7 @@ async fn kasa_sysinfo(
     Ok((r, json, kind))
 }
 
-/// Dispatch real-time energy to the correct namespace (bulb vs relay device).
+/// Dispatch real-time energy to the correct namespace (bulb/light strip vs relay device).
 async fn energy_realtime_for(ip: &str, kind: &DeviceKind) -> Result<serde_json::Value> {
     match kind {
         DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy(ip).await,
@@ -127,7 +127,7 @@ async fn energy_realtime_for(ip: &str, kind: &DeviceKind) -> Result<serde_json::
     }
 }
 
-/// Dispatch daily energy to the correct namespace.
+/// Dispatch daily energy to the correct namespace (bulb/light strip vs relay device).
 async fn energy_daily_for(
     ip: &str,
     kind: &DeviceKind,
@@ -140,7 +140,7 @@ async fn energy_daily_for(
     }
 }
 
-/// Dispatch monthly energy to the correct namespace.
+/// Dispatch monthly energy to the correct namespace (bulb/light strip vs relay device).
 async fn energy_monthly_for(
     ip: &str,
     kind: &DeviceKind,
