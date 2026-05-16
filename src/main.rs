@@ -607,6 +607,18 @@ mod tests {
     }
 
     #[test]
+    fn toggle_target_dimmer_on_returns_false() {
+        let json = json!({"system": {"get_sysinfo": {"relay_state": 1}}});
+        assert!(!toggle_target(&DeviceKind::Dimmer, &json));
+    }
+
+    #[test]
+    fn toggle_target_dimmer_off_returns_true() {
+        let json = json!({"system": {"get_sysinfo": {"relay_state": 0}}});
+        assert!(toggle_target(&DeviceKind::Dimmer, &json));
+    }
+
+    #[test]
     fn toggle_target_strip_any_on_returns_false() {
         let json = json!({
             "system": {"get_sysinfo": {
@@ -798,6 +810,17 @@ mod tests {
     fn parse_year_month_rejects_wrong_format() {
         assert!(parse_year_month("202503").is_err());
         assert!(parse_year_month("2025-03-01").is_err());
+    }
+
+    #[test]
+    fn parse_year_month_rejects_non_numeric_year() {
+        assert!(parse_year_month("abcd-01").is_err());
+        assert!(parse_year_month("20xx-06").is_err());
+    }
+
+    #[test]
+    fn parse_year_month_rejects_non_numeric_month() {
+        assert!(parse_year_month("2025-ab").is_err());
     }
 
     // ── strip_for_energy_outlet ───────────────────────────────────────────────

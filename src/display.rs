@@ -836,6 +836,12 @@ mod tests {
     }
 
     #[test]
+    fn wh_from_returns_zero_when_no_energy_fields() {
+        assert_eq!(wh_from(&serde_json::json!({})), 0);
+        assert_eq!(wh_from(&serde_json::json!({"day": 1})), 0);
+    }
+
+    #[test]
     fn hsv_to_rgb_kl135_purple_hue_308() {
         // hue=308 sat=65 val=100 is the default color on scanned bulbs
         let (r, g, b) = hsv_to_rgb(308, 65, 100);

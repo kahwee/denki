@@ -269,6 +269,7 @@ pub fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use serde_json::json;
 
     #[test]
@@ -605,93 +606,66 @@ mod tests {
         assert!(err.to_string().contains("lightStrip"), "{err}");
     }
 
-    #[test]
-    fn can_set_color_temp_accepts_bulb_only() {
-        assert!(can_set_color_temp(&DeviceKind::Bulb).is_ok());
-        assert!(can_set_color_temp(&DeviceKind::Dimmer).is_err());
-        assert!(can_set_color_temp(&DeviceKind::Plug).is_err());
-        assert!(can_set_color_temp(&DeviceKind::LightStrip).is_err());
-        assert!(can_set_color_temp(&DeviceKind::Strip).is_err());
-    }
-
-    #[test]
-    fn can_set_color_temp_error_mentions_kl135() {
-        let err = can_set_color_temp(&DeviceKind::Plug).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("`color-temp`"), "{msg}");
-        assert!(msg.contains("KL135"), "{msg}");
-    }
-
-    #[test]
-    fn can_set_color_accepts_bulb_only() {
-        assert!(can_set_color(&DeviceKind::Bulb).is_ok());
-        assert!(can_set_color(&DeviceKind::Dimmer).is_err());
-        assert!(can_set_color(&DeviceKind::Plug).is_err());
-        assert!(can_set_color(&DeviceKind::LightStrip).is_err());
-        assert!(can_set_color(&DeviceKind::Strip).is_err());
-    }
-
-    #[test]
-    fn can_get_specs_and_presets_accept_bulb_only() {
+    // Each bulb-only guard must accept Bulb, reject all relay/strip kinds,
+    // and name the command in the error message.
+    #[rstest]
+    #[case(can_set_color_temp as fn(&DeviceKind) -> Result<()>, "`color-temp`")]
+    #[case(can_set_color    as fn(&DeviceKind) -> Result<()>, "`color`")]
+    #[case(can_get_specs    as fn(&DeviceKind) -> Result<()>, "`specs`")]
+    #[case(can_get_presets  as fn(&DeviceKind) -> Result<()>, "`presets`")]
+    fn bulb_only_guards_accept_bulb_reject_others(
+        #[case] guard: fn(&DeviceKind) -> Result<()>,
+        #[case] cmd: &str,
+    ) {
+        assert!(guard(&DeviceKind::Bulb).is_ok(), "{cmd}: should accept bulb");
         for kind in [
             DeviceKind::Dimmer,
             DeviceKind::Plug,
             DeviceKind::Strip,
             DeviceKind::LightStrip,
         ] {
-            assert!(can_get_specs(&kind).is_err(), "specs should reject {kind}");
-            assert!(can_get_presets(&kind).is_err(), "presets should reject {kind}");
+            let err = guard(&kind).unwrap_err();
+            assert!(
+                err.to_string().contains(cmd),
+                "{cmd}: error should name the command for {kind}: {err}"
+            );
         }
-        assert!(can_get_specs(&DeviceKind::Bulb).is_ok());
-        assert!(can_get_presets(&DeviceKind::Bulb).is_ok());
     }
 
     #[test]
-    fn can_get_schedules_accepts_plug_dimmer_strip() {
-        assert!(can_get_schedules(&DeviceKind::Plug).is_ok());
-        assert!(can_get_schedules(&DeviceKind::Dimmer).is_ok());
-        assert!(can_get_schedules(&DeviceKind::Strip).is_ok());
-        assert!(can_get_schedules(&DeviceKind::Bulb).is_err());
-        assert!(can_get_schedules(&DeviceKind::LightStrip).is_err());
+    fn can_set_color_temp_error_mentions_kl135() {
+        let err = can_set_color_temp(&DeviceKind::Plug).unwrap_err();
+        assert!(err.to_string().contains("KL135"), "{err}");
     }
 
-    #[test]
-    fn can_get_schedules_error_names_supported_devices() {
-        let err = can_get_schedules(&DeviceKind::Bulb).unwrap_err();
+    // Each relay-device guard must accept Plug/Dimmer/Strip, reject Bulb/LightStrip,
+    // and produce an error that names the command and mentions example supported models.
+    #[rstest]
+    #[case(can_get_schedules as fn(&DeviceKind) -> Result<()>, "`schedules`")]
+    #[case(can_control_led   as fn(&DeviceKind) -> Result<()>, "`led`")]
+    #[case(can_get_clock     as fn(&DeviceKind) -> Result<()>, "`clock`")]
+    fn relay_device_guards_accept_plug_dimmer_strip(
+        #[case] guard: fn(&DeviceKind) -> Result<()>,
+        #[case] cmd: &str,
+    ) {
+        assert!(guard(&DeviceKind::Plug).is_ok(), "{cmd}: plug");
+        assert!(guard(&DeviceKind::Dimmer).is_ok(), "{cmd}: dimmer");
+        assert!(guard(&DeviceKind::Strip).is_ok(), "{cmd}: strip");
+        assert!(guard(&DeviceKind::LightStrip).is_err(), "{cmd}: light strip");
+        let err = guard(&DeviceKind::Bulb).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("`schedules`"), "{msg}");
+        assert!(msg.contains(cmd), "{cmd}: error should name command: {msg}");
         assert!(
             msg.contains("KP115") || msg.contains("HS220") || msg.contains("HS300"),
-            "{msg}"
+            "{cmd}: error should mention supported models: {msg}"
         );
     }
 
-    #[test]
-    fn can_control_led_accepts_plug_dimmer_and_strip() {
-        assert!(can_control_led(&DeviceKind::Plug).is_ok());
-        assert!(can_control_led(&DeviceKind::Dimmer).is_ok());
-        assert!(can_control_led(&DeviceKind::Strip).is_ok());
-        assert!(can_control_led(&DeviceKind::Bulb).is_err());
-        assert!(can_control_led(&DeviceKind::LightStrip).is_err());
-    }
-
-    #[test]
-    fn can_get_clock_accepts_plug_dimmer_strip() {
-        assert!(can_get_clock(&DeviceKind::Plug).is_ok());
-        assert!(can_get_clock(&DeviceKind::Dimmer).is_ok());
-        assert!(can_get_clock(&DeviceKind::Strip).is_ok());
-        assert!(can_get_clock(&DeviceKind::Bulb).is_err());
-        assert!(can_get_clock(&DeviceKind::LightStrip).is_err());
-    }
-
-    #[test]
-    fn require_energy_bails_when_plug_parse_fails() {
-        assert!(require_energy(&json!({}), &DeviceKind::Plug).is_err());
-    }
-
-    #[test]
-    fn require_energy_bails_when_strip_parse_fails() {
-        assert!(require_energy(&json!({}), &DeviceKind::Strip).is_err());
+    #[rstest]
+    #[case(DeviceKind::Plug)]
+    #[case(DeviceKind::Strip)]
+    fn require_energy_bails_when_parse_fails(#[case] kind: DeviceKind) {
+        assert!(require_energy(&json!({}), &kind).is_err());
     }
 
     #[test]
