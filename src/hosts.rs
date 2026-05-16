@@ -181,7 +181,13 @@ pub fn save_if_new_in(
     if name.is_empty() || map.values().any(|v| v.ip == ip) {
         return false;
     }
-    map.insert(name.to_string(), HostEntry { ip: ip.to_string(), protocol: Protocol::Kasa });
+    map.insert(
+        name.to_string(),
+        HostEntry {
+            ip: ip.to_string(),
+            protocol: Protocol::Kasa,
+        },
+    );
     true
 }
 

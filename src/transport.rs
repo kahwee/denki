@@ -11,13 +11,11 @@ const PORT: u16 = 9999;
 
 pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::Value> {
     let addr = format!("{host}:{PORT}");
-    let mut stream = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        TcpStream::connect(&addr),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("Timeout connecting to {addr} (no response within 5s)"))?
-    .with_context(|| format!("Cannot connect to {addr}"))?;
+    let mut stream =
+        tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(&addr))
+            .await
+            .map_err(|_| anyhow::anyhow!("Timeout connecting to {addr} (no response within 5s)"))?
+            .with_context(|| format!("Cannot connect to {addr}"))?;
 
     // Serialize to JSON, then XOR-encrypt with 4-byte length prefix for TCP
     let raw = serde_json::to_vec(&payload)?;
@@ -93,4 +91,3 @@ where
     }
     Ok(count)
 }
-

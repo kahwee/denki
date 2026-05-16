@@ -303,7 +303,10 @@ pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
 }
 
 fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
-    let code = resp.get("error_code").and_then(serde_json::Value::as_i64).unwrap_or(0);
+    let code = resp
+        .get("error_code")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
     if code != 0 {
         anyhow::bail!("Tapo device error: code {code}");
     }

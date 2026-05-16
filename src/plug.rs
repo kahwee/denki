@@ -27,9 +27,7 @@ impl Plug {
     }
 
     pub fn has_energy_monitoring(&self) -> bool {
-        self.feature
-            .as_deref()
-            .is_some_and(|f| f.contains("ENE"))
+        self.feature.as_deref().is_some_and(|f| f.contains("ENE"))
     }
 
     pub fn on_time_fmt(&self) -> String {

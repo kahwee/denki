@@ -48,7 +48,11 @@ fn wh_from(entry: &serde_json::Value) -> u64 {
 }
 
 /// Convert HSV (h: 0–360, s: 0–100, v: 0–100) to (r, g, b) each 0–255.
-#[allow(clippy::many_single_char_names, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::many_single_char_names,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 fn hsv_to_rgb(h: u16, s: u8, v: u8) -> (u8, u8, u8) {
     let s = f32::from(s) / 100.0;
     let v = f32::from(v) / 100.0;
@@ -107,7 +111,10 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
         short_fw(&bulb.sw_ver),
     );
     print_light_color(&bulb.light_state, "   ");
-    println!("   {}", format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "   {}",
+        format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed()
+    );
     println!();
 }
 
@@ -145,7 +152,10 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
     );
     print_light_state_detail(&bulb.light_state);
     println!("  Features:   {}", caps_label(bulb));
-    println!("  {}", format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "  {}",
+        format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed()
+    );
 }
 
 pub fn print_bulb_specs(json: &serde_json::Value) {
@@ -222,7 +232,10 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug, hint_alias: &str) {
     if plug.is_on() {
         println!("   On for: {}", plug.on_time_fmt());
     }
-    println!("   {}", format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "   {}",
+        format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed()
+    );
     println!();
 }
 
@@ -241,7 +254,10 @@ pub fn print_plug_detail(ip: &str, plug: &Plug, hint_alias: &str) {
     if plug.is_on() {
         println!("  On for:   {}", plug.on_time_fmt());
     }
-    println!("  {}", format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "  {}",
+        format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed()
+    );
 }
 
 pub fn print_schedules(json: &serde_json::Value) {
@@ -255,13 +271,23 @@ pub fn print_schedules(json: &serde_json::Value) {
         }
         println!("{}", "Schedules:".bold());
         for r in rules {
-            let enabled = r.get("enable").and_then(serde_json::Value::as_u64).unwrap_or(0) == 1;
+            let enabled = r
+                .get("enable")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0)
+                == 1;
             let name = r
                 .get("name")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("(unnamed)");
-            let smin = r.get("smin").and_then(serde_json::Value::as_u64).unwrap_or(0);
-            let sact = r.get("sact").and_then(serde_json::Value::as_i64).unwrap_or(1);
+            let smin = r
+                .get("smin")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            let sact = r
+                .get("sact")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(1);
             let action = if sact == 1 { "on".green() } else { "off".red() };
             let time = format!("{:02}:{:02}", smin / 60, smin % 60);
             let days = format_wday(r.get("wday").and_then(|v| v.as_array()));
@@ -346,7 +372,11 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
         .or_else(|| json.pointer("/smartlife.iot.common.emeter/get_realtime"));
 
     if let Some(d) = data {
-        if d.get("err_code").and_then(serde_json::Value::as_i64).unwrap_or(0) != 0 {
+        if d.get("err_code")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+            != 0
+        {
             let msg = d
                 .get("err_msg")
                 .and_then(|v| v.as_str())
@@ -485,7 +515,11 @@ fn lightstrip_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
 fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
     let mut hints = devices::lookup(&s.model)
         .map(|e| {
-            let mut h = devices::hints(e, alias, s.children.iter().any(crate::strip::StripChild::is_on));
+            let mut h = devices::hints(
+                e,
+                alias,
+                s.children.iter().any(crate::strip::StripChild::is_on),
+            );
             if !s.has_energy_monitoring() {
                 h.retain(|h| !h.contains("energy"));
             }
@@ -518,7 +552,10 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
         short_fw(&bulb.sw_ver)
     );
     print_light_color(&bulb.light_state, "   ");
-    println!("   {}", format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "   {}",
+        format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed()
+    );
     println!();
 }
 
@@ -538,7 +575,10 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
         signal_label(bulb.rssi)
     );
     print_light_state_detail(&bulb.light_state);
-    println!("  {}", format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "  {}",
+        format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed()
+    );
     println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()
@@ -561,7 +601,10 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer, hint_alias: &str) {
         short_fw(&d.sw_ver),
         d.brightness
     );
-    println!("   {}", format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "   {}",
+        format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed()
+    );
     println!();
 }
 
@@ -574,7 +617,10 @@ pub fn print_dimmer_detail(ip: &str, d: &Dimmer, hint_alias: &str) {
     println!("  Firmware:   {}", d.sw_ver);
     println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
     println!("  Brightness: {}%", d.brightness);
-    println!("  {}", format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed());
+    println!(
+        "  {}",
+        format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed()
+    );
     println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()
@@ -620,7 +666,10 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
         .join("  ");
     println!("   {outlet_line}");
     let a = hint_alias;
-    println!("   {}", format!("→ {}", strip_hints(s, a).join("  ·  ")).dimmed());
+    println!(
+        "   {}",
+        format!("→ {}", strip_hints(s, a).join("  ·  ")).dimmed()
+    );
     println!();
 }
 
@@ -635,7 +684,10 @@ pub fn print_strip_detail(ip: &str, s: &Strip, hint_alias: &str) {
     println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
     let a = hint_alias;
-    println!("  {}", format!("→ {}", strip_hints(s, a).join("  ·  ")).dimmed());
+    println!(
+        "  {}",
+        format!("→ {}", strip_hints(s, a).join("  ·  ")).dimmed()
+    );
     let verified = devices::lookup(&s.model).is_some_and(|e| e.verified);
     if !verified {
         println!(
@@ -859,7 +911,10 @@ mod tests {
             json!({"day": 2, "energy_wh": 200}),
         ];
         let sorted = sort_energy_entries(&days, "day");
-        assert_eq!(sorted.iter().map(|(k, _)| *k).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(
+            sorted.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
         assert_eq!(sorted[0].1, 100);
 
         let months = vec![
@@ -868,7 +923,10 @@ mod tests {
             json!({"month":  7, "energy_wh":  700}),
         ];
         let sorted = sort_energy_entries(&months, "month");
-        assert_eq!(sorted.iter().map(|(k, _)| *k).collect::<Vec<_>>(), [3, 7, 12]);
+        assert_eq!(
+            sorted.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+            [3, 7, 12]
+        );
         assert_eq!(sorted[0].1, 300);
         assert_eq!(sorted[2].1, 1200);
     }
@@ -890,7 +948,11 @@ mod tests {
             relay_state: u8::from(is_on),
             on_time: 0,
             led_off: 0,
-            feature: if ene { Some("TIM:ENE".to_string()) } else { Some("TIM".to_string()) },
+            feature: if ene {
+                Some("TIM:ENE".to_string())
+            } else {
+                Some("TIM".to_string())
+            },
         }
     }
 
@@ -902,7 +964,11 @@ mod tests {
             sw_ver: "1.0.0".to_string(),
             rssi: -40,
             relay_state: 0,
-            feature: if ene { Some("TIM:ENE".to_string()) } else { Some("TIM".to_string()) },
+            feature: if ene {
+                Some("TIM:ENE".to_string())
+            } else {
+                Some("TIM".to_string())
+            },
             children: vec![],
         }
     }
@@ -937,7 +1003,10 @@ mod tests {
     fn strip_hints_ene_strip_includes_per_outlet_energy() {
         let s = make_strip_for_hints("HS300", true);
         let h = strip_hints(&s, "strip");
-        assert!(h.iter().any(|s| s.contains("energy") && s.contains(" 1")), "hints: {h:?}");
+        assert!(
+            h.iter().any(|s| s.contains("energy") && s.contains(" 1")),
+            "hints: {h:?}"
+        );
     }
 
     #[test]
@@ -959,16 +1028,24 @@ mod tests {
     fn strip_hints_includes_outlet_rename() {
         let s = make_strip_for_hints("HS300", true);
         let h = strip_hints(&s, "strip");
-        assert!(h.iter().any(|s| s.contains("outlet-rename")), "hints: {h:?}");
+        assert!(
+            h.iter().any(|s| s.contains("outlet-rename")),
+            "hints: {h:?}"
+        );
     }
 
     #[test]
     fn dimmer_hints_includes_dim_and_schedules() {
         use crate::dimmer::Dimmer;
         let d = Dimmer {
-            alias: "d".to_string(), model: "HS220".to_string(),
-            hw_ver: "1.0".to_string(), sw_ver: "1.0.0".to_string(),
-            rssi: -50, relay_state: 0, brightness: 80, feature: None,
+            alias: "d".to_string(),
+            model: "HS220".to_string(),
+            hw_ver: "1.0".to_string(),
+            sw_ver: "1.0.0".to_string(),
+            rssi: -50,
+            relay_state: 0,
+            brightness: 80,
+            feature: None,
         };
         let h = dimmer_hints(&d, "d");
         assert!(h.iter().any(|s| s.contains("dim")), "hints: {h:?}");

@@ -52,7 +52,11 @@ async fn set_device_power(r: &resolve::Resolved, on: bool) -> Result<()> {
     match r.protocol {
         hosts::Protocol::Klap => {
             let mut s = tapo_session(&r.ip).await?;
-            if on { ops::tapo_on(&mut s).await? } else { ops::tapo_off(&mut s).await? }
+            if on {
+                ops::tapo_on(&mut s).await?
+            } else {
+                ops::tapo_off(&mut s).await?
+            }
         }
         hosts::Protocol::Kasa => {
             let json = ops::sysinfo(&r.ip).await?;
@@ -93,20 +97,6 @@ fn strip_for_energy_outlet(
     Ok((child.id.clone(), child.alias.clone()))
 }
 
-/// Parse "YYYY-MM" and validate month is 1–12.
-fn parse_year_month(s: &str) -> Result<(u16, u8)> {
-    let parts: Vec<&str> = s.split('-').collect();
-    if parts.len() != 2 {
-        bail!("Month must be in YYYY-MM format");
-    }
-    let year: u16 = parts[0].parse()?;
-    let mo: u8 = parts[1].parse()?;
-    if !(1..=12).contains(&mo) {
-        bail!("Month must be 01–12, got {mo:02}");
-    }
-    Ok((year, mo))
-}
-
 /// Resolve a Kasa host, require Kasa protocol, fetch sysinfo, and detect device kind.
 async fn kasa_sysinfo(
     host: &str,
@@ -141,11 +131,7 @@ async fn energy_daily_for(
 }
 
 /// Dispatch monthly energy to the correct namespace (bulb/light strip vs relay device).
-async fn energy_monthly_for(
-    ip: &str,
-    kind: &DeviceKind,
-    year: u16,
-) -> Result<serde_json::Value> {
+async fn energy_monthly_for(ip: &str, kind: &DeviceKind, year: u16) -> Result<serde_json::Value> {
     match kind {
         DeviceKind::Bulb | DeviceKind::LightStrip => ops::bulb_energy_monthly(ip, year).await,
         _ => ops::device_energy_monthly(ip, year).await,
@@ -170,7 +156,8 @@ async fn main() -> Result<()> {
                 if is_new {
                     map_dirty = true;
                 }
-                let hint = hosts::lookup_by_ip_in(&ip_str, &host_map).unwrap_or_else(|| ip_str.clone());
+                let hint =
+                    hosts::lookup_by_ip_in(&ip_str, &host_map).unwrap_or_else(|| ip_str.clone());
                 match devices::detect_kind(&json) {
                     DeviceKind::Bulb => {
                         if let Some(b) = bulb::parse(&json) {
@@ -294,7 +281,12 @@ async fn main() -> Result<()> {
                 let (child_id, child_alias, _) =
                     resolve_strip_outlet(&r, "on <outlet>", outlet_num).await?;
                 ops::strip_outlet_on(&r.ip, &child_id).await?;
-                println!("Outlet {} ({}) {}", outlet_num, child_alias, "on".green().bold());
+                println!(
+                    "Outlet {} ({}) {}",
+                    outlet_num,
+                    child_alias,
+                    "on".green().bold()
+                );
             } else {
                 set_device_power(&r, true).await?;
                 println!("{} {}", r.ip, "on".green().bold());
@@ -326,7 +318,11 @@ async fn main() -> Result<()> {
                     ops::strip_outlet_on(&r.ip, &child_id).await?;
                     true
                 };
-                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                let label = if now_on {
+                    "on".green().bold()
+                } else {
+                    "off".dimmed()
+                };
                 println!("Outlet {outlet_num} ({child_alias}) -> {label}");
             } else {
                 let now_on = match r.protocol {
@@ -342,7 +338,11 @@ async fn main() -> Result<()> {
                         on
                     }
                 };
-                let label = if now_on { "on".green().bold() } else { "off".dimmed() };
+                let label = if now_on {
+                    "on".green().bold()
+                } else {
+                    "off".dimmed()
+                };
                 println!("{} -> {label}", r.ip);
             }
         }
@@ -379,7 +379,12 @@ async fn main() -> Result<()> {
             println!("Color temperature -> {kelvin}K");
         }
 
-        Command::Color { host, hue, saturation, value } => {
+        Command::Color {
+            host,
+            hue,
+            saturation,
+            value,
+        } => {
             let (r, json, kind) = kasa_sysinfo(&host, "color").await?;
             devices::can_set_color(&kind)?;
             if bulb::parse(&json).is_some_and(|b| !b.light_state.is_on()) {
@@ -392,8 +397,7 @@ async fn main() -> Result<()> {
         Command::Energy { host, outlet } => {
             let (r, json, kind) = kasa_sysinfo(&host, "energy").await?;
             if let Some(outlet_num) = outlet {
-                let (child_id, child_alias) =
-                    strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
+                let (child_id, child_alias) = strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
                 let resp = ops::strip_outlet_energy(&r.ip, &child_id).await?;
                 println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_realtime(&resp);
@@ -403,16 +407,19 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::EnergyDaily { host, month, outlet } => {
+        Command::EnergyDaily {
+            host,
+            month,
+            outlet,
+        } => {
             let (r, json, kind) = kasa_sysinfo(&host, "energy-daily").await?;
             let month_str = month.unwrap_or_else(|| {
                 let (y, m) = fmt::current_year_month();
                 format!("{y}-{m:02}")
             });
-            let (year, mo) = parse_year_month(&month_str)?;
+            let (year, mo) = fmt::parse_year_month(&month_str)?;
             if let Some(outlet_num) = outlet {
-                let (child_id, child_alias) =
-                    strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
+                let (child_id, child_alias) = strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
                 let resp = ops::strip_outlet_energy_daily(&r.ip, &child_id, year, mo).await?;
                 println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_daily(&resp, &month_str);
@@ -429,8 +436,7 @@ async fn main() -> Result<()> {
             let (r, json, kind) = kasa_sysinfo(&host, "energy-monthly").await?;
             let year = year.unwrap_or_else(|| fmt::current_year_month().0);
             if let Some(outlet_num) = outlet {
-                let (child_id, child_alias) =
-                    strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
+                let (child_id, child_alias) = strip_for_energy_outlet(&json, &r.ip, outlet_num)?;
                 let resp = ops::strip_outlet_energy_monthly(&r.ip, &child_id, year).await?;
                 println!("Outlet {} ({})", outlet_num, child_alias.bold());
                 display::print_energy_monthly(&resp, year);
@@ -463,7 +469,10 @@ async fn main() -> Result<()> {
             devices::can_control_led(&kind)?;
             let on = matches!(state, LedAction::On);
             ops::device_led(&r.ip, on).await?;
-            println!("LED indicator {}", if on { "on".green() } else { "off".dimmed() });
+            println!(
+                "LED indicator {}",
+                if on { "on".green() } else { "off".dimmed() }
+            );
         }
 
         Command::Clock { host } => {
@@ -518,9 +527,17 @@ async fn main() -> Result<()> {
         }
 
         Command::Alias { name, ip, klap } => {
-            let protocol = if klap { hosts::Protocol::Klap } else { hosts::Protocol::Kasa };
+            let protocol = if klap {
+                hosts::Protocol::Klap
+            } else {
+                hosts::Protocol::Kasa
+            };
             hosts::set(&name, &ip, protocol)?;
-            let tag = if klap { " (klap)".dimmed() } else { "".normal() };
+            let tag = if klap {
+                " (klap)".dimmed()
+            } else {
+                "".normal()
+            };
             println!("Saved: {} → {}{}", name.bold(), ip, tag);
         }
 
@@ -661,7 +678,10 @@ mod tests {
         });
         let s = strip::parse(&json).expect("should parse");
         assert_eq!(s.relay_state, 0, "relay_state absent → deserialized as 0");
-        assert!(s.is_any_on(), "is_any_on should be true when any child state == 1");
+        assert!(
+            s.is_any_on(),
+            "is_any_on should be true when any child state == 1"
+        );
     }
 
     #[test]
@@ -782,45 +802,12 @@ mod tests {
 
     #[test]
     fn energy_monthly_with_outlet_flag() {
-        let cli = Cli::try_parse_from(["denki", "energy-monthly", "strip", "--outlet", "1"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["denki", "energy-monthly", "strip", "--outlet", "1"]).unwrap();
         assert!(matches!(
             cli.command,
             Command::EnergyMonthly { ref host, outlet: Some(1), .. } if host == "strip"
         ));
-    }
-
-    #[test]
-    fn parse_year_month_valid() {
-        assert_eq!(parse_year_month("2025-03").unwrap(), (2025, 3));
-        assert_eq!(parse_year_month("2024-12").unwrap(), (2024, 12));
-        assert_eq!(parse_year_month("2025-01").unwrap(), (2025, 1));
-    }
-
-    #[test]
-    fn parse_year_month_rejects_month_zero() {
-        assert!(parse_year_month("2025-00").is_err());
-    }
-
-    #[test]
-    fn parse_year_month_rejects_month_13() {
-        assert!(parse_year_month("2025-13").is_err());
-    }
-
-    #[test]
-    fn parse_year_month_rejects_wrong_format() {
-        assert!(parse_year_month("202503").is_err());
-        assert!(parse_year_month("2025-03-01").is_err());
-    }
-
-    #[test]
-    fn parse_year_month_rejects_non_numeric_year() {
-        assert!(parse_year_month("abcd-01").is_err());
-        assert!(parse_year_month("20xx-06").is_err());
-    }
-
-    #[test]
-    fn parse_year_month_rejects_non_numeric_month() {
-        assert!(parse_year_month("2025-ab").is_err());
     }
 
     // ── strip_for_energy_outlet ───────────────────────────────────────────────
@@ -913,7 +900,15 @@ mod capability_tests {
     }
 
     const GUARDED: &[&str] = &[
-        "power", "dim", "color_temp", "color", "specs", "presets", "schedules", "led", "clock",
+        "power",
+        "dim",
+        "color_temp",
+        "color",
+        "specs",
+        "presets",
+        "schedules",
+        "led",
+        "clock",
     ];
 
     fn check(kind: &DeviceKind, feature: &str) -> anyhow::Result<()> {
@@ -938,7 +933,9 @@ mod capability_tests {
     #[test]
     fn listed_features_are_permitted_by_guards() {
         for dev in devices::all() {
-            let Some(kind) = guard_kind(&dev.kind) else { continue };
+            let Some(kind) = guard_kind(&dev.kind) else {
+                continue;
+            };
             for feature in &dev.supports {
                 let result = check(kind, feature);
                 assert!(
@@ -956,7 +953,9 @@ mod capability_tests {
     #[test]
     fn unlisted_guarded_features_are_denied() {
         for dev in devices::all() {
-            let Some(kind) = guard_kind(&dev.kind) else { continue };
+            let Some(kind) = guard_kind(&dev.kind) else {
+                continue;
+            };
             for &feature in GUARDED {
                 if dev.supports.iter().any(|f| f == feature) {
                     continue;

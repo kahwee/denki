@@ -94,7 +94,10 @@ mod tests {
             msg.contains("192.168.x.x") || msg.contains("IP") || msg.contains("ip"),
             "error should mention using an IP: {msg}"
         );
-        assert!(msg.contains("alias"), "error should mention saving an alias: {msg}");
+        assert!(
+            msg.contains("alias"),
+            "error should mention saving an alias: {msg}"
+        );
     }
 
     #[tokio::test]
@@ -138,17 +141,27 @@ mod tests {
     }
 
     fn kasa(ip: &str) -> Resolved {
-        Resolved { ip: ip.into(), protocol: hosts::Protocol::Kasa, saved_name: None }
+        Resolved {
+            ip: ip.into(),
+            protocol: hosts::Protocol::Kasa,
+            saved_name: None,
+        }
     }
 
     fn klap(ip: &str) -> Resolved {
-        Resolved { ip: ip.into(), protocol: hosts::Protocol::Klap, saved_name: None }
+        Resolved {
+            ip: ip.into(),
+            protocol: hosts::Protocol::Klap,
+            saved_name: None,
+        }
     }
 
     fn make_strip(n: usize) -> strip::Strip {
         use serde_json::json;
         let children: Vec<serde_json::Value> = (1..=n)
-            .map(|i| json!({"id": format!("ABC{i:02}"), "state": 0, "alias": format!("Outlet {i}")}))
+            .map(
+                |i| json!({"id": format!("ABC{i:02}"), "state": 0, "alias": format!("Outlet {i}")}),
+            )
             .collect();
         let json = json!({
             "system": { "get_sysinfo": {

@@ -180,9 +180,7 @@ pub fn can_dim(kind: &DeviceKind) -> Result<()> {
             "`dim` is not yet supported on light strips \
              (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)"
         ),
-        other => anyhow::bail!(
-            "`dim` is only supported on bulbs and HS220 dimmers, not {other}"
-        ),
+        other => anyhow::bail!("`dim` is only supported on bulbs and HS220 dimmers, not {other}"),
     }
 }
 
@@ -617,7 +615,10 @@ mod tests {
         #[case] guard: fn(&DeviceKind) -> Result<()>,
         #[case] cmd: &str,
     ) {
-        assert!(guard(&DeviceKind::Bulb).is_ok(), "{cmd}: should accept bulb");
+        assert!(
+            guard(&DeviceKind::Bulb).is_ok(),
+            "{cmd}: should accept bulb"
+        );
         for kind in [
             DeviceKind::Dimmer,
             DeviceKind::Plug,
@@ -651,7 +652,10 @@ mod tests {
         assert!(guard(&DeviceKind::Plug).is_ok(), "{cmd}: plug");
         assert!(guard(&DeviceKind::Dimmer).is_ok(), "{cmd}: dimmer");
         assert!(guard(&DeviceKind::Strip).is_ok(), "{cmd}: strip");
-        assert!(guard(&DeviceKind::LightStrip).is_err(), "{cmd}: light strip");
+        assert!(
+            guard(&DeviceKind::LightStrip).is_err(),
+            "{cmd}: light strip"
+        );
         let err = guard(&DeviceKind::Bulb).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains(cmd), "{cmd}: error should name command: {msg}");

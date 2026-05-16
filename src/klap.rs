@@ -23,11 +23,11 @@
 
 use aes::Aes128;
 use anyhow::{bail, Result};
-use std::fmt::Write as FmtWrite;
 use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use rand::RngCore;
 use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
+use std::fmt::Write as FmtWrite;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
