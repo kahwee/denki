@@ -47,7 +47,7 @@ cargo build --release
 - **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
 - **HS300 / KP303 power strips** — info, outlet listing, per-outlet power control, outlet rename, LED, schedules, and clock; energy only on ENE-capable models (verified on HS300 HW 2.0)
 
-> **Energy note:** Bulbs and light strips use `smartlife.iot.common.emeter`; ENE-capable plugs use `emeter`, and ENE-capable strips use `emeter` with the appropriate outlet selected via `-o N`. KL135 / LB130 report `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`).
+> **Energy note:** Bulbs and light strips use `smartlife.iot.common.emeter`; ENE-capable plugs use `emeter`, and ENE-capable strips use `emeter` with the outlet argument for `energy` or `-o N` for daily/monthly reports. KL135 / LB130 report `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`).
 
 Devices marked `verified` in `devices.toml` have been tested on real hardware.
 
@@ -75,7 +75,7 @@ denki toggle "desk lamp"
 ```bash
 denki dim "desk lamp" 50
 denki color-temp "desk lamp" 2700
-denki color "desk lamp" --hue 275 --saturation 50 --value 80
+denki color "desk lamp" -H 275 -s 50 -v 80
 ```
 
 ### Energy
@@ -170,8 +170,8 @@ Tapo credentials are stored in `~/.config/denki/credentials.json`, and `TAPO_USE
 
 ## How device lookup works
 
-- Device names can come from `scan` output or from a raw IP address.
-- Exact alias matches win first, then substring matches.
+- Device names can come from `scan` output, a saved alias, or a raw IP address.
+- Exact normalized alias matches win first, then unambiguous normalized substring matches.
 - Raw IP addresses are treated as Kasa devices.
 - Tapo devices must be added with `denki alias <name> <ip> --klap`.
 
