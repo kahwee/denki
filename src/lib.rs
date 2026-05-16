@@ -29,5 +29,5 @@ pub mod strip;
 pub mod tapo;
 pub mod transport;
 
-// display is CLI-only (uses `colored`); keep it out of the lib API
+// display is CLI-focused (uses `colored`); keep it public for the binary to reuse.
 pub mod display;
