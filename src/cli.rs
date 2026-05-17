@@ -22,14 +22,14 @@ pub enum Command {
 
     /// Show detailed info about a device
     Info {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Turn a device on
     On {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based (strips only)
@@ -39,7 +39,7 @@ pub enum Command {
 
     /// Turn a device off
     Off {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based (strips only)
@@ -49,7 +49,7 @@ pub enum Command {
 
     /// Toggle a device on/off
     Toggle {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based (strips only)
@@ -59,7 +59,7 @@ pub enum Command {
 
     /// Set brightness 0-100 (bulbs and HS220 dimmers)
     Dim {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
@@ -68,7 +68,7 @@ pub enum Command {
 
     /// Set color temperature in Kelvin 2500-9000 (bulbs only)
     ColorTemp {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_parser = clap::value_parser!(u16).range(2500..=9000))]
@@ -77,7 +77,7 @@ pub enum Command {
 
     /// Set HSV color (bulbs only)
     Color {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Hue 0-360°
@@ -93,7 +93,7 @@ pub enum Command {
 
     /// Show real-time energy usage (bulbs, light strips, and ENE-capable plugs/strips)
     Energy {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based (strips only)
@@ -103,7 +103,7 @@ pub enum Command {
 
     /// Show daily energy usage for a month (YYYY-MM) on bulbs, light strips, and ENE-capable plugs/strips
     EnergyDaily {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Month in YYYY-MM format (defaults to current month)
@@ -116,7 +116,7 @@ pub enum Command {
 
     /// Show monthly energy usage for a year on bulbs, light strips, and ENE-capable plugs/strips
     EnergyMonthly {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_name = "YYYY")]
@@ -128,28 +128,28 @@ pub enum Command {
 
     /// Show bulb hardware specs — lumens, wattage, CRI (bulbs only)
     Specs {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Show saved light presets (bulbs only)
     Presets {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Show scheduled rules (plugs, dimmers, and power strips)
     Schedules {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Control the LED indicator (plugs, dimmers, and power strips)
     Led {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_enum)]
@@ -158,14 +158,14 @@ pub enum Command {
 
     /// Show device clock (plugs, dimmers, and power strips)
     Clock {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Rename a Kasa device
     Rename {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         name: String,
@@ -173,21 +173,21 @@ pub enum Command {
 
     /// Reboot a Kasa device
     Restart {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// List all outlets on a power strip, showing 1-based outlet numbers, names, and state (strips only)
     Outlets {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Rename one outlet on a power strip (1-based outlet number)
     OutletRename {
-        /// Device name from scan output, or an IP address
+        /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based
