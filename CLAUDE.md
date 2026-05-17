@@ -14,7 +14,7 @@ cargo build --release
 
 | File | Purpose |
 |------|---------|
-| `src/main.rs` | Command dispatch; `tapo_session`, `kasa_set_power`, `toggle_target`; helpers `kasa_sysinfo`, `resolve_strip_outlet`, `strip_for_energy_outlet`, `parse_year_month`, `energy_*_for`; capability integration tests |
+| `src/main.rs` | Command dispatch; `tapo_session`, `kasa_set_power`, `toggle_target`; helpers `kasa_sysinfo`, `resolve_strip_outlet`, `strip_for_energy_outlet`, `energy_*_for`; capability integration tests |
 | `src/cli.rs` | Clap `Cli`, `Command`, `LedAction` — all argument definitions and help text |
 | `src/resolve.rs` | `resolve()`, `resolve_quiet()`, `resolve_outlet()`, `require_kasa()` — private to the binary |
 | `src/devices.rs` | `DeviceKind` enum, `DeviceEntry`, `detect_kind()`, all `can_*` capability guards, `devices.toml` registry |
@@ -23,7 +23,7 @@ cargo build --release
 | `src/klap.rs` | KLAP two-phase handshake + AES-128-CBC `KlapSession`; all I/O wrapped with 10s timeouts |
 | `src/hosts.rs` | Alias registry — friendly name → IP + protocol; `~/.config/denki/hosts.json`; v1/v2 compat |
 | `src/creds.rs` | Tapo credentials — `TAPO_USER`/`TAPO_PASS` env vars take precedence over saved file |
-| `src/fmt.rs` | `duration(secs)` + `current_year_month()` via Howard Hinnant civil_from_days (no chrono) |
+| `src/fmt.rs` | `duration(secs)`, `on_time()`, `parse_year_month()`, and `current_year_month()` via Howard Hinnant civil_from_days (no chrono) |
 | `src/ops.rs` | Every device API call — `bulb_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
 | `src/bulb.rs` | `Bulb` / `LightState` / `DftOnState` — KL135/LB130 bulbs and KL430; handles off-state field relocation |
 | `src/plug.rs` | `Plug` — relay state, ENE energy flag, on-time |

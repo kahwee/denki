@@ -16,7 +16,7 @@ async fn tapo_session(ip: &str) -> Result<klap::KlapSession> {
 }
 
 /// Returns the target on/off state when toggling: true = turn on, false = turn off.
-/// Strip: relay_state is absent on HS300 HW 2.0 — derive from child outlet states instead.
+/// Strip: derive the target from child outlet states (works across strip variants).
 fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
     match kind {
         DeviceKind::Bulb => {

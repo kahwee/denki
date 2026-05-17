@@ -210,7 +210,7 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, check
 | `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
 | `src/hosts.rs` | Alias registry — maps friendly names to IP + protocol, stored as JSON |
 | `src/creds.rs` | Tapo credentials from env vars or `denki login` |
-| `src/fmt.rs` | Shared formatting helpers |
+| `src/fmt.rs` | Formatting helpers — `duration`, `on_time`, `parse_year_month`, `current_year_month` |
 | `src/bulb.rs` | Bulb and light-strip sysinfo parsing |
 | `src/plug.rs` | Plug sysinfo parsing + ENE feature detection |
 | `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
