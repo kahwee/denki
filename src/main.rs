@@ -35,7 +35,7 @@ fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
     }
 }
 
-// Execute on or off on a Kasa device.
+// Execute on/off on a Kasa device.
 async fn kasa_set_power(ip: &str, kind: &DeviceKind, on: bool) -> Result<()> {
     devices::can_control_power(kind)?;
     match (kind, on) {

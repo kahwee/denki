@@ -8,7 +8,7 @@
 //!     // Tapo device via KLAP
 //!     let mut session = klap::handshake("192.168.7.254", "user@example.com", "pass").await?;
 //!     ops::tapo_on(&mut session).await?;
-//!     // Legacy Kasa device via XOR
+//!     // Kasa device via XOR
 //!     ops::relay_on("192.168.4.23").await?;
 //!     Ok(())
 //! }
