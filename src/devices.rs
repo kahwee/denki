@@ -90,7 +90,7 @@ pub fn hint_for(feature: &str, alias: &str) -> Option<String> {
         "dim" => Some(format!("denki dim \"{alias}\" 80")),
         "color_temp" => Some(format!("denki color-temp \"{alias}\" 2700")),
         "color" => Some(format!(
-            "denki color \"{alias}\" --hue 120 --saturation 80 --value 100"
+            "denki color \"{alias}\" -H 120 -s 80 -v 100"
         )),
         "energy" => Some(format!("denki energy \"{alias}\"")),
         "schedules" => Some(format!("denki schedules \"{alias}\"")),
