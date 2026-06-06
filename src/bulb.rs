@@ -54,9 +54,9 @@ pub struct LightingEffectState {
     pub name: String,
     #[serde(default)]
     pub custom: u8,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brightness: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub segments: Option<Vec<u8>>,
@@ -237,6 +237,78 @@ mod tests {
         assert!(bulb.light_state.is_on());
         assert_eq!(bulb.light_state.brightness(), 75);
         assert_eq!(bulb.light_state.color_temp(), 4000);
+    }
+
+    #[test]
+    fn lighting_effect_state_parses_full_descriptor() {
+        let json = json!({
+            "enable": 1,
+            "name": "Rainbow",
+            "custom": 0,
+            "id": "TapoStrip_4HVKmMc6vEzjm36jXaGwMs",
+            "brightness": 100,
+            "segments": [1],
+            "expansion_strategy": 1,
+            "type": "random",
+            "hue_range": [30, 40],
+            "saturation_range": [100, 100],
+            "brightness_range": [50, 100],
+            "duration": 0,
+            "transition": 0,
+            "transition_range": [375, 500],
+            "init_states": [[30, 81, 80]]
+        });
+
+        let effect: LightingEffectState =
+            serde_json::from_value(json).expect("effect should parse");
+
+        assert_eq!(effect.enable, 1);
+        assert_eq!(effect.name, "Rainbow");
+        assert_eq!(effect.custom, 0);
+        assert_eq!(
+            effect.id.as_deref(),
+            Some("TapoStrip_4HVKmMc6vEzjm36jXaGwMs")
+        );
+        assert_eq!(effect.brightness, Some(100));
+        assert_eq!(effect.segments.as_deref(), Some(&[1][..]));
+        assert_eq!(effect.expansion_strategy, Some(1));
+        assert_eq!(effect.effect_type.as_deref(), Some("random"));
+        assert_eq!(effect.hue_range.as_deref(), Some(&[30, 40][..]));
+        assert_eq!(effect.saturation_range.as_deref(), Some(&[100, 100][..]));
+        assert_eq!(effect.brightness_range.as_deref(), Some(&[50, 100][..]));
+        assert_eq!(effect.duration, Some(0));
+        assert_eq!(effect.transition, Some(0));
+        assert_eq!(effect.transition_range.as_deref(), Some(&[375, 500][..]));
+        assert_eq!(effect.init_states.as_deref(), Some(&[vec![30, 81, 80]][..]));
+    }
+
+    #[test]
+    fn lighting_effect_state_serializes_cleanly_without_empty_fields() {
+        let effect = LightingEffectState {
+            enable: 0,
+            name: "Off".to_string(),
+            custom: 0,
+            id: None,
+            brightness: None,
+            segments: None,
+            expansion_strategy: None,
+            effect_type: None,
+            hue_range: None,
+            saturation_range: None,
+            brightness_range: None,
+            duration: None,
+            transition: None,
+            transition_range: None,
+            init_states: None,
+        };
+
+        let value = serde_json::to_value(effect).expect("effect should serialize");
+        assert_eq!(value["enable"], 0);
+        assert_eq!(value["name"], "Off");
+        assert_eq!(value["custom"], 0);
+        assert!(value.get("id").is_none());
+        assert!(value.get("segments").is_none());
+        assert!(value.get("type").is_none());
     }
 
     #[test]

@@ -925,6 +925,27 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn resolve_lightstrip_effect_matches_exact_and_partial_names() {
+        assert_eq!(resolve_lightstrip_effect("Rainbow"), Some("Rainbow"));
+        assert_eq!(
+            resolve_lightstrip_effect("bubbl"),
+            Some("Bubbling Cauldron")
+        );
+        assert_eq!(
+            resolve_lightstrip_effect("Bubbling Cauldron"),
+            Some("Bubbling Cauldron")
+        );
+    }
+
+    #[test]
+    fn resolve_lightstrip_effect_rejects_unknown_or_ambiguous_names() {
+        assert_eq!(resolve_lightstrip_effect(""), None);
+        assert_eq!(resolve_lightstrip_effect("x"), None);
+        assert_eq!(resolve_lightstrip_effect("rain"), None);
+        assert_eq!(resolve_lightstrip_effect("ca"), None);
+    }
+
     // ── strip_for_energy_outlet ───────────────────────────────────────────────
 
     fn ene_strip_json(n: u8) -> serde_json::Value {
