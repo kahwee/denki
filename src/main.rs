@@ -73,8 +73,11 @@ fn print_kasa_detail(ip: &str, json: &serde_json::Value, hint: &str) -> Result<(
             None => bail!("Could not parse plug sysinfo from {}", ip),
         },
         DeviceKind::Tapo | DeviceKind::Unknown(_) => {
-            eprintln!("{}", format!("Unsupported device type: {kind}").yellow());
-            eprintln!("Raw sysinfo from {}:", ip);
+            eprintln!(
+                "{}",
+                format!("Detailed info is not available for {kind} yet. Raw sysinfo from {ip}:")
+                    .yellow()
+            );
             println!(
                 "{}",
                 serde_json::to_string_pretty(json).unwrap_or_else(|_| json.to_string())

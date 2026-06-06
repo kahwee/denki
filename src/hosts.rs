@@ -66,7 +66,7 @@ fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
 
     anyhow::bail!(
         "{} is corrupt (not valid v1 or v2 JSON).\n\
-         Fix or delete the file to continue using aliases.",
+         Fix or delete the file, then retry `denki aliases` or `denki scan`.",
         path.display()
     )
 }
@@ -126,7 +126,7 @@ fn lookup_in(
         1 => Ok(Some(hits[0].1.clone())),
         _ => {
             let names: Vec<&str> = hits.iter().map(|(k, _)| k.as_str()).collect();
-            anyhow::bail!("\"{}\" is ambiguous — matches: {}", name, names.join(", "))
+            anyhow::bail!("\"{}\" is ambiguous; matches: {}", name, names.join(", "))
         }
     }
 }
@@ -245,6 +245,10 @@ mod tests {
             msg.contains("corrupt"),
             "error should mention corruption: {msg}"
         );
+        assert!(
+            msg.contains("denki aliases"),
+            "error should suggest recovery: {msg}"
+        );
     }
 
     #[test]
@@ -316,6 +320,7 @@ mod tests {
         let err = lookup_in("lamp", &map).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("ambiguous"), "{msg}");
+        assert!(msg.contains("matches:"), "{msg}");
         assert!(msg.contains("floor lamp"), "{msg}");
         assert!(msg.contains("desk lamp"), "{msg}");
     }

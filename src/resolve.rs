@@ -14,13 +14,16 @@ pub struct Resolved {
 
 fn not_found(input: &str) -> anyhow::Error {
     anyhow::anyhow!(
-        "No device named \"{input}\" found in saved aliases.\n\
+        "No device named \"{input}\" was found in saved aliases.\n\
          \n\
          If you just ran `denki scan`, use the device IP directly:\n\
          \x20 denki <command> 192.168.x.x\n\
          \n\
          To save a friendly name for next time:\n\
-         \x20 denki alias \"<name>\" <ip>"
+         \x20 denki alias \"<name>\" <ip>\n\
+         \n\
+         To review saved names:\n\
+         \x20 denki aliases"
     )
 }
 
@@ -97,6 +100,10 @@ mod tests {
         assert!(
             msg.contains("alias"),
             "error should mention saving an alias: {msg}"
+        );
+        assert!(
+            msg.contains("denki aliases"),
+            "error should suggest listing aliases: {msg}"
         );
     }
 
