@@ -277,7 +277,7 @@ mod tests {
     fn all_contains_expected_models() {
         let models: Vec<&str> = all().iter().map(|d| d.model.as_str()).collect();
         for expected in [
-            "KL135", "KP115", "HS105", "HS110", "HS220", "HS300", "KL430", "P125",
+            "KL135", "KP115", "HS105", "HS110", "HS220", "HS300", "KL430", "KL420L5", "P125",
         ] {
             assert!(
                 models.contains(&expected),
@@ -362,6 +362,20 @@ mod tests {
             assert!(
                 !entry.supports.iter().any(|f| f == feature),
                 "KL430 should NOT support '{feature}' (not yet implemented)"
+            );
+        }
+    }
+
+    #[test]
+    fn kl420l5_is_registered_as_a_lightstrip_with_energy_only() {
+        let entry = lookup("KL420L5").unwrap();
+        assert!(matches!(entry.kind, DeviceKind::LightStrip));
+        assert!(!entry.verified);
+        assert!(entry.supports.iter().any(|f| f == "energy"));
+        for feature in ["power", "dim", "color_temp", "color"] {
+            assert!(
+                !entry.supports.iter().any(|f| f == feature),
+                "KL420L5 should NOT support '{feature}' yet"
             );
         }
     }

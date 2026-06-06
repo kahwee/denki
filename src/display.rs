@@ -973,6 +973,27 @@ mod tests {
         }
     }
 
+    fn make_lightstrip_for_hints(model: &str, is_on: bool) -> crate::bulb::Bulb {
+        crate::bulb::Bulb {
+            alias: "Test Light Strip".to_string(),
+            model: model.to_string(),
+            hw_ver: "1.0".to_string(),
+            sw_ver: "1.0.0".to_string(),
+            rssi: -40,
+            is_color: 1,
+            is_dimmable: 1,
+            is_variable_color_temp: 1,
+            light_state: crate::bulb::LightState {
+                on_off: u8::from(is_on),
+                brightness: Some(80),
+                color_temp: Some(0),
+                hue: Some(5),
+                saturation: Some(80),
+                dft_on_state: None,
+            },
+        }
+    }
+
     #[test]
     fn plug_hints_ene_plug_includes_energy() {
         let p = make_plug_for_hints("KP115", false, true);
@@ -1031,6 +1052,28 @@ mod tests {
         assert!(
             h.iter().any(|s| s.contains("outlet-rename")),
             "hints: {h:?}"
+        );
+    }
+
+    #[test]
+    fn lightstrip_hints_for_kl420l5_include_energy_and_monthly_commands() {
+        let b = make_lightstrip_for_hints("KL420L5", false);
+        let h = lightstrip_hints(&b, "lights");
+        assert!(
+            h.iter().any(|s| s.contains("energy \"lights\"")),
+            "hints: {h:?}"
+        );
+        assert!(
+            h.iter().any(|s| s.contains("energy-daily \"lights\"")),
+            "hints: {h:?}"
+        );
+        assert!(
+            h.iter().any(|s| s.contains("energy-monthly \"lights\"")),
+            "hints: {h:?}"
+        );
+        assert!(
+            !h.iter().any(|s| s == "denki on \"lights\""),
+            "light strip should not advertise power control: {h:?}"
         );
     }
 

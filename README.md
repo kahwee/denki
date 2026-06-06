@@ -43,7 +43,7 @@ cargo build --release
 ### Supported but unverified
 
 - **LB130 smart bulbs** — same bulb commands as KL135; unverified
-- **KL430 light strips** — scan/info plus energy monitoring; power, dimming, color temperature, and HSV color control are not yet implemented
+- **KL420L5 / KL430 light strips** — scan/info plus energy monitoring; power, dimming, color temperature, and HSV color control are not yet implemented
 - **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
 - **HS300 / KP303 power strips** — info, outlet listing, per-outlet on/off/toggle power control, outlet rename, LED, schedules, and clock; energy only on ENE-capable models (verified on HS300 HW 2.0)
 
