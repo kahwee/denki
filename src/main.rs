@@ -9,10 +9,79 @@ use anyhow::{bail, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use colored::Colorize;
+use std::net::IpAddr;
 
 async fn tapo_session(ip: &str) -> Result<klap::KlapSession> {
     let (user, pass) = creds::load()?;
     klap::handshake(ip, &user, &pass).await
+}
+
+fn print_kasa_summary(ip: IpAddr, json: &serde_json::Value, hint: &str) {
+    match devices::detect_kind(json) {
+        DeviceKind::Bulb => {
+            if let Some(b) = bulb::parse(json) {
+                display::print_bulb_summary(ip, &b, hint);
+            }
+        }
+        DeviceKind::LightStrip => {
+            if let Some(b) = bulb::parse(json) {
+                display::print_lightstrip_summary(ip, &b, hint);
+            }
+        }
+        DeviceKind::Dimmer => {
+            if let Some(d) = dimmer::parse(json) {
+                display::print_dimmer_summary(ip, &d, hint);
+            }
+        }
+        DeviceKind::Strip => {
+            if let Some(s) = strip::parse(json) {
+                display::print_strip_summary(ip, &s, hint);
+            }
+        }
+        DeviceKind::Plug => {
+            if let Some(p) = plug::parse(json) {
+                display::print_plug_summary(ip, &p, hint);
+            }
+        }
+        // Tapo devices use KLAP on port 80 and won't respond to UDP probe.
+        DeviceKind::Tapo => display::print_unknown_summary(ip, json, "tapo"),
+        DeviceKind::Unknown(t) => display::print_unknown_summary(ip, json, &t),
+    }
+}
+
+fn print_kasa_detail(ip: &str, json: &serde_json::Value, hint: &str) -> Result<()> {
+    let kind = devices::detect_kind(json);
+    match kind {
+        DeviceKind::Bulb => match bulb::parse(json) {
+            Some(b) => display::print_bulb_detail(ip, &b, hint),
+            None => bail!("Could not parse bulb sysinfo from {}", ip),
+        },
+        DeviceKind::LightStrip => match bulb::parse(json) {
+            Some(b) => display::print_lightstrip_detail(ip, &b, hint),
+            None => bail!("Could not parse light strip sysinfo from {}", ip),
+        },
+        DeviceKind::Dimmer => match dimmer::parse(json) {
+            Some(d) => display::print_dimmer_detail(ip, &d, hint),
+            None => bail!("Could not parse dimmer sysinfo from {}", ip),
+        },
+        DeviceKind::Strip => match strip::parse(json) {
+            Some(s) => display::print_strip_detail(ip, &s, hint),
+            None => bail!("Could not parse strip sysinfo from {}", ip),
+        },
+        DeviceKind::Plug => match plug::parse(json) {
+            Some(p) => display::print_plug_detail(ip, &p, hint),
+            None => bail!("Could not parse plug sysinfo from {}", ip),
+        },
+        DeviceKind::Tapo | DeviceKind::Unknown(_) => {
+            eprintln!("{}", format!("Unsupported device type: {kind}").yellow());
+            eprintln!("Raw sysinfo from {}:", ip);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(json).unwrap_or_else(|_| json.to_string())
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Returns the target on/off state when toggling: true = turn on, false = turn off.
@@ -158,36 +227,7 @@ async fn main() -> Result<()> {
                 }
                 let hint =
                     hosts::lookup_by_ip_in(&ip_str, &host_map).unwrap_or_else(|| ip_str.clone());
-                match devices::detect_kind(&json) {
-                    DeviceKind::Bulb => {
-                        if let Some(b) = bulb::parse(&json) {
-                            display::print_bulb_summary(ip, &b, &hint);
-                        }
-                    }
-                    DeviceKind::LightStrip => {
-                        if let Some(b) = bulb::parse(&json) {
-                            display::print_lightstrip_summary(ip, &b, &hint);
-                        }
-                    }
-                    DeviceKind::Dimmer => {
-                        if let Some(d) = dimmer::parse(&json) {
-                            display::print_dimmer_summary(ip, &d, &hint);
-                        }
-                    }
-                    DeviceKind::Strip => {
-                        if let Some(s) = strip::parse(&json) {
-                            display::print_strip_summary(ip, &s, &hint);
-                        }
-                    }
-                    DeviceKind::Plug => {
-                        if let Some(p) = plug::parse(&json) {
-                            display::print_plug_summary(ip, &p, &hint);
-                        }
-                    }
-                    // Tapo devices use KLAP on port 80 and won't respond to UDP probe.
-                    DeviceKind::Tapo => display::print_unknown_summary(ip, &json, "tapo"),
-                    DeviceKind::Unknown(t) => display::print_unknown_summary(ip, &json, &t),
-                }
+                print_kasa_summary(ip, &json, &hint);
                 if is_new {
                     println!("{}", "  ↳ (new) alias auto-saved".dimmed());
                 }
@@ -239,38 +279,7 @@ async fn main() -> Result<()> {
                 }
                 hosts::Protocol::Kasa => {
                     let json = ops::sysinfo(&r.ip).await?;
-                    let kind = devices::detect_kind(&json);
-                    match kind {
-                        DeviceKind::Bulb => match bulb::parse(&json) {
-                            Some(b) => display::print_bulb_detail(&r.ip, &b, &hint),
-                            None => bail!("Could not parse bulb sysinfo from {}", r.ip),
-                        },
-                        DeviceKind::LightStrip => match bulb::parse(&json) {
-                            Some(b) => display::print_lightstrip_detail(&r.ip, &b, &hint),
-                            None => bail!("Could not parse light strip sysinfo from {}", r.ip),
-                        },
-                        DeviceKind::Dimmer => match dimmer::parse(&json) {
-                            Some(d) => display::print_dimmer_detail(&r.ip, &d, &hint),
-                            None => bail!("Could not parse dimmer sysinfo from {}", r.ip),
-                        },
-                        DeviceKind::Strip => match strip::parse(&json) {
-                            Some(s) => display::print_strip_detail(&r.ip, &s, &hint),
-                            None => bail!("Could not parse strip sysinfo from {}", r.ip),
-                        },
-                        DeviceKind::Plug => match plug::parse(&json) {
-                            Some(p) => display::print_plug_detail(&r.ip, &p, &hint),
-                            None => bail!("Could not parse plug sysinfo from {}", r.ip),
-                        },
-                        DeviceKind::Tapo | DeviceKind::Unknown(_) => {
-                            eprintln!("{}", format!("Unsupported device type: {kind}").yellow());
-                            eprintln!("Raw sysinfo from {}:", r.ip);
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&json)
-                                    .unwrap_or_else(|_| json.to_string())
-                            );
-                        }
-                    }
+                    print_kasa_detail(&r.ip, &json, &hint)?;
                 }
             }
         }
