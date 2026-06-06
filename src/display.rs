@@ -1,4 +1,4 @@
-use crate::bulb::{Bulb, LightState};
+use crate::bulb::{Bulb, LightState, LightingEffectState};
 use crate::devices;
 use crate::dimmer::Dimmer;
 use crate::plug::Plug;
@@ -135,6 +135,17 @@ fn print_light_state_detail(ls: &LightState) {
     }
 }
 
+fn print_light_effect_detail(effect: Option<&LightingEffectState>) {
+    if let Some(effect) = effect {
+        let name = if effect.enable == 1 {
+            effect.name.as_str()
+        } else {
+            "Off"
+        };
+        println!("  Effect:     {}", name);
+    }
+}
+
 pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
     println!("{}", header(&bulb.alias));
     println!("  Host:       {ip}");
@@ -151,6 +162,7 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
         signal_label(bulb.rssi)
     );
     print_light_state_detail(&bulb.light_state);
+    print_light_effect_detail(bulb.lighting_effect_state.as_ref());
     println!("  Features:   {}", caps_label(bulb));
     println!(
         "  {}",
@@ -575,6 +587,7 @@ pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
         signal_label(bulb.rssi)
     );
     print_light_state_detail(&bulb.light_state);
+    print_light_effect_detail(bulb.lighting_effect_state.as_ref());
     println!(
         "  {}",
         format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed()
@@ -991,6 +1004,7 @@ mod tests {
                 saturation: Some(80),
                 dft_on_state: None,
             },
+            lighting_effect_state: None,
         }
     }
 

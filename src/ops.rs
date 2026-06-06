@@ -3,6 +3,7 @@
 //! Bulb/light-strip energy: use smartlife.iot.common.emeter, NOT bare "emeter" (that returns -2001 on bulbs/light strips).
 //! LED control: set_led_off with off:0 = LED on, off:1 = LED off (inverted naming).
 
+use crate::bulb::LightingEffectState;
 use crate::klap::KlapSession;
 use crate::transport;
 use anyhow::Result;
@@ -118,6 +119,53 @@ pub async fn bulb_energy_monthly(host: &str, year: u16) -> Result<serde_json::Va
         json!({"smartlife.iot.common.emeter": {"get_monthstat": {"year": year}}}),
     )
     .await
+}
+
+pub async fn lightstrip_current_effect(host: &str) -> Result<LightingEffectState> {
+    transport::send(
+        host,
+        json!({"smartlife.iot.lighting_effect": {"get_lighting_effect": {}}}),
+    )
+    .await
+    .and_then(|value| {
+        serde_json::from_value::<LightingEffectState>(
+            value
+                .pointer("/smartlife.iot.lighting_effect/get_lighting_effect")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("light strip did not return effect details"))?,
+        )
+        .map_err(Into::into)
+    })
+}
+
+pub async fn lightstrip_set_effect(
+    host: &str,
+    effect: &LightingEffectState,
+    name: &str,
+) -> Result<()> {
+    let mut payload = serde_json::to_value(effect)?;
+    let effect_obj = payload
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("light strip effect payload was not an object"))?;
+    effect_obj.insert("enable".to_string(), json!(1));
+    effect_obj.insert("name".to_string(), json!(name));
+    transport::send(
+        host,
+        json!({"smartlife.iot.lighting_effect": {"set_lighting_effect": payload}}),
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn lightstrip_disable_effect(host: &str) -> Result<()> {
+    let mut effect = lightstrip_current_effect(host).await?;
+    effect.enable = 0;
+    transport::send(
+        host,
+        json!({"smartlife.iot.lighting_effect": {"set_lighting_effect": effect}}),
+    )
+    .await?;
+    Ok(())
 }
 
 // HS220 rejects brightness=0 — route to relay_off instead.

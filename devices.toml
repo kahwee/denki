@@ -47,7 +47,7 @@ supports = ["power", "dim", "color_temp", "color", "energy", "specs", "presets"]
 model    = "KL430"
 kind     = "LightStrip"
 verified = false
-supports = ["energy"]
+supports = ["energy", "effects"]
 # power / dim / color_temp / color not yet wired up in denki
 # (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)
 
@@ -55,7 +55,7 @@ supports = ["energy"]
 model    = "KL420L5"
 kind     = "LightStrip"
 verified = false
-supports = ["energy"]
+supports = ["energy", "effects"]
 # light-strip support matches the KL430 namespace for scan/info/energy
 
 # ── Dimmers ───────────────────────────────────────────────────────────────────

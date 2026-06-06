@@ -4,7 +4,7 @@
 //!   (bare "emeter" returns -2001). No schedule, countdown, time, or LED control.
 //! HW 2.6 (FW 1.0.9+): same plus fade_on_off, lnk_on, re_power, get_default_behavior.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct Bulb {
@@ -20,6 +20,8 @@ pub struct Bulb {
     #[serde(default)]
     pub is_variable_color_temp: u8,
     pub light_state: LightState,
+    #[serde(default)]
+    pub lighting_effect_state: Option<LightingEffectState>,
 }
 
 /// When ON:  brightness/color_temp/hue/saturation are at the top level.
@@ -42,6 +44,40 @@ pub struct DftOnState {
     pub color_temp: u16,
     pub hue: u16,
     pub saturation: u8,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LightingEffectState {
+    #[serde(default)]
+    pub enable: u8,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub custom: u8,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub brightness: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segments: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expansion_strategy: Option<u8>,
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub effect_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hue_range: Option<Vec<u16>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saturation_range: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brightness_range: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition_range: Option<Vec<u16>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub init_states: Option<Vec<Vec<u8>>>,
 }
 
 impl LightState {

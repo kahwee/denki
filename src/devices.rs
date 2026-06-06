@@ -91,6 +91,7 @@ pub fn hint_for(feature: &str, alias: &str) -> Option<String> {
         "color_temp" => Some(format!("denki color-temp \"{alias}\" 2700")),
         "color" => Some(format!("denki color \"{alias}\" -H 120 -s 80 -v 100")),
         "energy" => Some(format!("denki energy \"{alias}\"")),
+        "effects" => Some(format!("denki effects \"{alias}\"")),
         "schedules" => Some(format!("denki schedules \"{alias}\"")),
         "led" => Some(format!("denki led \"{alias}\" on")),
         "clock" => Some(format!("denki clock \"{alias}\"")),
@@ -213,6 +214,13 @@ pub fn can_get_specs(kind: &DeviceKind) -> Result<()> {
 
 pub fn can_get_presets(kind: &DeviceKind) -> Result<()> {
     require_bulb(kind, "presets", "bulbs")
+}
+
+pub fn can_get_effects(kind: &DeviceKind) -> Result<()> {
+    match kind {
+        DeviceKind::LightStrip => Ok(()),
+        other => anyhow::bail!("`effects` is only supported on light strips, not {other}"),
+    }
 }
 
 pub fn can_get_schedules(kind: &DeviceKind) -> Result<()> {
@@ -364,6 +372,10 @@ mod tests {
                 "KL430 should NOT support '{feature}' (not yet implemented)"
             );
         }
+        assert!(
+            entry.supports.iter().any(|f| f == "effects"),
+            "KL430 should support lighting effects"
+        );
     }
 
     #[test]
@@ -372,6 +384,7 @@ mod tests {
         assert!(matches!(entry.kind, DeviceKind::LightStrip));
         assert!(!entry.verified);
         assert!(entry.supports.iter().any(|f| f == "energy"));
+        assert!(entry.supports.iter().any(|f| f == "effects"));
         for feature in ["power", "dim", "color_temp", "color"] {
             assert!(
                 !entry.supports.iter().any(|f| f == feature),

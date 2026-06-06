@@ -87,6 +87,68 @@ fn print_kasa_detail(ip: &str, json: &serde_json::Value, hint: &str) -> Result<(
     Ok(())
 }
 
+const LIGHTSTRIP_EFFECTS: &[&str] = &[
+    "Off",
+    "Aurora",
+    "Bubbling Cauldron",
+    "Candy Cane",
+    "Christmas",
+    "Flicker",
+    "Hanukkah",
+    "Haunted Mansion",
+    "Icicle",
+    "Lightning",
+    "Ocean",
+    "Rainbow",
+    "Raindrop",
+    "Spring",
+    "Valentines",
+];
+
+fn resolve_lightstrip_effect(name: &str) -> Option<&'static str> {
+    let needle = hosts::normalize(name);
+    if needle.is_empty() {
+        return None;
+    }
+
+    let mut exact = LIGHTSTRIP_EFFECTS
+        .iter()
+        .copied()
+        .filter(|effect| hosts::normalize(effect) == needle);
+    if let Some(effect) = exact.next() {
+        if exact.next().is_none() {
+            return Some(effect);
+        }
+    }
+
+    let mut fuzzy = LIGHTSTRIP_EFFECTS
+        .iter()
+        .copied()
+        .filter(|effect| hosts::normalize(effect).contains(&needle));
+    if let Some(effect) = fuzzy.next() {
+        if fuzzy.next().is_none() {
+            return Some(effect);
+        }
+    }
+
+    None
+}
+
+fn print_lightstrip_effects(current: &bulb::LightingEffectState) {
+    let state = if current.enable == 1 { "On" } else { "Off" };
+    println!("Current effect: {} ({state})", current.name.bold());
+    println!("{}", "Built-in effects:".bold());
+    for effect in LIGHTSTRIP_EFFECTS {
+        if effect.eq_ignore_ascii_case("off") {
+            println!("  {effect}");
+        } else if effect.eq_ignore_ascii_case(&current.name) {
+            println!("  {effect}  {}", "(selected)".dimmed());
+        } else {
+            println!("  {effect}");
+        }
+    }
+}
+
 /// Returns the target on/off state when toggling: true = turn on, false = turn off.
 /// Strip: derive the target from child outlet states (works across strip variants).
 fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
@@ -470,6 +532,32 @@ async fn main() -> Result<()> {
             display::print_bulb_presets(&ops::bulb_presets(&r.ip).await?);
         }
 
+        Command::Effects { host } => {
+            let (r, _, kind) = kasa_sysinfo(&host, "effects").await?;
+            devices::can_get_effects(&kind)?;
+            print_lightstrip_effects(&ops::lightstrip_current_effect(&r.ip).await?);
+        }
+
+        Command::Effect { host, name } => {
+            let (r, _, kind) = kasa_sysinfo(&host, "effect").await?;
+            devices::can_get_effects(&kind)?;
+
+            if name.eq_ignore_ascii_case("off") {
+                ops::lightstrip_disable_effect(&r.ip).await?;
+                println!("Effect -> {}", "Off".dimmed());
+            } else {
+                let resolved = resolve_lightstrip_effect(&name).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "No light-strip effect named \"{name}\" found. Available effects: {}",
+                        LIGHTSTRIP_EFFECTS.join(", ")
+                    )
+                })?;
+                let current = ops::lightstrip_current_effect(&r.ip).await?;
+                ops::lightstrip_set_effect(&r.ip, &current, resolved).await?;
+                println!("Effect -> {}", resolved.bold());
+            }
+        }
+
         Command::Schedules { host } => {
             let (r, _, kind) = kasa_sysinfo(&host, "schedules").await?;
             devices::can_get_schedules(&kind)?;
@@ -822,6 +910,21 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn effects_command_parses_host_only() {
+        let cli = Cli::try_parse_from(["denki", "effects", "lights"]).unwrap();
+        assert!(matches!(cli.command, Command::Effects { ref host } if host == "lights"));
+    }
+
+    #[test]
+    fn effect_command_parses_host_and_name() {
+        let cli = Cli::try_parse_from(["denki", "effect", "lights", "Rainbow"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Effect { ref host, ref name } if host == "lights" && name == "Rainbow"
+        ));
+    }
+
     // ── strip_for_energy_outlet ───────────────────────────────────────────────
 
     fn ene_strip_json(n: u8) -> serde_json::Value {
@@ -934,7 +1037,7 @@ mod capability_tests {
             "schedules" => devices::can_get_schedules(kind),
             "led" => devices::can_control_led(kind),
             "clock" => devices::can_get_clock(kind),
-            "energy" | "outlets" => Ok(()), // runtime-checked, no static guard
+            "energy" | "outlets" | "effects" => Ok(()), // runtime-checked, no static guard
             other => panic!(
                 "devices.toml: unknown feature '{other}' — add it to check() or explain \
                  why it has no guard"

@@ -140,6 +140,22 @@ pub enum Command {
         host: String,
     },
 
+    /// List built-in light strip effects and the current active effect (light strips only)
+    Effects {
+        /// Device name from scan output, a saved alias, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+    },
+
+    /// Activate a built-in light strip effect by name (light strips only)
+    Effect {
+        /// Device name from scan output, a saved alias, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Effect name, e.g. Aurora, Rainbow, Off
+        name: String,
+    },
+
     /// Show scheduled rules (plugs, dimmers, and power strips)
     Schedules {
         /// Device name from scan output, a saved alias, or an IP address
