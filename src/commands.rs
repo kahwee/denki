@@ -10,7 +10,7 @@ use crate::fmt;
 use crate::hosts;
 use crate::klap;
 use crate::ops;
-use crate::resolve::{require_kasa, resolve, resolve_outlet, Resolved};
+use crate::resolve::{Resolved, require_kasa, resolve, resolve_outlet};
 use crate::strip;
 
 async fn tapo_session(ip: &str) -> Result<klap::KlapSession> {

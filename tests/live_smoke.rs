@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::env;
 use std::process::Command;
 
@@ -45,10 +45,7 @@ fn run_denki(args: &[&str]) -> Result<String> {
 #[test]
 #[ignore = "requires live TP-Link devices on the local network"]
 fn power_cycle_default_targets() -> Result<()> {
-    let targets = parse_targets(
-        "DENKI_SMOKE_POWER_TARGETS",
-        &["Living Room Right Lamp"],
-    );
+    let targets = parse_targets("DENKI_SMOKE_POWER_TARGETS", &["Living Room Right Lamp"]);
 
     for target in targets {
         let on_output = run_denki(&["on", &target])?;
@@ -77,7 +74,8 @@ fn light_strip_effect_cycle() -> Result<()> {
 
     let effects_output = run_denki(&["effects", &target])?;
     assert!(
-        effects_output.contains("Available effects:") || effects_output.contains("Built-in effects:"),
+        effects_output.contains("Available effects:")
+            || effects_output.contains("Built-in effects:"),
         "expected effect catalog output:\n{effects_output}"
     );
 

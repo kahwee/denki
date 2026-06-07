@@ -6,7 +6,7 @@ use denki::{
     bulb, creds, dimmer, display, effects, hosts, klap, ops, plug, strip, tapo, transport,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Parser;
 use colored::Colorize;
 use std::net::IpAddr;

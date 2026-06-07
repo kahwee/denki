@@ -2,8 +2,8 @@
 //! Response shape: {"error_code": 0, "result": {...}}
 //! nickname and ssid are base64-encoded in the API response.
 
-use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

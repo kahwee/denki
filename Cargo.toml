@@ -1,7 +1,8 @@
 [package]
 name = "denki"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.87"
 description = "CLI for controlling TP-Link smart home devices — denki (電気) means electricity in Japanese"
 license = "MIT"
 repository = "https://github.com/kahwee/denki"

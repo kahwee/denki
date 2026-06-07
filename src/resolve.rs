@@ -1,7 +1,7 @@
 // Device name/IP resolution and protocol guards for the CLI.
 
 use crate::{hosts, strip};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use colored::Colorize;
 use std::net::IpAddr;
 

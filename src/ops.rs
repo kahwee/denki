@@ -168,59 +168,6 @@ pub async fn lightstrip_disable_effect(host: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn effect() -> LightingEffectState {
-        LightingEffectState {
-            enable: 0,
-            name: "Flicker".to_string(),
-            custom: 0,
-            id: Some("TapoStrip_4HVKmMc6vEzjm36jXaGwMs".to_string()),
-            brightness: Some(100),
-            segments: Some(vec![1]),
-            expansion_strategy: Some(1),
-            effect_type: Some("random".to_string()),
-            hue_range: Some(vec![30, 40]),
-            saturation_range: Some(vec![100, 100]),
-            brightness_range: Some(vec![50, 100]),
-            duration: Some(0),
-            transition: Some(0),
-            transition_range: Some(vec![375, 500]),
-            init_states: Some(vec![vec![30, 81, 80]]),
-        }
-    }
-
-    #[test]
-    fn lightstrip_effect_payload_overrides_enable_and_name() {
-        let payload = lightstrip_effect_payload(&effect(), "Rainbow", 1).unwrap();
-        let inner = payload
-            .pointer("/smartlife.iot.lighting_effect/set_lighting_effect")
-            .expect("payload should contain set_lighting_effect");
-        assert_eq!(inner["enable"], json!(1));
-        assert_eq!(inner["name"], json!("Rainbow"));
-        assert_eq!(inner["id"], json!("TapoStrip_4HVKmMc6vEzjm36jXaGwMs"));
-        assert_eq!(inner["brightness"], json!(100));
-        assert_eq!(inner["segments"], json!([1]));
-        assert_eq!(inner["transition_range"], json!([375, 500]));
-    }
-
-    #[test]
-    fn lightstrip_effect_payload_can_disable_without_losing_descriptor() {
-        let payload = lightstrip_effect_payload(&effect(), "Flicker", 0).unwrap();
-        let inner = payload
-            .pointer("/smartlife.iot.lighting_effect/set_lighting_effect")
-            .expect("payload should contain set_lighting_effect");
-        assert_eq!(inner["enable"], json!(0));
-        assert_eq!(inner["name"], json!("Flicker"));
-        assert_eq!(inner["custom"], json!(0));
-        assert_eq!(inner["type"], json!("random"));
-        assert_eq!(inner["init_states"], json!([[30, 81, 80]]));
-    }
-}
-
 // HS220 rejects brightness=0 — route to relay_off instead.
 pub async fn dimmer_set_brightness(host: &str, level: u8) -> Result<()> {
     if level == 0 {
@@ -412,4 +359,57 @@ fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
         anyhow::bail!("Tapo device error: code {code}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn effect() -> LightingEffectState {
+        LightingEffectState {
+            enable: 0,
+            name: "Flicker".to_string(),
+            custom: 0,
+            id: Some("TapoStrip_4HVKmMc6vEzjm36jXaGwMs".to_string()),
+            brightness: Some(100),
+            segments: Some(vec![1]),
+            expansion_strategy: Some(1),
+            effect_type: Some("random".to_string()),
+            hue_range: Some(vec![30, 40]),
+            saturation_range: Some(vec![100, 100]),
+            brightness_range: Some(vec![50, 100]),
+            duration: Some(0),
+            transition: Some(0),
+            transition_range: Some(vec![375, 500]),
+            init_states: Some(vec![vec![30, 81, 80]]),
+        }
+    }
+
+    #[test]
+    fn lightstrip_effect_payload_overrides_enable_and_name() {
+        let payload = lightstrip_effect_payload(&effect(), "Rainbow", 1).unwrap();
+        let inner = payload
+            .pointer("/smartlife.iot.lighting_effect/set_lighting_effect")
+            .expect("payload should contain set_lighting_effect");
+        assert_eq!(inner["enable"], json!(1));
+        assert_eq!(inner["name"], json!("Rainbow"));
+        assert_eq!(inner["id"], json!("TapoStrip_4HVKmMc6vEzjm36jXaGwMs"));
+        assert_eq!(inner["brightness"], json!(100));
+        assert_eq!(inner["segments"], json!([1]));
+        assert_eq!(inner["transition_range"], json!([375, 500]));
+    }
+
+    #[test]
+    fn lightstrip_effect_payload_can_disable_without_losing_descriptor() {
+        let payload = lightstrip_effect_payload(&effect(), "Flicker", 0).unwrap();
+        let inner = payload
+            .pointer("/smartlife.iot.lighting_effect/set_lighting_effect")
+            .expect("payload should contain set_lighting_effect");
+        assert_eq!(inner["enable"], json!(0));
+        assert_eq!(inner["name"], json!("Flicker"));
+        assert_eq!(inner["custom"], json!(0));
+        assert_eq!(inner["type"], json!("random"));
+        assert_eq!(inner["init_states"], json!([[30, 81, 80]]));
+    }
 }

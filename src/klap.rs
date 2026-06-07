@@ -22,15 +22,15 @@
 //! Uses raw TcpStream (not reqwest) — some Tapo firmware returns 400 for standard HTTP clients.
 
 use aes::Aes128;
-use anyhow::{bail, Result};
-use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use anyhow::{Result, bail};
+use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
 use rand::RngCore;
 use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
 use std::fmt::Write as FmtWrite;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 const KLAP_TIMEOUT: Duration = Duration::from_secs(10);
 
