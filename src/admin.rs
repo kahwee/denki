@@ -4,7 +4,7 @@ use clap_complete::generate;
 use colored::Colorize;
 
 use crate::cli::Cli;
-use crate::commands::{kasa_sysinfo, resolve_strip_outlet};
+use crate::commands::KasaContext;
 use crate::creds;
 use crate::devices;
 use crate::hosts;
@@ -13,16 +13,16 @@ use crate::resolve::{require_kasa, resolve};
 use crate::strip;
 
 pub async fn handle_schedules(host: &str) -> Result<()> {
-    let (r, _, kind) = kasa_sysinfo(host, "schedules").await?;
-    devices::can_get_schedules(&kind)?;
-    crate::display::print_schedules(&ops::device_schedules(&r.ip).await?);
+    let ctx = KasaContext::load(host, "schedules").await?;
+    devices::can_get_schedules(ctx.kind())?;
+    crate::display::print_schedules(&ops::device_schedules(ctx.ip()).await?);
     Ok(())
 }
 
 pub async fn handle_led(host: &str, on: bool) -> Result<()> {
-    let (r, _, kind) = kasa_sysinfo(host, "led").await?;
-    devices::can_control_led(&kind)?;
-    ops::device_led(&r.ip, on).await?;
+    let ctx = KasaContext::load(host, "led").await?;
+    devices::can_control_led(ctx.kind())?;
+    ops::device_led(ctx.ip(), on).await?;
     println!(
         "LED indicator {}",
         if on { "on".green() } else { "off".dimmed() }
@@ -31,9 +31,9 @@ pub async fn handle_led(host: &str, on: bool) -> Result<()> {
 }
 
 pub async fn handle_clock(host: &str) -> Result<()> {
-    let (r, _, kind) = kasa_sysinfo(host, "clock").await?;
-    devices::can_get_clock(&kind)?;
-    let resp = ops::device_time(&r.ip).await?;
+    let ctx = KasaContext::load(host, "clock").await?;
+    devices::can_get_clock(ctx.kind())?;
+    let resp = ops::device_time(ctx.ip()).await?;
     if let Some(t) = resp.pointer("/time/get_time") {
         println!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
@@ -45,7 +45,7 @@ pub async fn handle_clock(host: &str) -> Result<()> {
             t["sec"].as_u64().unwrap_or(0),
         );
     } else {
-        bail!("Unexpected response from {}: no time data", r.ip);
+        bail!("Unexpected response from {}: no time data", ctx.ip());
     }
     Ok(())
 }
@@ -67,19 +67,18 @@ pub async fn handle_restart(host: &str) -> Result<()> {
 }
 
 pub async fn handle_outlets(host: &str) -> Result<()> {
-    let (r, json, _) = kasa_sysinfo(host, "outlets").await?;
-    match strip::parse(&json) {
+    let ctx = KasaContext::load(host, "outlets").await?;
+    match strip::parse(ctx.json()) {
         Some(s) => crate::display::print_strip_outlets(&s),
-        None => bail!("{} does not appear to be a power strip", r.ip),
+        None => bail!("{} does not appear to be a power strip", ctx.ip()),
     }
     Ok(())
 }
 
 pub async fn handle_outlet_rename(host: &str, outlet: u8, name: &str) -> Result<()> {
-    let (r, _, _) = kasa_sysinfo(host, "outlet-rename").await?;
-    let (child_id, child_alias, _) =
-        resolve_strip_outlet(&r, "outlet-rename <outlet>", outlet).await?;
-    ops::strip_outlet_rename(&r.ip, &child_id, name).await?;
+    let ctx = KasaContext::load(host, "outlet-rename").await?;
+    let (child_id, child_alias, _) = ctx.strip_outlet(outlet)?;
+    ops::strip_outlet_rename(ctx.ip(), &child_id, name).await?;
     println!(
         "Outlet {} renamed: {} → {}",
         outlet,
@@ -155,15 +154,15 @@ pub fn handle_completions(shell: clap_complete::Shell) {
 }
 
 pub async fn handle_specs(host: &str) -> Result<()> {
-    let (r, _, kind) = kasa_sysinfo(host, "specs").await?;
-    devices::can_get_specs(&kind)?;
-    crate::display::print_bulb_specs(&ops::bulb_specs(&r.ip).await?);
+    let ctx = KasaContext::load(host, "specs").await?;
+    devices::can_get_specs(ctx.kind())?;
+    crate::display::print_bulb_specs(&ops::bulb_specs(ctx.ip()).await?);
     Ok(())
 }
 
 pub async fn handle_presets(host: &str) -> Result<()> {
-    let (r, _, kind) = kasa_sysinfo(host, "presets").await?;
-    devices::can_get_presets(&kind)?;
-    crate::display::print_bulb_presets(&ops::bulb_presets(&r.ip).await?);
+    let ctx = KasaContext::load(host, "presets").await?;
+    devices::can_get_presets(ctx.kind())?;
+    crate::display::print_bulb_presets(&ops::bulb_presets(ctx.ip()).await?);
     Ok(())
 }

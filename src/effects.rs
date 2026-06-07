@@ -1,7 +1,7 @@
 use crate::bulb::LightingEffectState;
 use colored::Colorize;
 
-use crate::commands;
+use crate::commands::KasaContext;
 use crate::devices;
 use crate::ops;
 
@@ -68,18 +68,18 @@ pub fn print_catalog(current: &LightingEffectState) {
 }
 
 pub async fn handle_effects_command(host: &str) -> anyhow::Result<()> {
-    let (r, _, kind) = commands::kasa_sysinfo(host, "effects").await?;
-    devices::can_get_effects(&kind)?;
-    print_catalog(&ops::lightstrip_current_effect(&r.ip).await?);
+    let ctx = KasaContext::load(host, "effects").await?;
+    devices::can_get_effects(ctx.kind())?;
+    print_catalog(&ops::lightstrip_current_effect(ctx.ip()).await?);
     Ok(())
 }
 
 pub async fn handle_effect_command(host: &str, name: &str) -> anyhow::Result<()> {
-    let (r, _, kind) = commands::kasa_sysinfo(host, "effect").await?;
-    devices::can_get_effects(&kind)?;
+    let ctx = KasaContext::load(host, "effect").await?;
+    devices::can_get_effects(ctx.kind())?;
 
     if name.eq_ignore_ascii_case("off") {
-        ops::lightstrip_disable_effect(&r.ip).await?;
+        ops::lightstrip_disable_effect(ctx.ip()).await?;
         println!("Effect -> {}", "Off".dimmed());
         return Ok(());
     }
@@ -90,8 +90,8 @@ pub async fn handle_effect_command(host: &str, name: &str) -> anyhow::Result<()>
             BUILTIN_EFFECTS.join(", ")
         )
     })?;
-    let current = ops::lightstrip_current_effect(&r.ip).await?;
-    ops::lightstrip_set_effect(&r.ip, &current, resolved).await?;
+    let current = ops::lightstrip_current_effect(ctx.ip()).await?;
+    ops::lightstrip_set_effect(ctx.ip(), &current, resolved).await?;
     println!("Effect -> {}", resolved.bold());
     Ok(())
 }
