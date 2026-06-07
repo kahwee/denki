@@ -52,9 +52,9 @@ async fn set_device_power(r: &Resolved, on: bool) -> Result<()> {
         hosts::Protocol::Klap => {
             let mut s = tapo_session(&r.ip).await?;
             if on {
-                ops::tapo_on(&mut s).await?
+                ops::tapo_on(&mut s).await?;
             } else {
-                ops::tapo_off(&mut s).await?
+                ops::tapo_off(&mut s).await?;
             }
         }
         hosts::Protocol::Kasa => {
@@ -220,7 +220,7 @@ pub async fn handle_dim(host: &str, level: u8) -> Result<()> {
             }
             ops::dimmer_set_brightness(&r.ip, level).await?;
         }
-        _ => unreachable!(),
+        other => anyhow::bail!("`dim` is only supported on bulbs and dimmers, not {other}"),
     }
     println!("Brightness -> {level}%");
     Ok(())

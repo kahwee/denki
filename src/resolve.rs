@@ -29,7 +29,7 @@ fn not_found(input: &str) -> anyhow::Error {
 
 /// Resolve a name or IP, printing "Using alias…" if matched.
 pub async fn resolve(input: &str) -> Result<Resolved> {
-    let r = resolve_quiet(input).await?;
+    let r = resolve_quiet(input)?;
     if let Some(name) = &r.saved_name {
         println!("{}", format!("Using alias \"{name}\" [{}]", r.ip).dimmed());
     }
@@ -38,7 +38,7 @@ pub async fn resolve(input: &str) -> Result<Resolved> {
 
 /// Like `resolve` but suppresses the "Using alias…" line.
 /// Used by `info` so the detail header isn't preceded by a redundant name echo.
-pub async fn resolve_quiet(input: &str) -> Result<Resolved> {
+pub fn resolve_quiet(input: &str) -> Result<Resolved> {
     if input.parse::<IpAddr>().is_ok() {
         return Ok(Resolved {
             ip: input.to_string(),
@@ -58,7 +58,10 @@ pub async fn resolve_quiet(input: &str) -> Result<Resolved> {
 
 /// Resolve a 1-based outlet number to the matching StripChild.
 pub fn resolve_outlet(s: &strip::Strip, outlet: u8) -> Result<&strip::StripChild> {
-    let idx = (outlet - 1) as usize;
+    let idx = outlet
+        .checked_sub(1)
+        .ok_or_else(|| anyhow::anyhow!("outlet 0 does not exist (outlets are 1-based)"))?
+        as usize;
     s.children.get(idx).ok_or_else(|| {
         anyhow::anyhow!(
             "outlet {} does not exist (strip has {} outlets)",

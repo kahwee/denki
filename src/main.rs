@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Info { host } => {
-            let r = resolve_quiet(&host).await?;
+            let r = resolve_quiet(&host)?;
             let hint = r.saved_name.as_deref().unwrap_or(&r.ip).to_string();
             match r.protocol {
                 hosts::Protocol::Klap => {

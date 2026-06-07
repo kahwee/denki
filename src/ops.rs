@@ -7,6 +7,7 @@ use crate::bulb::LightingEffectState;
 use crate::klap::KlapSession;
 use crate::transport;
 use anyhow::Result;
+use serde::Serialize;
 use serde_json::json;
 
 pub async fn sysinfo(host: &str) -> Result<serde_json::Value> {
@@ -138,18 +139,71 @@ pub async fn lightstrip_current_effect(host: &str) -> Result<LightingEffectState
     })
 }
 
+#[derive(Serialize)]
+struct LightstripEffectRequest<'a> {
+    enable: u8,
+    name: &'a str,
+    custom: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    brightness: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    segments: Option<&'a [u8]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expansion_strategy: Option<u8>,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    effect_type: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hue_range: Option<&'a [u16]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    saturation_range: Option<&'a [u8]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    brightness_range: Option<&'a [u8]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transition: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transition_range: Option<&'a [u16]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    init_states: Option<&'a [Vec<u8>]>,
+}
+
+fn lightstrip_effect_request<'a>(
+    effect: &'a LightingEffectState,
+    name: &'a str,
+    enable: u8,
+) -> LightstripEffectRequest<'a> {
+    LightstripEffectRequest {
+        enable,
+        name,
+        custom: effect.custom,
+        id: effect.id.as_deref(),
+        brightness: effect.brightness,
+        segments: effect.segments.as_deref(),
+        expansion_strategy: effect.expansion_strategy,
+        effect_type: effect.effect_type.as_deref(),
+        hue_range: effect.hue_range.as_deref(),
+        saturation_range: effect.saturation_range.as_deref(),
+        brightness_range: effect.brightness_range.as_deref(),
+        duration: effect.duration,
+        transition: effect.transition,
+        transition_range: effect.transition_range.as_deref(),
+        init_states: effect.init_states.as_deref(),
+    }
+}
+
 fn lightstrip_effect_payload(
     effect: &LightingEffectState,
     name: &str,
     enable: u8,
 ) -> Result<serde_json::Value> {
-    let mut payload = serde_json::to_value(effect)?;
-    let effect_obj = payload
-        .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("light strip effect payload was not an object"))?;
-    effect_obj.insert("enable".to_string(), json!(enable));
-    effect_obj.insert("name".to_string(), json!(name));
-    Ok(json!({"smartlife.iot.lighting_effect": {"set_lighting_effect": payload}}))
+    Ok(json!({
+        "smartlife.iot.lighting_effect": {
+            "set_lighting_effect": serde_json::to_value(lightstrip_effect_request(effect, name, enable))?
+        }
+    }))
 }
 
 pub async fn lightstrip_set_effect(
@@ -411,5 +465,17 @@ mod tests {
         assert_eq!(inner["custom"], json!(0));
         assert_eq!(inner["type"], json!("random"));
         assert_eq!(inner["init_states"], json!([[30, 81, 80]]));
+    }
+
+    #[test]
+    fn lightstrip_effect_payload_serializes_without_nulls() {
+        let payload = lightstrip_effect_payload(&effect(), "Rainbow", 1).unwrap();
+        let inner = payload
+            .pointer("/smartlife.iot.lighting_effect/set_lighting_effect")
+            .expect("payload should contain set_lighting_effect");
+        assert!(inner.get("id").is_some());
+        assert!(inner.get("segments").is_some());
+        assert!(inner.get("hue_range").is_some());
+        assert!(inner.get("init_states").is_some());
     }
 }
