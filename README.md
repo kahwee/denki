@@ -121,6 +121,24 @@ denki rename "desk plug" "Office Plug"
 denki restart "desk plug"
 ```
 
+## Live Smoke Harness
+
+The repository includes an ignored integration harness that runs the real `denki`
+binary against live devices. It is useful for verifying actual on/off behavior
+without turning the main test suite into a network-dependent job.
+
+```bash
+cargo test --test live_smoke -- --ignored --nocapture
+```
+
+Environment variables:
+
+- `DENKI_SMOKE_POWER_TARGETS`: comma-separated aliases to power cycle
+- `DENKI_SMOKE_LIGHTSTRIP`: optional alias for a light-strip effect cycle
+
+If `DENKI_SMOKE_POWER_TARGETS` is unset, the harness defaults to
+`Living Room Right Lamp`.
+
 ## Aliases and Tapo setup
 
 ### Save a friendly name for a device

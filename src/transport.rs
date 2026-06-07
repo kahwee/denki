@@ -2,20 +2,42 @@
 //! Tapo/KLAP lives in klap.rs.
 
 use crate::cipher;
-use anyhow::{Context, Result};
+use anyhow::Result;
+use std::io::ErrorKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 
 /// Port used by all legacy Kasa devices (KL135/LB130, KP115, HS series, etc.)
 const PORT: u16 = 9999;
 
+pub(crate) fn connect_timeout_error(addr: &str, seconds: u64) -> anyhow::Error {
+    anyhow::anyhow!(
+        "Timed out connecting to {addr} after {seconds}s. The device may be offline or unreachable."
+    )
+}
+
+pub(crate) fn connect_error(addr: &str, err: &std::io::Error) -> anyhow::Error {
+    let hint = match err.kind() {
+        ErrorKind::ConnectionRefused
+        | ErrorKind::HostUnreachable
+        | ErrorKind::NetworkUnreachable
+        | ErrorKind::NotConnected
+        | ErrorKind::AddrNotAvailable => {
+            "The device may be offline, unreachable, or on the wrong network."
+        }
+        ErrorKind::TimedOut => "The device may be offline or not responding.",
+        _ => "The device may be offline or unreachable.",
+    };
+    anyhow::anyhow!("Could not connect to {addr}: {err}. {hint}")
+}
+
 pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::Value> {
     let addr = format!("{host}:{PORT}");
     let mut stream =
         tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(&addr))
             .await
-            .map_err(|_| anyhow::anyhow!("Timeout connecting to {addr} (no response within 5s)"))?
-            .with_context(|| format!("Cannot connect to {addr}"))?;
+            .map_err(|_| connect_timeout_error(&addr, 5))?
+            .map_err(|e| connect_error(&addr, &e))?;
 
     // Serialize to JSON, then XOR-encrypt with 4-byte length prefix for TCP
     let raw = serde_json::to_vec(&payload)?;
@@ -90,4 +112,32 @@ where
         }
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeout_error_mentions_offline_and_addr() {
+        let msg = connect_timeout_error("192.168.4.27:9999", 5).to_string();
+        assert!(msg.contains("192.168.4.27:9999"), "{msg}");
+        assert!(
+            msg.contains("offline") || msg.contains("unreachable"),
+            "{msg}"
+        );
+        assert!(msg.contains("5s"), "{msg}");
+    }
+
+    #[test]
+    fn connect_error_mentions_offline_hint() {
+        let err = std::io::Error::new(ErrorKind::HostUnreachable, "No route to host");
+        let msg = connect_error("192.168.4.27:9999", &err).to_string();
+        assert!(msg.contains("192.168.4.27:9999"), "{msg}");
+        assert!(msg.contains("No route to host"), "{msg}");
+        assert!(
+            msg.contains("offline") || msg.contains("wrong network"),
+            "{msg}"
+        );
+    }
 }

@@ -86,10 +86,11 @@ async fn http_post(
     extra_headers: &[(&str, &str)],
     body: &[u8],
 ) -> Result<(u16, String, Vec<u8>)> {
-    let mut stream = timeout(KLAP_TIMEOUT, TcpStream::connect(format!("{host}:80")))
+    let addr = format!("{host}:80");
+    let mut stream = timeout(KLAP_TIMEOUT, TcpStream::connect(&addr))
         .await
-        .map_err(|_| anyhow::anyhow!("Timed out connecting to {host}:80"))?
-        .map_err(|e| anyhow::anyhow!("Cannot connect to {host}:80: {e}"))?;
+        .map_err(|_| crate::transport::connect_timeout_error(&addr, KLAP_TIMEOUT.as_secs()))?
+        .map_err(|e| crate::transport::connect_error(&addr, &e))?;
     stream.set_nodelay(true)?;
 
     let mut req = format!(
@@ -273,6 +274,8 @@ impl KlapSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transport;
+    use std::io::ErrorKind;
 
     #[test]
     fn klap_timeout_is_positive() {
@@ -297,5 +300,13 @@ mod tests {
         let h1 = auth_hash("u@x.com", "pw");
         let h2 = auth_hash("u@x.com", "pw");
         assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn klap_connect_error_reuses_transport_hint() {
+        let err = std::io::Error::new(ErrorKind::NetworkUnreachable, "Network is unreachable");
+        let msg = transport::connect_error("192.168.4.27:80", &err).to_string();
+        assert!(msg.contains("192.168.4.27:80"), "{msg}");
+        assert!(msg.contains("unreachable"), "{msg}");
     }
 }
