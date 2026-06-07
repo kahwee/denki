@@ -17,17 +17,21 @@
 pub mod bulb;
 pub mod cipher;
 pub mod cli;
+pub mod commands;
 pub mod creds;
 pub mod devices;
 pub mod dimmer;
+pub mod effects;
 pub mod fmt;
 pub mod hosts;
 pub mod klap;
 pub mod ops;
 pub mod plug;
+pub mod resolve;
 pub mod strip;
 pub mod tapo;
 pub mod transport;
 
 // display is CLI-focused (uses `colored`); keep it public for the binary to reuse.
+pub mod admin;
 pub mod display;

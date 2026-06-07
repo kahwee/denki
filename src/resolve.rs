@@ -1,8 +1,8 @@
 // Device name/IP resolution and protocol guards for the CLI.
 
+use crate::{hosts, strip};
 use anyhow::{bail, Result};
 use colored::Colorize;
-use denki::{hosts, strip};
 use std::net::IpAddr;
 
 #[derive(Debug)]
