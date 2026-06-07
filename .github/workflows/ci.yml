@@ -23,6 +23,16 @@ jobs:
       - run: cargo fmt --check
       - run: cargo doc --no-deps --document-private-items
 
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
