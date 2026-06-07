@@ -1,5 +1,6 @@
 ---
-source: src/display.rs
+source: src/display/tests.rs
+assertion_line: 36
 expression: "format_energy_lines(&d).join(\"\\n\")"
 ---
 Power:   5.40 W
