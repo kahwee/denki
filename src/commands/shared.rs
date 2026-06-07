@@ -66,37 +66,7 @@ impl KasaContext {
 mod tests {
     use super::*;
     use crate::hosts;
-    use serde_json::json;
-
-    fn ene_strip_json(n: u8) -> serde_json::Value {
-        let children: Vec<serde_json::Value> = (0..n)
-            .map(|i| {
-                json!({
-                    "id": format!("ID{i:02}"),
-                    "state": 0,
-                    "alias": format!("Outlet {}", i + 1)
-                })
-            })
-            .collect();
-        json!({
-            "system": { "get_sysinfo": {
-                "alias": "Test Strip", "model": "HS300(US)",
-                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -40,
-                "feature": "TIM:ENE", "children": children
-            }}
-        })
-    }
-
-    fn no_ene_strip_json() -> serde_json::Value {
-        json!({
-            "system": { "get_sysinfo": {
-                "alias": "Basic Strip", "model": "KP303(US)",
-                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -50,
-                "feature": "TIM",
-                "children": [{"id": "A1", "state": 0, "alias": "Outlet 1"}]
-            }}
-        })
-    }
+    use crate::test_support;
 
     fn strip_ctx(json: serde_json::Value) -> KasaContext {
         KasaContext {
@@ -112,7 +82,16 @@ mod tests {
 
     #[test]
     fn strip_outlet_succeeds_on_ene_strip() {
-        let ctx = strip_ctx(ene_strip_json(3));
+        let ctx = strip_ctx(test_support::strip_sysinfo(
+            "Test Strip",
+            "HS300(US)",
+            "TIM:ENE",
+            vec![
+                test_support::strip_child("ID00", 0, "Outlet 1", 0),
+                test_support::strip_child("ID01", 0, "Outlet 2", 0),
+                test_support::strip_child("ID02", 0, "Outlet 3", 0),
+            ],
+        ));
         let (id, alias, on) = ctx.strip_outlet(2).unwrap();
         assert_eq!(id, "ID01");
         assert_eq!(alias, "Outlet 2");
@@ -121,14 +100,19 @@ mod tests {
 
     #[test]
     fn strip_outlet_fails_on_non_strip_json() {
-        let ctx = strip_ctx(json!({}));
+        let ctx = strip_ctx(serde_json::json!({}));
         let err = ctx.strip_outlet(1).unwrap_err();
         assert!(err.to_string().contains("power strip"), "{err}");
     }
 
     #[test]
     fn strip_energy_outlet_fails_without_ene() {
-        let ctx = strip_ctx(no_ene_strip_json());
+        let ctx = strip_ctx(test_support::strip_sysinfo(
+            "Basic Strip",
+            "KP303(US)",
+            "TIM",
+            vec![test_support::strip_child("A1", 0, "Outlet 1", 0)],
+        ));
         let err = ctx.strip_energy_outlet(1).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("energy monitoring"), "{msg}");
@@ -137,7 +121,15 @@ mod tests {
 
     #[test]
     fn strip_outlet_fails_on_out_of_range_outlet() {
-        let ctx = strip_ctx(ene_strip_json(2));
+        let ctx = strip_ctx(test_support::strip_sysinfo(
+            "Test Strip",
+            "HS300(US)",
+            "TIM:ENE",
+            vec![
+                test_support::strip_child("ID00", 0, "Outlet 1", 0),
+                test_support::strip_child("ID01", 0, "Outlet 2", 0),
+            ],
+        ));
         let err = ctx.strip_outlet(5).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("outlet 5"), "{msg}");

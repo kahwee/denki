@@ -141,67 +141,69 @@ pub async fn handle_toggle(host: &str, outlet: Option<u8>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::test_support;
 
     #[test]
     fn toggle_target_bulb_on_returns_false() {
-        let json = json!({"system": {"get_sysinfo": {"light_state": {"on_off": 1}}}});
+        let json = serde_json::json!({"system": {"get_sysinfo": {"light_state": {"on_off": 1}}}});
         assert!(!toggle_target(&DeviceKind::Bulb, &json));
     }
 
     #[test]
     fn toggle_target_bulb_off_returns_true() {
-        let json = json!({"system": {"get_sysinfo": {"light_state": {"on_off": 0}}}});
+        let json = serde_json::json!({"system": {"get_sysinfo": {"light_state": {"on_off": 0}}}});
         assert!(toggle_target(&DeviceKind::Bulb, &json));
     }
 
     #[test]
     fn toggle_target_plug_on_returns_false() {
-        let json = json!({"system": {"get_sysinfo": {"relay_state": 1}}});
+        let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 1}}});
         assert!(!toggle_target(&DeviceKind::Plug, &json));
     }
 
     #[test]
     fn toggle_target_plug_off_returns_true() {
-        let json = json!({"system": {"get_sysinfo": {"relay_state": 0}}});
+        let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 0}}});
         assert!(toggle_target(&DeviceKind::Plug, &json));
     }
 
     #[test]
     fn toggle_target_dimmer_on_returns_false() {
-        let json = json!({"system": {"get_sysinfo": {"relay_state": 1}}});
+        let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 1}}});
         assert!(!toggle_target(&DeviceKind::Dimmer, &json));
     }
 
     #[test]
     fn toggle_target_dimmer_off_returns_true() {
-        let json = json!({"system": {"get_sysinfo": {"relay_state": 0}}});
+        let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 0}}});
         assert!(toggle_target(&DeviceKind::Dimmer, &json));
     }
 
     #[test]
     fn toggle_target_strip_any_on_returns_false() {
-        let json = json!({
-            "system": {"get_sysinfo": {
-                "alias": "Strip", "model": "HS300(US)",
-                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -40, "feature": "TIM",
-                "children": [{"id": "A1", "alias": "Outlet 1", "state": 1},
-                             {"id": "A2", "alias": "Outlet 2", "state": 0}]
-            }}
-        });
+        let json = test_support::strip_sysinfo(
+            "Strip",
+            "HS300(US)",
+            "TIM",
+            vec![
+                test_support::strip_child("A1", 1, "Outlet 1", 0),
+                test_support::strip_child("A2", 0, "Outlet 2", 0),
+            ],
+        );
         assert!(!toggle_target(&DeviceKind::Strip, &json));
     }
 
     #[test]
     fn toggle_target_strip_all_off_returns_true() {
-        let json = json!({
-            "system": {"get_sysinfo": {
-                "alias": "Strip", "model": "HS300(US)",
-                "hw_ver": "1.0", "sw_ver": "1.0.0", "rssi": -40, "feature": "TIM",
-                "children": [{"id": "A1", "alias": "Outlet 1", "state": 0},
-                             {"id": "A2", "alias": "Outlet 2", "state": 0}]
-            }}
-        });
+        let json = test_support::strip_sysinfo(
+            "Strip",
+            "HS300(US)",
+            "TIM",
+            vec![
+                test_support::strip_child("A1", 0, "Outlet 1", 0),
+                test_support::strip_child("A2", 0, "Outlet 2", 0),
+            ],
+        );
         assert!(toggle_target(&DeviceKind::Strip, &json));
     }
 }

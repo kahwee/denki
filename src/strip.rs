@@ -72,40 +72,13 @@ pub fn parse(json: &serde_json::Value) -> Option<Strip> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    fn hs300_hw2_sysinfo() -> serde_json::Value {
-        // Matches the actual sysinfo shape of HS300(US) HW 2.0 / FW 1.1.2:
-        // - no relay_state field
-        // - short child IDs ("00", "01", …) instead of full 40-char IDs
-        json!({
-            "system": {
-                "get_sysinfo": {
-                    "sw_ver": "1.1.2 Build 241220 Rel.171333",
-                    "hw_ver": "2.0",
-                    "model": "HS300(US)",
-                    "deviceId": "8006EF1981B177DF7C826D7A58FE7461245891E7",
-                    "rssi": -23,
-                    "alias": "Garage Strip",
-                    "mic_type": "IOT.SMARTPLUGSWITCH",
-                    "feature": "TIM:ENE",
-                    "children": [
-                        { "id": "00", "state": 1, "alias": "Eero",       "on_time": 369908 },
-                        { "id": "01", "state": 0, "alias": "Plug 2",     "on_time": 0 },
-                        { "id": "02", "state": 0, "alias": "Plug 3",     "on_time": 0 },
-                        { "id": "03", "state": 0, "alias": "Plug 4",     "on_time": 0 },
-                        { "id": "04", "state": 1, "alias": "Printer",    "on_time": 1696 },
-                        { "id": "05", "state": 1, "alias": "Ugreen NAS", "on_time": 1670 }
-                    ]
-                }
-            }
-        })
-    }
+    use crate::test_support;
 
     #[test]
     fn parse_hs300_hw2_succeeds_without_relay_state() {
         // relay_state is absent on HW 2.0 — parse must not fail
-        let s = parse(&hs300_hw2_sysinfo()).expect("should parse HS300 HW 2.0 sysinfo");
+        let s =
+            parse(&test_support::hs300_hw2_sysinfo()).expect("should parse HS300 HW 2.0 sysinfo");
         assert_eq!(s.alias, "Garage Strip");
         assert_eq!(s.model, "HS300(US)");
         assert_eq!(s.children.len(), 6);
@@ -115,7 +88,7 @@ mod tests {
     fn parse_hs300_hw2_expands_short_child_ids() {
         // Short IDs ("00"…"05") must be prefixed with deviceId for per-outlet commands
         let device_id = "8006EF1981B177DF7C826D7A58FE7461245891E7";
-        let s = parse(&hs300_hw2_sysinfo()).unwrap();
+        let s = parse(&test_support::hs300_hw2_sysinfo()).unwrap();
         assert_eq!(s.children[0].id, format!("{device_id}00"));
         assert_eq!(s.children[4].id, format!("{device_id}04"));
         assert_eq!(s.children[5].id, format!("{device_id}05"));
@@ -123,7 +96,7 @@ mod tests {
 
     #[test]
     fn parse_hs300_hw2_outlet_states() {
-        let s = parse(&hs300_hw2_sysinfo()).unwrap();
+        let s = parse(&test_support::hs300_hw2_sysinfo()).unwrap();
         assert!(s.children[0].is_on(), "Eero should be on");
         assert!(!s.children[1].is_on(), "Plug 2 should be off");
         assert!(s.children[4].is_on(), "Printer should be on");
@@ -132,7 +105,7 @@ mod tests {
 
     #[test]
     fn parse_hs300_hw2_energy_monitoring_detected() {
-        let s = parse(&hs300_hw2_sysinfo()).unwrap();
+        let s = parse(&test_support::hs300_hw2_sysinfo()).unwrap();
         assert!(
             s.has_energy_monitoring(),
             "HS300 with TIM:ENE should report energy monitoring"
@@ -141,7 +114,7 @@ mod tests {
 
     #[test]
     fn parse_returns_none_without_children() {
-        let json = json!({ "system": { "get_sysinfo": { "alias": "not a strip" } } });
+        let json = serde_json::json!({ "system": { "get_sysinfo": { "alias": "not a strip" } } });
         assert!(parse(&json).is_none());
     }
 
@@ -149,7 +122,7 @@ mod tests {
     fn parse_preserves_full_child_ids_when_already_long() {
         // Older firmware returns full 42-char child IDs — must not double-prefix them
         let full_id = "8006EF1981B177DF7C826D7A58FE7461245891E700";
-        let json = json!({
+        let json = serde_json::json!({
             "system": {
                 "get_sysinfo": {
                     "alias": "old strip", "model": "HS300", "hw_ver": "1.0",

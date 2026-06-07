@@ -35,3 +35,6 @@ pub mod transport;
 // display is CLI-focused (uses `colored`); keep it public for the binary to reuse.
 pub mod admin;
 pub mod display;
+
+#[cfg(test)]
+pub(crate) mod test_support;

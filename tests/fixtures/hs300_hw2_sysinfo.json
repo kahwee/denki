@@ -1,0 +1,22 @@
+{
+  "system": {
+    "get_sysinfo": {
+      "sw_ver": "1.1.2 Build 241220 Rel.171333",
+      "hw_ver": "2.0",
+      "model": "HS300(US)",
+      "deviceId": "8006EF1981B177DF7C826D7A58FE7461245891E7",
+      "rssi": -23,
+      "alias": "Garage Strip",
+      "mic_type": "IOT.SMARTPLUGSWITCH",
+      "feature": "TIM:ENE",
+      "children": [
+        { "id": "00", "state": 1, "alias": "Eero", "on_time": 369908 },
+        { "id": "01", "state": 0, "alias": "Plug 2", "on_time": 0 },
+        { "id": "02", "state": 0, "alias": "Plug 3", "on_time": 0 },
+        { "id": "03", "state": 0, "alias": "Plug 4", "on_time": 0 },
+        { "id": "04", "state": 1, "alias": "Printer", "on_time": 1696 },
+        { "id": "05", "state": 1, "alias": "Ugreen NAS", "on_time": 1670 }
+      ]
+    }
+  }
+}

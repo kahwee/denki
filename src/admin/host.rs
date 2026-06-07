@@ -105,12 +105,11 @@ pub async fn handle_presets(host: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support;
 
     #[test]
     fn format_clock_handles_complete_payload() {
-        let resp = serde_json::json!({
-            "time": {"get_time": {"year": 2026, "month": 6, "mday": 7, "hour": 22, "min": 44, "sec": 54}}
-        });
+        let resp = test_support::clock_response(2026, 6, 7, 22, 44, 54);
         assert_eq!(format_clock(&resp).as_deref(), Some("2026-06-07 22:44:54"));
     }
 
