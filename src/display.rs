@@ -1,99 +1,22 @@
-use crate::bulb::{Bulb, LightState, LightingEffectState};
-use crate::devices;
+mod common;
+mod hints;
+
+use self::common::{
+    format_energy_lines, format_wday, header, on_state, on_state_detail, print_light_color,
+    print_light_effect_detail, print_light_state_detail, short_fw, signal_label, signal_summary,
+    sort_energy_entries, tapo_signal_label,
+};
+use self::hints::{
+    bulb_hints, caps_label, dimmer_hints, lightstrip_hints, plug_hints, strip_hints,
+};
+
+use crate::bulb::Bulb;
 use crate::dimmer::Dimmer;
 use crate::plug::Plug;
 use crate::strip::Strip;
 use crate::tapo::TapoDevice;
-use colored::{ColoredString, Colorize};
+use colored::Colorize;
 use std::net::IpAddr;
-
-fn on_state(is_on: bool) -> ColoredString {
-    if is_on {
-        "on".green().bold()
-    } else {
-        "off".dimmed()
-    }
-}
-
-fn on_state_detail(is_on: bool) -> ColoredString {
-    if is_on {
-        "ON".green().bold()
-    } else {
-        "OFF".red()
-    }
-}
-
-fn header(name: &str) -> ColoredString {
-    format!("== {name} ==").bold()
-}
-
-/// Trim "1.1.1 Build 250908 Rel.112945" → "1.1.1".
-fn short_fw(fw: &str) -> &str {
-    fw.split_whitespace().next().unwrap_or(fw)
-}
-
-/// Energy entries may expose `energy_wh` (integer Wh) or `energy` (float kWh).
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn wh_from(entry: &serde_json::Value) -> u64 {
-    entry
-        .get("energy_wh")
-        .and_then(serde_json::Value::as_u64)
-        .or_else(|| {
-            entry
-                .get("energy")
-                .and_then(serde_json::Value::as_f64)
-                .map(|kwh| (kwh * 1000.0).round() as u64)
-        })
-        .unwrap_or(0)
-}
-
-/// Convert HSV (h: 0–360, s: 0–100, v: 0–100) to (r, g, b) each 0–255.
-#[allow(
-    clippy::many_single_char_names,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
-fn hsv_to_rgb(h: u16, s: u8, v: u8) -> (u8, u8, u8) {
-    let s = f32::from(s) / 100.0;
-    let v = f32::from(v) / 100.0;
-    let h = f32::from(h);
-    let c = v * s;
-    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
-    let m = v - c;
-    let (r1, g1, b1) = match (h as u16) / 60 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    (
-        ((r1 + m) * 255.0) as u8,
-        ((g1 + m) * 255.0) as u8,
-        ((b1 + m) * 255.0) as u8,
-    )
-}
-
-fn print_light_color(ls: &LightState, indent: &str) {
-    if ls.color_temp() > 0 {
-        println!(
-            "{indent}Brightness: {}%  Warmth: {}K",
-            ls.brightness(),
-            ls.color_temp()
-        );
-    } else {
-        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
-        let swatch = "██".truecolor(r, g, b);
-        println!(
-            "{indent}Brightness: {}%  Color: {} {}° hue  {} sat",
-            ls.brightness(),
-            swatch,
-            ls.hue(),
-            ls.saturation(),
-        );
-    }
-}
 
 pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     println!(
@@ -116,34 +39,6 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
         format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed()
     );
     println!();
-}
-
-/// Print brightness + color-temperature or HSV color for any light state.
-/// Used by both bulb and light-strip detail views.
-fn print_light_state_detail(ls: &LightState) {
-    println!("  Brightness: {}%", ls.brightness());
-    if ls.color_temp() > 0 {
-        println!("  Warmth:     {}K", ls.color_temp());
-    } else {
-        let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
-        println!(
-            "  Color:      {} {}° hue  {} sat",
-            "██".truecolor(r, g, b),
-            ls.hue(),
-            ls.saturation()
-        );
-    }
-}
-
-fn print_light_effect_detail(effect: Option<&LightingEffectState>) {
-    if let Some(effect) = effect {
-        let name = if effect.enable == 1 {
-            effect.name.as_str()
-        } else {
-            "Off"
-        };
-        println!("  Effect:     {}", name);
-    }
 }
 
 pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
@@ -320,60 +215,6 @@ pub fn print_schedules(json: &serde_json::Value) {
     }
 }
 
-fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
-    const LABELS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    let Some(days) = wday else {
-        return "every day".to_string();
-    };
-    let active: Vec<&str> = days
-        .iter()
-        .enumerate()
-        .filter(|(_, v)| v.as_u64().unwrap_or(0) == 1)
-        .map(|(i, _)| LABELS[i])
-        .collect();
-    match active.len() {
-        0 => "no days".to_string(),
-        7 => "every day".to_string(),
-        _ => active.join(" "),
-    }
-}
-
-/// Extract energy fields into plain strings for testing and display.
-/// Returns lines like "Power:   5.40 W" without color.
-fn format_energy_lines(d: &serde_json::Value) -> Vec<String> {
-    let mut lines = Vec::new();
-    if d.get("power_mw").is_some() {
-        // KP115 / color-bulb milli-unit fields (KL135, LB130)
-        if let Some(mw) = d.get("power_mw").and_then(serde_json::Value::as_f64) {
-            lines.push(format!("Power:   {:.2} W", mw / 1000.0));
-        }
-        if let Some(mv) = d.get("voltage_mv").and_then(serde_json::Value::as_f64) {
-            lines.push(format!("Voltage: {:.1} V", mv / 1000.0));
-        }
-        if let Some(ma) = d.get("current_ma").and_then(serde_json::Value::as_f64) {
-            lines.push(format!("Current: {:.3} A", ma / 1000.0));
-        }
-        if let Some(wh) = d.get("total_wh").and_then(serde_json::Value::as_u64) {
-            lines.push(format!("Total:   {wh} Wh"));
-        }
-    } else {
-        // HS110 real-unit fields
-        if let Some(w) = d.get("power").and_then(serde_json::Value::as_f64) {
-            lines.push(format!("Power:   {w:.2} W"));
-        }
-        if let Some(v) = d.get("voltage").and_then(serde_json::Value::as_f64) {
-            lines.push(format!("Voltage: {v:.1} V"));
-        }
-        if let Some(a) = d.get("current").and_then(serde_json::Value::as_f64) {
-            lines.push(format!("Current: {a:.3} A"));
-        }
-        if let Some(kwh) = d.get("total").and_then(serde_json::Value::as_f64) {
-            lines.push(format!("Total:   {kwh:.3} kWh"));
-        }
-    }
-    lines
-}
-
 pub fn print_energy_realtime(json: &serde_json::Value) {
     // Three possible paths:
     //   KL135/LB130: /smartlife.iot.common.emeter/get_realtime — power_mw + total_wh only
@@ -435,116 +276,6 @@ pub fn print_energy_monthly(json: &serde_json::Value, year: u16) {
             println!("  Month {:2}: {:5} Wh  {}", month, wh, bar.yellow());
         }
     }
-}
-
-fn signal_label(rssi: i32) -> colored::ColoredString {
-    if rssi >= -50 {
-        "excellent".green()
-    } else if rssi >= -65 {
-        "good".yellow()
-    } else {
-        "weak".red()
-    }
-}
-
-fn signal_summary(rssi: i32) -> String {
-    format!("signal:{}", signal_label(rssi))
-}
-
-fn caps_label(bulb: &Bulb) -> String {
-    let mut caps = vec![];
-    if bulb.is_color == 1 {
-        caps.push("color");
-    }
-    if bulb.is_variable_color_temp == 1 {
-        caps.push("color-temp");
-    }
-    if bulb.is_dimmable == 1 {
-        caps.push("dimmable");
-    }
-    caps.join(", ")
-}
-
-// ── Sorting helpers ───────────────────────────────────────────────────────────
-
-/// Extract and sort energy entries by `key` (e.g. "day" or "month"). Returns (key, Wh) pairs.
-fn sort_energy_entries(list: &[serde_json::Value], key: &str) -> Vec<(u64, u64)> {
-    let mut entries: Vec<(u64, u64)> = list
-        .iter()
-        .map(|e| (e[key].as_u64().unwrap_or(0), wh_from(e)))
-        .collect();
-    entries.sort_by_key(|(k, _)| *k);
-    entries
-}
-
-// ── Hint builders (shared between summary and detail views) ──────────────────
-
-/// Registry-based hints, falling back to a bare on/off hint for unknown models.
-fn model_hints(model: &str, alias: &str, is_on: bool) -> Vec<String> {
-    devices::lookup(model).map_or_else(
-        || {
-            let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} \"{alias}\"")]
-        },
-        |e| devices::hints(e, alias, is_on),
-    )
-}
-
-fn bulb_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
-    model_hints(&bulb.model, alias, bulb.light_state.is_on())
-}
-
-fn plug_hints(plug: &Plug, alias: &str) -> Vec<String> {
-    // Runtime ENE flag overrides devices.toml: drop energy hint if chip absent.
-    let mut h = model_hints(&plug.model, alias, plug.is_on());
-    if !plug.has_energy_monitoring() {
-        h.retain(|s| !s.contains("energy"));
-    }
-    h
-}
-
-fn dimmer_hints(d: &Dimmer, alias: &str) -> Vec<String> {
-    model_hints(&d.model, alias, d.is_on())
-}
-
-fn lightstrip_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
-    devices::lookup(&bulb.model)
-        .map(|e| {
-            let mut h = devices::hints(e, alias, bulb.light_state.is_on());
-            // Remove the unconditional on/off hint when power is not yet implemented
-            if !e.supports.iter().any(|f| f == "power") {
-                h.remove(0);
-            }
-            if e.supports.iter().any(|f| f == "energy") {
-                h.push(format!("denki energy-daily \"{alias}\""));
-                h.push(format!("denki energy-monthly \"{alias}\""));
-            }
-            h
-        })
-        .unwrap_or_default()
-}
-
-fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
-    let mut hints = devices::lookup(&s.model)
-        .map(|e| {
-            let mut h = devices::hints(
-                e,
-                alias,
-                s.children.iter().any(crate::strip::StripChild::is_on),
-            );
-            if !s.has_energy_monitoring() {
-                h.retain(|h| !h.contains("energy"));
-            }
-            h
-        })
-        .unwrap_or_default();
-    hints.push(format!("denki on \"{alias}\" 1"));
-    hints.push(format!("denki off \"{alias}\" 1"));
-    hints.push(format!("denki outlet-rename \"{alias}\" 1 \"Name\""));
-    if s.has_energy_monitoring() {
-        hints.push(format!("denki energy \"{alias}\" 1"));
-    }
-    hints
 }
 
 // Light strips share the Bulb struct but use the smartlife.iot.lightStrip namespace.
@@ -701,7 +432,7 @@ pub fn print_strip_detail(ip: &str, s: &Strip, hint_alias: &str) {
         "  {}",
         format!("→ {}", strip_hints(s, a).join("  ·  ")).dimmed()
     );
-    let verified = devices::lookup(&s.model).is_some_and(|e| e.verified);
+    let verified = crate::devices::lookup(&s.model).is_some_and(|e| e.verified);
     if !verified {
         println!(
             "  {}",
@@ -792,15 +523,6 @@ pub fn print_tapo_detail(ip: &str, d: &TapoDevice, hint_alias: &str) {
         "  {}",
         format!("→ denki {action} \"{hint_alias}\"").dimmed()
     );
-}
-
-fn tapo_signal_label(level: u8) -> colored::ColoredString {
-    match level {
-        3 => "excellent".green(),
-        2 => "good".yellow(),
-        1 => "weak".red(),
-        _ => "no signal".red(),
-    }
 }
 
 #[cfg(test)]

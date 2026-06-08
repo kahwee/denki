@@ -1,9 +1,9 @@
 ---
-source: src/display/tests.rs
-assertion_line: 28
+source: src/display/tests/formatting.rs
+assertion_line: 35
 expression: "format_energy_lines(&d).join(\"\\n\")"
 ---
 Power:   5.40 W
 Voltage: 120.1 V
 Current: 0.045 A
-Total:   12345 Wh
+Total:   12.345 kWh
