@@ -14,6 +14,7 @@
 //! }
 //! ```
 
+pub mod app;
 pub mod bulb;
 pub mod cipher;
 pub mod cli;
