@@ -217,12 +217,15 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, check
 
 ### Architecture at a glance
 
-| File | Purpose |
-|------|---------|
-| `src/main.rs` | Command dispatch and async runtime entry point |
+| File / module | Purpose |
+|---------------|---------|
+| `src/main.rs` | Async runtime entry point (`denki::app::run()`) |
+| `src/app/` | CLI dispatch, scan/info flows, shared helpers, integration tests |
 | `src/cli.rs` | Clap argument definitions for all subcommands |
+| `src/commands/` | Power, lighting, and energy command handlers |
+| `src/admin/` | Aliases, device admin commands, login, shell completions |
 | `src/resolve.rs` | Device name/IP resolution; `require_kasa` protocol guard |
-| `src/devices.rs` | `DeviceKind`, `detect_kind`, capability guards (`can_*`), `devices.toml` registry |
+| `src/devices/` | `DeviceKind`, `detect_kind`, capability guards (`can_*`), `devices.toml` registry |
 | `src/cipher.rs` | XOR autokey cipher: `encode` (TCP, length-prefixed) / `encode_raw` (UDP) |
 | `src/transport.rs` | Kasa TCP `send()` and UDP `broadcast_each()` |
 | `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
@@ -235,17 +238,18 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the local development flow, check
 | `src/strip.rs` | HS300/KP303 power strip sysinfo + per-outlet state |
 | `src/tapo.rs` | Tapo `get_device_info` response parsing |
 | `src/ops.rs` | All API calls — `bulb_set_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
-| `src/display.rs` | Colored terminal output for all device types |
-| `src/lib.rs` | Library re-exports |
+| `src/effects.rs` | Light-strip effect helpers |
+| `src/display/` | Colored terminal output for all device types |
+| `src/lib.rs` | Library module graph |
 
 ### How to extend it
 
 - add the API call in `src/ops.rs`
 - add or update the parser in the matching device module (`bulb.rs`, `plug.rs`, etc.)
-- add a capability guard in `src/devices.rs` and wire it in `src/main.rs`
+- add a capability guard in `src/devices/` and wire it through `src/commands/` or `src/admin/` via `src/app/dispatch.rs`
 - update `devices.toml` to reflect the new capability
 - update the README and inline docs so behavior and help text stay aligned
-- add a regression test for the parser or capability guard
+- add a regression test for the parser or capability guard (`src/app/tests/` for CLI/capability coverage)
 
 ## Protocol notes
 

@@ -12,12 +12,15 @@ cargo build --release
 
 ## Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/main.rs` | Command dispatch; `tapo_session`, `kasa_set_power`, `toggle_target`; helpers `kasa_sysinfo`, `resolve_strip_outlet`, `strip_for_energy_outlet`, `energy_*_for`; capability integration tests |
-| `src/cli.rs` | Clap `Cli`, `Command`, `LedAction` — all argument definitions and help text |
-| `src/resolve.rs` | `resolve()`, `resolve_quiet()`, `resolve_outlet()`, `require_kasa()` — private to the binary |
-| `src/devices.rs` | `DeviceKind` enum, `DeviceEntry`, `detect_kind()`, all `can_*` capability guards, `devices.toml` registry |
+| File / module | Purpose |
+|---------------|---------|
+| `src/main.rs` | Async entry point — calls `denki::app::run()` |
+| `src/app/` | CLI wiring: `dispatch`, `info`, `scan`, shared helpers; capability/alias tests under `app/tests/` |
+| `src/cli.rs` | Clap `Cli`, `Command`, `LedAction` — all argument definitions and help text (hidden `completions` subcommand) |
+| `src/commands/` | Command handlers for power, lighting, and energy |
+| `src/admin/` | Alias registry commands, device admin (LED/clock/rename/…), login, shell completions |
+| `src/resolve.rs` | `resolve()`, `resolve_quiet()`, `resolve_outlet()`, `require_kasa()` |
+| `src/devices/` | `DeviceKind` / `DeviceEntry`, `detect_kind()`, `can_*` guards, `devices.toml` registry |
 | `src/cipher.rs` | XOR autokey cipher — `encode` (TCP, 4-byte length-prefixed) / `encode_raw` (UDP) |
 | `src/transport.rs` | TCP `send()` with 5s timeout + UDP `broadcast_each()` for Kasa devices |
 | `src/klap.rs` | KLAP two-phase handshake + AES-128-CBC `KlapSession`; all I/O wrapped with 10s timeouts |
@@ -25,13 +28,14 @@ cargo build --release
 | `src/creds.rs` | Tapo credentials — `TAPO_USER`/`TAPO_PASS` env vars take precedence over saved file |
 | `src/fmt.rs` | `duration(secs)`, `on_time()`, `parse_year_month()`, and `current_year_month()` via Howard Hinnant civil_from_days (no chrono) |
 | `src/ops.rs` | Every device API call — `bulb_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
+| `src/effects.rs` | Light-strip effect list/activate helpers |
 | `src/bulb.rs` | `Bulb` / `LightState` / `DftOnState` — KL135/LB130 bulbs and KL430; handles off-state field relocation |
 | `src/plug.rs` | `Plug` — relay state, ENE energy flag, on-time |
 | `src/dimmer.rs` | `Dimmer` — HS220 relay state, brightness |
 | `src/strip.rs` | `Strip` + `StripChild` — outlet state; expands short child IDs for HS300 HW 2.0 |
 | `src/tapo.rs` | `TapoDevice` — KLAP `get_device_info` response; base64-decodes nickname field |
-| `src/display.rs` | Colored terminal output — `print_*_summary` and `print_*_detail` for every device type |
-| `src/lib.rs` | Re-exports all modules as `pub`; `main` and `resolve` are binary-only |
+| `src/display/` | Colored terminal output — summaries, energy, strip, Tapo, and hints |
+| `src/lib.rs` | Library module graph (re-exports app, commands, admin, protocols, parsers, display) |
 
 ## Key Data Files
 
@@ -75,7 +79,7 @@ AES-128-CBC over plain HTTP. Uses raw `TcpStream` — some Tapo firmware returns
 
 ## Device Resolution
 
-Implemented in `src/resolve.rs` (private to the binary, not in `lib.rs`):
+Implemented in `src/resolve.rs`:
 
 1. Input parses as an IP address → Kasa protocol, no alias lookup
 2. Exact normalized match in `hosts.json` → stored protocol
@@ -89,19 +93,19 @@ Alias matching is case- and punctuation-insensitive (`normalize()` collapses non
 
 `devices.toml` is the single source of truth for what each model supports. It is embedded at compile time via `include_str!`. Two parts work together:
 
-1. **Capability guards** (`src/devices.rs`) — `can_*` functions that accept or reject a `DeviceKind`. Called before any network I/O. Return a clear error naming the command and which models support it.
+1. **Capability guards** (`src/devices/`) — `can_*` functions that accept or reject a `DeviceKind`. Called before any network I/O. Return a clear error naming the command and which models support it.
 
-2. **Feature registry** (`devices.toml`) — lists which features each model supports. Capability tests in `src/main.rs` assert that every listed feature is permitted by the matching guard, and every unlisted guarded feature is denied.
+2. **Feature registry** (`devices.toml`) — lists which features each model supports. Capability tests in `src/app/tests/capabilities.rs` assert that every listed feature is permitted by the matching guard, and every unlisted guarded feature is denied.
 
 **Adding a new feature:**
-1. Add the `can_*` guard in `src/devices.rs`
+1. Add the `can_*` guard in `src/devices/`
 2. Add the feature name to `devices.toml` for each model that supports it
-3. Call the guard in `src/main.rs` before dispatching the command
-4. Add a test in `src/main.rs` `capability_tests` if it is a new guard feature string
+3. Call the guard from the matching handler in `src/commands/` or `src/admin/` (wired via `src/app/dispatch.rs`)
+4. Add a test in `src/app/tests/capabilities.rs` if it is a new guard feature string
 
 ## Device Detection (Kasa)
 
-`detect_kind()` in `src/devices.rs` reads `mic_type` (newer firmware) or `type` (older firmware):
+`detect_kind()` in `src/devices/` reads `mic_type` (newer firmware) or `type` (older firmware):
 
 | Condition | Result |
 |-----------|--------|

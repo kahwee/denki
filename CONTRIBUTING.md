@@ -23,16 +23,16 @@ cargo clippy -- -D warnings
 ## Code style
 
 - Keep protocol logic in the device/module that owns it.
-- Keep device-kind detection and command capability guards in `src/devices.rs`.
-- Keep CLI argument definitions in `src/cli.rs` and command dispatch in `src/main.rs`.
+- Keep device-kind detection and command capability guards in `src/devices/`.
+- Keep CLI argument definitions in `src/cli.rs`, command handlers in `src/commands/` / `src/admin/`, and dispatch in `src/app/`.
 - Prefer clear error messages over silent fallthrough.
 - Avoid changing network behavior unless the change is verified on a real device.
 
 ## Good places to add tests
 
-- CLI parser/argument validation (`src/cli.rs`, `src/devices.rs`)
-- device-kind detection (`detect_kind` in `src/devices.rs`)
-- capability guards for unsupported commands (`can_*` functions in `src/devices.rs`)
+- CLI parser/argument validation (`src/cli.rs`, `src/devices/`)
+- device-kind detection (`detect_kind` in `src/devices/`)
+- capability guards for unsupported commands (`can_*` functions in `src/devices/`; coverage in `src/app/tests/capabilities.rs`)
 - response parsing for Kasa/Tapo payloads
 
 ## Documentation
