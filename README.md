@@ -78,6 +78,16 @@ denki color-temp "desk lamp" 2700
 denki color "desk lamp" -H 275 -s 50 -v 80
 ```
 
+### Light strip effects
+
+```bash
+denki effects "light strip"
+denki effect "light strip" Aurora
+denki effect "light strip" Off
+```
+
+`effects` lists built-in effect names and the active effect. `effect` activates one by name (for example `Aurora`, `Rainbow`, or `Off`).
+
 ### Energy
 
 ```bash

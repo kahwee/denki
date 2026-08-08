@@ -173,6 +173,8 @@ denki energy-daily <device> [YYYY-MM] [-o N]      Daily energy — defaults to c
 denki energy-monthly <device> [YYYY] [-o N]       Monthly energy — defaults to current year
 denki specs <device>                              Hardware specs — bulbs only
 denki presets <device>                            Saved light presets — bulbs only
+denki effects <device>                            List built-in effects + active effect — light strips only
+denki effect <device> <name>                      Activate built-in effect (e.g. Aurora, Off) — light strips only
 denki schedules <device>                          Schedule rules — plugs, dimmers, strips
 denki led <device> on|off                         LED indicator — plugs, dimmers, strips
 denki clock <device>                              Device clock — plugs, dimmers, strips
