@@ -6,6 +6,8 @@ use crate::ops;
 use crate::resolve::{Resolved, resolve};
 use crate::strip;
 use anyhow::Result;
+use clap::ValueEnum;
+use colored::Colorize;
 
 use super::shared::{
     StripOutletTarget, print_outlet_power_state, print_outlet_toggle_state, print_power_state,
@@ -130,6 +132,53 @@ pub async fn handle_toggle(host: &str, outlet: Option<u8>) -> Result<()> {
         };
         print_power_state(&r.ip, now_on);
     }
+    Ok(())
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum GroupAction {
+    /// Turn every matched alias on.
+    On,
+    /// Turn every matched alias off.
+    Off,
+    /// Toggle every matched alias.
+    Toggle,
+}
+
+impl GroupAction {
+    fn as_verb(&self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Off => "off",
+            Self::Toggle => "toggle",
+        }
+    }
+}
+
+pub async fn handle_group(pattern: &str, action: GroupAction) -> Result<()> {
+    let matches = hosts::lookup_many(pattern)?;
+    if matches.is_empty() {
+        anyhow::bail!(
+            "No aliases matched pattern \"{pattern}\".\n\
+             Check current aliases with: denki aliases"
+        );
+    }
+
+    println!(
+        "{} {} aliases matching \"{}\":",
+        matches.len(),
+        action.as_verb(),
+        pattern
+    );
+
+    for (alias, _) in matches {
+        match action {
+            GroupAction::On => handle_on(&alias, None).await?,
+            GroupAction::Off => handle_off(&alias, None).await?,
+            GroupAction::Toggle => handle_toggle(&alias, None).await?,
+        }
+    }
+
     Ok(())
 }
 

@@ -141,6 +141,37 @@ pub fn lookup(name: &str) -> anyhow::Result<Option<HostEntry>> {
     lookup_in(name, &map)
 }
 
+/// Exact-match or substring matches for group operations.
+pub fn lookup_many(name: &str) -> anyhow::Result<Vec<(String, HostEntry)>> {
+    let map = load_map(&hosts_path())?;
+    lookup_many_in(name, &map)
+}
+
+fn lookup_many_in(
+    name: &str,
+    map: &std::collections::BTreeMap<String, HostEntry>,
+) -> anyhow::Result<Vec<(String, HostEntry)>> {
+    let needle = normalize(name);
+    if needle.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let exact: Vec<(String, HostEntry)> = map
+        .iter()
+        .filter(|(alias, _)| normalize(alias) == needle)
+        .map(|(alias, entry)| (alias.to_string(), entry.clone()))
+        .collect();
+    if !exact.is_empty() {
+        return Ok(exact);
+    }
+
+    Ok(map
+        .iter()
+        .filter(|(alias, _)| normalize(alias).contains(&needle))
+        .map(|(alias, entry)| (alias.to_string(), entry.clone()))
+        .collect())
+}
+
 fn lookup_in(
     name: &str,
     map: &std::collections::BTreeMap<String, HostEntry>,
@@ -326,6 +357,46 @@ mod tests {
         map.insert("Desk Lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
         let hit = find_normalized_alias_collision(&map, "desk    lamp");
         assert_eq!(hit.as_deref(), Some("Desk Lamp"));
+    }
+
+    #[test]
+    fn lookup_many_returns_exact_match_first() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "Office Color 1".to_string(),
+            entry("192.168.4.65", Protocol::Kasa),
+        );
+        map.insert("Office".to_string(), entry("192.168.4.12", Protocol::Kasa));
+        map.insert(
+            "Living Room Lamp".to_string(),
+            entry("192.168.4.20", Protocol::Kasa),
+        );
+
+        let hits = lookup_many_in("Office", &map).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, "Office");
+    }
+
+    #[test]
+    fn lookup_many_returns_substring_matches() {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "Office Color 1".to_string(),
+            entry("192.168.4.65", Protocol::Kasa),
+        );
+        map.insert(
+            "Office Color 2".to_string(),
+            entry("192.168.4.25", Protocol::Kasa),
+        );
+        map.insert(
+            "Living Room Lamp".to_string(),
+            entry("192.168.4.20", Protocol::Kasa),
+        );
+
+        let hits = lookup_many_in("office", &map).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert!(hits.iter().any(|(name, _)| name == "Office Color 1"));
+        assert!(hits.iter().any(|(name, _)| name == "Office Color 2"));
     }
 
     #[test]

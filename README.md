@@ -68,7 +68,11 @@ denki info "desk lamp"
 denki on "desk lamp"
 denki off "desk lamp"
 denki toggle "desk lamp"
+denki group off "office"
 ```
+
+Use `denki group <on|off|toggle> <pattern>` when multiple aliases should be controlled together
+(for example `denki group off "office"` for `Office Color 1`, `Office Color 2`, `Office Color 3`).
 
 ### Bulbs and dimmers
 

@@ -16,6 +16,7 @@ async fn dispatch_command(command: Command) -> Result<()> {
         Command::On { host, outlet } => commands::handle_on(&host, outlet).await,
         Command::Off { host, outlet } => commands::handle_off(&host, outlet).await,
         Command::Toggle { host, outlet } => commands::handle_toggle(&host, outlet).await,
+        Command::Group { action, pattern } => commands::handle_group(&pattern, action).await,
         Command::Dim { host, level } => commands::handle_dim(&host, level).await,
         Command::ColorTemp { host, kelvin } => commands::handle_color_temp(&host, kelvin).await,
         Command::Color {

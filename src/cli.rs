@@ -1,3 +1,4 @@
+use crate::commands::GroupAction;
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
@@ -55,6 +56,15 @@ pub enum Command {
         /// Outlet number, 1-based (strips only)
         #[arg(value_parser = clap::value_parser!(u8).range(1..))]
         outlet: Option<u8>,
+    },
+
+    /// Apply on/off/toggle to all matching aliases
+    Group {
+        #[arg(value_enum)]
+        action: GroupAction,
+        /// Alias pattern used for group matching (normalized, case- and punctuation-insensitive)
+        #[arg(value_name = "PATTERN")]
+        pattern: String,
     },
 
     /// Set brightness 0-100 (bulbs and HS220 dimmers)
