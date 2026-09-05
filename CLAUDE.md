@@ -165,6 +165,7 @@ denki info <device>                               Detailed device info (Kasa + T
 denki on <device> [N]                             Turn on; N = outlet number (strips, 1-based)
 denki off <device> [N]                            Turn off; N = outlet number (strips, 1-based)
 denki toggle <device> [N]                         Toggle; N = outlet number (strips, 1-based)
+denki group <on|off|toggle> <pattern>             Apply power action to all matching aliases
 denki dim <device> <0-100>                        Brightness — bulbs + HS220 dimmers
 denki color-temp <device> <2500-9000>             Color temperature in Kelvin — bulbs only
 denki color <device> -H <hue> -s <sat> -v <val>  HSV color — bulbs only
