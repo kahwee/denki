@@ -1,6 +1,3 @@
-use anyhow::Result;
-use colored::Colorize;
-
 use crate::creds;
 use crate::devices::{self, DeviceKind};
 use crate::hosts;
@@ -8,8 +5,12 @@ use crate::klap;
 use crate::ops;
 use crate::resolve::{Resolved, resolve};
 use crate::strip;
+use anyhow::Result;
 
-use super::shared::KasaContext;
+use super::shared::{
+    StripOutletTarget, print_outlet_power_state, print_outlet_toggle_state, print_power_state,
+    resolve_power_target,
+};
 
 async fn tapo_session(ip: &str) -> Result<klap::KlapSession> {
     let (user, pass) = creds::load()?;
@@ -64,43 +65,47 @@ async fn set_device_power(r: &Resolved, on: bool) -> Result<()> {
 }
 
 pub async fn handle_on(host: &str, outlet: Option<u8>) -> Result<()> {
-    let r = resolve(host).await?;
+    let (r, target) = resolve_power_target(host, outlet, "on <outlet>").await?;
     if let Some(outlet_num) = outlet {
-        let ctx = KasaContext::from_resolved(&r, "on <outlet>").await?;
-        let (child_id, child_alias, _) = ctx.strip_outlet(outlet_num)?;
-        ops::strip_outlet_on(&r.ip, &child_id).await?;
-        println!(
-            "Outlet {} ({}) {}",
-            outlet_num,
+        let StripOutletTarget {
+            child_id,
             child_alias,
-            "on".green().bold()
-        );
+            ..
+        } = target.expect("outlet target should be present here");
+        ops::strip_outlet_on(&r.ip, &child_id).await?;
+        print_outlet_power_state(outlet_num, &child_alias, true);
     } else {
         set_device_power(&r, true).await?;
-        println!("{} {}", r.ip, "on".green().bold());
+        print_power_state(&r.ip, true);
     }
     Ok(())
 }
 
 pub async fn handle_off(host: &str, outlet: Option<u8>) -> Result<()> {
-    let r = resolve(host).await?;
+    let (r, target) = resolve_power_target(host, outlet, "off <outlet>").await?;
     if let Some(outlet_num) = outlet {
-        let ctx = KasaContext::from_resolved(&r, "off <outlet>").await?;
-        let (child_id, child_alias, _) = ctx.strip_outlet(outlet_num)?;
+        let StripOutletTarget {
+            child_id,
+            child_alias,
+            ..
+        } = target.expect("outlet target should be present here");
         ops::strip_outlet_off(&r.ip, &child_id).await?;
-        println!("Outlet {} ({}) {}", outlet_num, child_alias, "off".dimmed());
+        print_outlet_power_state(outlet_num, &child_alias, false);
     } else {
         set_device_power(&r, false).await?;
-        println!("{} {}", r.ip, "off".dimmed());
+        print_power_state(&r.ip, false);
     }
     Ok(())
 }
 
 pub async fn handle_toggle(host: &str, outlet: Option<u8>) -> Result<()> {
-    let r = resolve(host).await?;
+    let (r, target) = resolve_power_target(host, outlet, "toggle <outlet>").await?;
     if let Some(outlet_num) = outlet {
-        let ctx = KasaContext::from_resolved(&r, "toggle <outlet>").await?;
-        let (child_id, child_alias, was_on) = ctx.strip_outlet(outlet_num)?;
+        let StripOutletTarget {
+            child_id,
+            child_alias,
+            was_on,
+        } = target.expect("outlet target should be present here");
         let now_on = if was_on {
             ops::strip_outlet_off(&r.ip, &child_id).await?;
             false
@@ -108,12 +113,7 @@ pub async fn handle_toggle(host: &str, outlet: Option<u8>) -> Result<()> {
             ops::strip_outlet_on(&r.ip, &child_id).await?;
             true
         };
-        let label = if now_on {
-            "on".green().bold()
-        } else {
-            "off".dimmed()
-        };
-        println!("Outlet {outlet_num} ({child_alias}) -> {label}");
+        print_outlet_toggle_state(outlet_num, &child_alias, now_on);
     } else {
         let now_on = match r.protocol {
             hosts::Protocol::Klap => {
@@ -128,12 +128,7 @@ pub async fn handle_toggle(host: &str, outlet: Option<u8>) -> Result<()> {
                 on
             }
         };
-        let label = if now_on {
-            "on".green().bold()
-        } else {
-            "off".dimmed()
-        };
-        println!("{} -> {label}", r.ip);
+        print_power_state(&r.ip, now_on);
     }
     Ok(())
 }

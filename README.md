@@ -157,6 +157,12 @@ If `DENKI_SMOKE_POWER_TARGETS` is unset, the harness defaults to
 denki alias "floor lamp" 192.168.1.50
 ```
 
+You must provide a valid IP address; invalid values are rejected immediately.
+
+Aliasing is normalized for lookup, and duplicate aliases are detected using that same
+normalized form. For example, `denki alias "Desk Lamp" ...` will not both be allowed
+alongside an existing `denki alias "desk   lamp" ...`.
+
 Add `--klap` for Tapo devices:
 
 ```bash
@@ -169,6 +175,14 @@ Then use the alias anywhere you would use an IP address:
 denki info "tapo plug"
 denki on "tapo plug"
 ```
+
+Notes:
+
+- Leading/trailing whitespace is trimmed when saving aliases.
+- Empty and all-whitespace alias names are rejected.
+- Alias names that normalize to an existing alias (case-insensitive, non-alphanumeric
+  characters normalized to spaces, extra spaces collapsed) are rejected to avoid
+  ambiguity in lookups.
 
 ### Remove or list aliases
 
@@ -202,6 +216,9 @@ Tapo credentials are stored in `~/.config/denki/credentials.json`, and `TAPO_USE
 - Exact normalized alias matches win first, then unambiguous normalized substring matches.
 - Raw IP addresses are treated as Kasa devices.
 - Tapo devices must be added with `denki alias <name> <ip> --klap`.
+- The alias registry parser accepts either the current v2 JSON shape or legacy v1 shape.
+- If `hosts.json` is malformed, the CLI prints parser details for both formats to make
+  recovery easier.
 
 ## Library usage
 

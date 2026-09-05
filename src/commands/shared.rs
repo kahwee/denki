@@ -1,4 +1,5 @@
 use anyhow::Result;
+use colored::Colorize;
 
 use crate::devices::{self, DeviceKind};
 use crate::ops;
@@ -60,6 +61,52 @@ impl KasaContext {
         let child = resolve_outlet(&s, outlet)?;
         Ok((child.id.clone(), child.alias.clone()))
     }
+}
+
+pub(crate) struct StripOutletTarget {
+    pub(crate) child_id: String,
+    pub(crate) child_alias: String,
+    pub(crate) was_on: bool,
+}
+
+pub(crate) fn power_state_label(is_on: bool) -> colored::ColoredString {
+    if is_on {
+        "on".green().bold()
+    } else {
+        "off".dimmed()
+    }
+}
+
+pub(crate) fn print_power_state(ip: &str, is_on: bool) {
+    println!("{} {}", ip, power_state_label(is_on));
+}
+
+pub(crate) fn print_outlet_power_state(outlet: u8, alias: &str, is_on: bool) {
+    println!("Outlet {} ({}) {}", outlet, alias, power_state_label(is_on));
+}
+
+pub(crate) fn print_outlet_toggle_state(outlet: u8, alias: &str, now_on: bool) {
+    println!("Outlet {outlet} ({alias}) -> {}", power_state_label(now_on));
+}
+
+pub(crate) async fn resolve_power_target(
+    host: &str,
+    outlet: Option<u8>,
+    cmd: &str,
+) -> Result<(Resolved, Option<StripOutletTarget>)> {
+    let r = resolve(host).await?;
+    let target = if let Some(outlet_num) = outlet {
+        let ctx = KasaContext::from_resolved(&r, cmd).await?;
+        let (child_id, child_alias, was_on) = ctx.strip_outlet(outlet_num)?;
+        Some(StripOutletTarget {
+            child_id,
+            child_alias,
+            was_on,
+        })
+    } else {
+        None
+    };
+    Ok((r, target))
 }
 
 #[cfg(test)]

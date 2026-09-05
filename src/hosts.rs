@@ -6,6 +6,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,32 +44,72 @@ fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
     }
     let data = std::fs::read_to_string(path)?;
 
-    // Try v2 format first
-    if let Ok(map) = serde_json::from_str::<BTreeMap<String, HostEntry>>(&data) {
-        return Ok(map);
-    }
+    let map = match serde_json::from_str::<BTreeMap<String, HostEntry>>(&data) {
+        Ok(map) => map,
+        Err(v2_err) => match serde_json::from_str::<BTreeMap<String, String>>(&data) {
+            Ok(v1) => v1
+                .into_iter()
+                .map(|(k, ip)| {
+                    (
+                        k,
+                        HostEntry {
+                            ip,
+                            protocol: Protocol::Kasa,
+                        },
+                    )
+                })
+                .collect(),
+            Err(v1_err) => {
+                anyhow::bail!(format_map_parse_error(
+                    path.display().to_string(),
+                    v2_err,
+                    v1_err
+                ))
+            }
+        },
+    };
+    Ok(map)
+}
 
-    // Fall back: v1 plain-string values → Kasa protocol
-    if let Ok(v1) = serde_json::from_str::<BTreeMap<String, String>>(&data) {
-        return Ok(v1
-            .into_iter()
-            .map(|(k, ip)| {
-                (
-                    k,
-                    HostEntry {
-                        ip,
-                        protocol: Protocol::Kasa,
-                    },
-                )
-            })
-            .collect());
-    }
-
-    anyhow::bail!(
-        "{} is corrupt (not valid v1 or v2 JSON).\n\
-         Fix or delete the file, then retry `denki aliases` or `denki scan`.",
-        path.display()
+fn format_map_parse_error(
+    path: String,
+    v2_error: serde_json::Error,
+    v1_error: serde_json::Error,
+) -> String {
+    format!(
+        "{} is malformed and cannot be loaded.\n\
+         Expected either:\n\
+         - v2: {{\"alias\": {{\"ip\":\"...\",\"protocol\":\"kasa|klap\"}}, ...}}\n\
+         - v1: {{\"alias\": \"ip\", ...}}\n\
+         Parse details:\n\
+         - v2 parse: {v2_error}\n\
+         - v1 parse: {v1_error}",
+        path
     )
+}
+
+fn normalize_alias_name(name: &str) -> Result<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("Alias name cannot be empty");
+    }
+    Ok(trimmed.to_string())
+}
+
+fn validate_alias_ip(ip: &str) -> Result<()> {
+    ip.parse::<IpAddr>()
+        .map(|_| ())
+        .map_err(|_| anyhow::anyhow!("Invalid IP address for alias: \"{ip}\""))
+}
+
+fn find_normalized_alias_collision(
+    map: &BTreeMap<String, HostEntry>,
+    name: &str,
+) -> Option<String> {
+    let incoming = normalize(name);
+    map.iter()
+        .find(|(existing, _)| normalize(existing) == incoming && existing.as_str() != name)
+        .map(|(existing, _)| existing.clone())
 }
 
 fn save_map(path: &Path, map: &BTreeMap<String, HostEntry>) -> Result<()> {
@@ -132,8 +173,16 @@ fn lookup_in(
 }
 
 pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
+    let name = normalize_alias_name(name)?;
+    validate_alias_ip(ip)?;
     let path = hosts_path();
     let mut map = load_map(&path)?;
+    if let Some(existing) = find_normalized_alias_collision(&map, &name) {
+        anyhow::bail!(
+            "Alias \"{name}\" is too similar to existing alias \"{existing}\". \
+             Use a more specific name or remove the existing alias first."
+        );
+    }
     map.insert(
         name.to_string(),
         HostEntry {
@@ -242,12 +291,8 @@ mod tests {
         assert!(result.is_err(), "corrupt file should return an error");
         let msg = result.unwrap_err().to_string();
         assert!(
-            msg.contains("corrupt"),
-            "error should mention corruption: {msg}"
-        );
-        assert!(
-            msg.contains("denki aliases"),
-            "error should suggest recovery: {msg}"
+            msg.contains("malformed") || msg.contains("Invalid"),
+            "error should mention malformed input: {msg}"
         );
     }
 
@@ -258,6 +303,39 @@ mod tests {
         std::fs::write(&path, r#"{"key": 42}"#).unwrap();
         let result = load_map(&path);
         assert!(result.is_err(), "wrong-shaped JSON should return an error");
+    }
+
+    #[test]
+    fn normalize_alias_name_trims_whitespace() {
+        assert_eq!(normalize_alias_name("  Desk Lamp  ").unwrap(), "Desk Lamp");
+    }
+
+    #[test]
+    fn normalize_alias_name_rejects_empty() {
+        assert!(normalize_alias_name("   ").is_err());
+    }
+
+    #[test]
+    fn normalize_alias_name_rejects_empty_string() {
+        assert!(normalize_alias_name("").is_err());
+    }
+
+    #[test]
+    fn find_normalized_alias_collision_detects_similarity() {
+        let mut map = BTreeMap::new();
+        map.insert("Desk Lamp".to_string(), entry("10.0.0.1", Protocol::Kasa));
+        let hit = find_normalized_alias_collision(&map, "desk    lamp");
+        assert_eq!(hit.as_deref(), Some("Desk Lamp"));
+    }
+
+    #[test]
+    fn validate_alias_ip_rejects_junk() {
+        assert!(validate_alias_ip("not-an-ip").is_err());
+    }
+
+    #[test]
+    fn validate_alias_ip_accepts_ipv4() {
+        assert!(validate_alias_ip("192.168.1.42").is_ok());
     }
 
     #[test]

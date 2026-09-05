@@ -5,7 +5,6 @@ use crate::commands::KasaContext;
 use crate::devices;
 use crate::display;
 use crate::ops;
-use crate::resolve::{require_kasa, resolve};
 
 pub async fn handle_schedules(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "schedules").await?;
@@ -51,18 +50,16 @@ pub async fn handle_clock(host: &str) -> Result<()> {
 }
 
 pub async fn handle_rename(host: &str, name: &str) -> Result<()> {
-    let r = resolve(host).await?;
-    require_kasa(&r, "rename")?;
-    ops::rename(&r.ip, name).await?;
+    let ctx = KasaContext::load(host, "rename").await?;
+    ops::rename(ctx.ip(), name).await?;
     println!("Renamed to \"{}\"", name.bold());
     Ok(())
 }
 
 pub async fn handle_restart(host: &str) -> Result<()> {
-    let r = resolve(host).await?;
-    require_kasa(&r, "restart")?;
-    ops::restart(&r.ip).await?;
-    println!("{} rebooting...", r.ip);
+    let ctx = KasaContext::load(host, "restart").await?;
+    ops::restart(ctx.ip()).await?;
+    println!("{} rebooting...", ctx.ip());
     Ok(())
 }
 

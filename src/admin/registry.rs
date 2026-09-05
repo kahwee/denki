@@ -1,7 +1,6 @@
 use anyhow::{Result, bail};
 use colored::Colorize;
 
-use crate::creds;
 use crate::hosts;
 
 fn format_alias_rows(list: &[(String, hosts::HostEntry)]) -> String {
@@ -62,18 +61,6 @@ pub fn handle_unalias(name: &str) -> Result<()> {
 pub fn handle_aliases() -> Result<()> {
     let list = hosts::list()?;
     println!("{}", format_alias_rows(&list));
-    Ok(())
-}
-
-pub fn handle_login(email: &str, password: Option<String>) -> Result<()> {
-    let password = match password {
-        Some(p) => p,
-        None => rpassword::prompt_password("Tapo password: ")
-            .map_err(|e| anyhow::anyhow!("Failed to read password: {e}"))?,
-    };
-    creds::save(email, &password)?;
-    println!("Tapo credentials saved to {}", creds::path_display());
-    println!("(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)");
     Ok(())
 }
 
