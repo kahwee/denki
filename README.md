@@ -1,17 +1,28 @@
 # denki (電気)
 
-`denki` is a command-line tool for controlling TP-Link Kasa and Tapo devices over your local network — no cloud required.
+`denki` is a local-first command-line toolkit for TP-Link Kasa and Tapo devices.
+It makes energy usage easy to inspect from the terminal and provides the building
+blocks for automating lights, plugs, and light strips without relying on the cloud.
 
 *denki* means “electricity” in Japanese.
 
 ## Why this exists
 
-`denki` is intentionally small, local-network-first, and easy to extend. It focuses on a few things:
+Smart-home apps make it easy to control a device, but they make simple questions
+and repeatable workflows harder than they should be. `denki` started with two
+practical goals:
 
-- fast terminal control for smart devices on your LAN
-- clear capability checks before any network request is sent
-- support for both classic Kasa/XOR and newer Tapo/KLAP devices
-- a clean split between protocol code, device parsing, and CLI orchestration
+1. **Read energy usage locally.** Query current power and, where the device
+   supports it, daily and monthly usage from the command line. This makes it
+   possible to inspect a device, collect readings, or feed them into another tool
+   without sending data through a cloud service.
+2. **Build useful lighting automation.** Turn lights on and off, dim them, set
+   color and color temperature, activate light-strip effects, and control groups
+   of aliases. These commands are designed to be composed into shell scripts,
+   scheduled jobs, and larger automation tools.
+
+The project stays intentionally small and easy to extend, with protocol handling,
+device parsing, capability checks, and CLI orchestration kept separate.
 
 ## Install
 
@@ -121,6 +132,23 @@ denki energy-monthly "desk plug" 2025
 For KLAP-based Tapo energy plugs, `energy` shows current power plus today's and this month's
 totals. Tapo's local API does not expose the same daily/monthly history used by Kasa devices,
 so `energy-daily` and `energy-monthly` remain Kasa-only.
+
+### Automation building blocks
+
+Commands return a non-zero exit status when a device cannot be reached or does not
+support an operation, making them suitable for scripts and scheduled jobs. Use
+friendly aliases to keep automation readable:
+
+```bash
+denki group off "office"
+denki dim "bedroom lamp" 20
+denki color-temp "bedroom lamp" 2700
+denki effect "living room strip" Aurora
+```
+
+For machine-readable device and diagnostic data, add `--json` to `info` or `doctor`.
+The `group` command supports `--dry-run` so an automation can verify its targets
+before changing device state.
 
 ### Diagnostics and structured output
 
