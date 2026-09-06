@@ -33,20 +33,20 @@ pub fn resolve(name: &str) -> Option<&'static str> {
         .iter()
         .copied()
         .filter(|effect| crate::hosts::normalize(effect) == needle);
-    if let Some(effect) = exact.next() {
-        if exact.next().is_none() {
-            return Some(effect);
-        }
+    if let Some(effect) = exact.next()
+        && exact.next().is_none()
+    {
+        return Some(effect);
     }
 
     let mut fuzzy = BUILTIN_EFFECTS
         .iter()
         .copied()
         .filter(|effect| crate::hosts::normalize(effect).contains(&needle));
-    if let Some(effect) = fuzzy.next() {
-        if fuzzy.next().is_none() {
-            return Some(effect);
-        }
+    if let Some(effect) = fuzzy.next()
+        && fuzzy.next().is_none()
+    {
+        return Some(effect);
     }
 
     None

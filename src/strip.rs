@@ -56,12 +56,10 @@ pub fn parse(json: &serde_json::Value) -> Option<Strip> {
 
     // Full child IDs are 40+ hex chars. Short IDs ("00"–"05") need the deviceId prepended.
     let needs_prefix = strip.children.iter().any(|c| c.id.len() <= 2);
-    if needs_prefix {
-        if let Some(device_id) = sysinfo.get("deviceId").and_then(|v| v.as_str()) {
-            for child in &mut strip.children {
-                if child.id.len() <= 2 {
-                    child.id = format!("{device_id}{}", child.id);
-                }
+    if needs_prefix && let Some(device_id) = sysinfo.get("deviceId").and_then(|v| v.as_str()) {
+        for child in &mut strip.children {
+            if child.id.len() <= 2 {
+                child.id = format!("{device_id}{}", child.id);
             }
         }
     }

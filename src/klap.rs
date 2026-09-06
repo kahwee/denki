@@ -23,8 +23,8 @@
 
 use aes::Aes128;
 use anyhow::{Result, bail};
-use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
-use rand::RngCore;
+use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
+use rand::RngExt;
 use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
 use std::fmt::Write as FmtWrite;
@@ -150,7 +150,7 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
     let ah = auth_hash(username, password);
 
     let mut local_seed = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut local_seed);
+    rand::rng().fill(&mut local_seed);
 
     let (status1, headers1, body1) = http_post(host, "/app/handshake1", &[], &local_seed).await?;
     if status1 != 200 {
@@ -247,8 +247,8 @@ impl KlapSession {
         self.seq = self.seq.wrapping_add(1);
         let iv = self.iv_for_seq(self.seq);
 
-        let ciphertext = Aes128CbcEnc::new(&self.key.into(), &iv.into())
-            .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
+        let ciphertext =
+            Aes128CbcEnc::new(&self.key.into(), &iv.into()).encrypt_padded_vec::<Pkcs7>(plaintext);
 
         let sig_tag = sha256_multi(&[&self.sig, &self.seq.to_be_bytes(), &ciphertext]);
 
@@ -265,7 +265,7 @@ impl KlapSession {
         }
         let iv = self.iv_for_seq(self.seq);
         let plaintext = Aes128CbcDec::new(&self.key.into(), &iv.into())
-            .decrypt_padded_vec_mut::<Pkcs7>(&data[32..])
+            .decrypt_padded_vec::<Pkcs7>(&data[32..])
             .map_err(|e| anyhow::anyhow!("AES decrypt error: {e:?}"))?;
         Ok(String::from_utf8(plaintext)?)
     }

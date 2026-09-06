@@ -2,7 +2,7 @@
 name = "denki"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.97"
 description = "CLI for controlling TP-Link smart home devices — denki (電気) means electricity in Japanese"
 license = "MIT"
 repository = "https://github.com/kahwee/denki"
@@ -20,29 +20,29 @@ name = "denki"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-dirs = "5"
-anyhow = "1"
-colored = "2"
+tokio = { version = "1.53.1", features = ["full"] }
+clap = { version = "4.6.6", features = ["derive"] }
+clap_complete = "4.6.9"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+dirs = "7.0.0"
+anyhow = "1.0.104"
+colored = "3.1.1"
 futures-util = "0.3"
 # KLAP protocol (Tapo devices)
-sha1 = "0.10"
-sha2 = "0.10"
-aes = "0.8"
-cbc = { version = "0.1", features = ["alloc"] }
-rand = "0.8"
-base64 = "0.22"
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+aes = "0.9.3"
+cbc = { version = "0.2.1", features = ["alloc"] }
+rand = "0.10.2"
+base64 = "0.23.1"
 
-toml = "0.8"
-if-addrs = "0"
-rpassword = "7"
+toml = "1.1.5"
+if-addrs = "0.15.0"
+rpassword = "7.5.4"
 
 [dev-dependencies]
-rstest = "0.25"
-tempfile = "3"
-proptest = "1"
-insta = "1"
+rstest = "0.26.1"
+tempfile = "3.27.0"
+proptest = "1.11.0"
+insta = "1.48.0"

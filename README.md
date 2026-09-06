@@ -23,6 +23,8 @@ That installs the binary to `~/.cargo/bin/denki`.
 
 ## Build from source
 
+Building from source requires Rust 1.97 or newer.
+
 ```bash
 git clone https://github.com/kahwee/denki.git
 cd denki

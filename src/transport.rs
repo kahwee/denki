@@ -84,12 +84,11 @@ where
     // This reaches devices on subnets whose router drops 255.255.255.255.
     if let Ok(ifaces) = if_addrs::get_if_addrs() {
         for iface in ifaces {
-            if let if_addrs::IfAddr::V4(v4) = iface.addr {
-                if let Some(bcast) = v4.broadcast {
-                    if bcast != std::net::Ipv4Addr::BROADCAST {
-                        let _ = socket.send_to(&encoded, format!("{bcast}:{PORT}")).await;
-                    }
-                }
+            if let if_addrs::IfAddr::V4(v4) = iface.addr
+                && let Some(bcast) = v4.broadcast
+                && bcast != std::net::Ipv4Addr::BROADCAST
+            {
+                let _ = socket.send_to(&encoded, format!("{bcast}:{PORT}")).await;
             }
         }
     }

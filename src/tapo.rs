@@ -50,10 +50,10 @@ pub fn parse(json: &serde_json::Value) -> Option<TapoDevice> {
     let mut device: TapoDevice = serde_json::from_value(result.clone()).ok()?;
 
     // Nickname is base64-encoded in the API response
-    if let Ok(bytes) = BASE64.decode(device.nickname.as_bytes()) {
-        if let Ok(s) = String::from_utf8(bytes) {
-            device.nickname = s;
-        }
+    if let Ok(bytes) = BASE64.decode(device.nickname.as_bytes())
+        && let Ok(s) = String::from_utf8(bytes)
+    {
+        device.nickname = s;
     }
 
     Some(device)
