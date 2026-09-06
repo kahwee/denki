@@ -1,5 +1,28 @@
 use super::common::{format_energy_lines, format_wday, sort_energy_entries};
+use crate::tapo::TapoEnergyUsage;
 use colored::Colorize;
+
+pub fn print_tapo_energy(usage: &TapoEnergyUsage) {
+    if let Some(power) = usage.current_power {
+        println!("Power:         {:.3} W", power as f64 / 1000.0);
+    }
+    if let Some(today) = usage.today_energy {
+        println!("Today:         {today} Wh");
+    }
+    if let Some(month) = usage.month_energy {
+        println!("This month:    {month} Wh");
+    }
+    if let Some(minutes) = usage.today_runtime {
+        println!("Runtime today: {}m", minutes);
+    }
+    if usage.current_power.is_none() && usage.today_energy.is_none() && usage.month_energy.is_none()
+    {
+        println!(
+            "{}",
+            "No energy measurements were returned by this Tapo device.".yellow()
+        );
+    }
+}
 
 pub fn print_schedules(json: &serde_json::Value) {
     if let Some(rules) = json

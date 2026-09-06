@@ -267,6 +267,7 @@ dependencies = [
  "clap_complete",
  "colored",
  "dirs",
+ "futures-util",
  "if-addrs",
  "insta",
  "proptest",

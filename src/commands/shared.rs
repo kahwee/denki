@@ -1,10 +1,17 @@
 use anyhow::Result;
 use colored::Colorize;
 
+use crate::creds;
 use crate::devices::{self, DeviceKind};
+use crate::klap;
 use crate::ops;
 use crate::resolve::{Resolved, require_kasa, resolve, resolve_outlet};
 use crate::strip;
+
+pub(crate) async fn tapo_session(ip: &str) -> Result<klap::KlapSession> {
+    let (user, pass) = creds::load()?;
+    klap::handshake(ip, &user, &pass).await
+}
 
 pub(crate) struct KasaContext {
     resolved: Resolved,

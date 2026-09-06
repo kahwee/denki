@@ -2,11 +2,12 @@
 //! Response shape: {"error_code": 0, "result": {...}}
 //! nickname and ssid are base64-encoded in the API response.
 
+use anyhow::{Context, Result};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TapoDevice {
     pub model: String,
     pub hw_ver: String,
@@ -22,6 +23,20 @@ pub struct TapoDevice {
     #[serde(default)]
     pub overheated: bool,
     pub device_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct TapoEnergyUsage {
+    /// Instantaneous power in milliwatts.
+    pub current_power: Option<u64>,
+    /// Energy consumed today in watt-hours.
+    pub today_energy: Option<u64>,
+    /// Energy consumed this month in watt-hours.
+    pub month_energy: Option<u64>,
+    /// Runtime today in minutes.
+    pub today_runtime: Option<u64>,
+    /// Runtime this month in minutes.
+    pub month_runtime: Option<u64>,
 }
 
 impl TapoDevice {
@@ -42,6 +57,14 @@ pub fn parse(json: &serde_json::Value) -> Option<TapoDevice> {
     }
 
     Some(device)
+}
+
+pub fn parse_energy_usage(json: &serde_json::Value) -> Result<TapoEnergyUsage> {
+    let result = json
+        .get("result")
+        .cloned()
+        .context("Tapo energy response did not contain a result")?;
+    serde_json::from_value(result).context("Could not parse Tapo energy usage")
 }
 
 #[cfg(test)]
@@ -93,5 +116,24 @@ mod tests {
         assert_eq!(device.nickname, "not base64!");
         assert!(!device.is_on());
         assert_eq!(device.signal_level, 0);
+    }
+
+    #[test]
+    fn parse_energy_usage_preserves_milliwatts_and_watt_hours() {
+        let usage = parse_energy_usage(&json!({
+            "error_code": 0,
+            "result": {
+                "current_power": 1234,
+                "today_energy": 56,
+                "month_energy": 789,
+                "today_runtime": 12,
+                "month_runtime": 345
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(usage.current_power, Some(1234));
+        assert_eq!(usage.today_energy, Some(56));
+        assert_eq!(usage.month_energy, Some(789));
     }
 }

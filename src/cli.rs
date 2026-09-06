@@ -26,6 +26,19 @@ pub enum Command {
         /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
+        /// Print stable, machine-readable device information
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Check reachability, protocol, parsing, and advertised capabilities
+    Doctor {
+        /// Device name, saved alias, or IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Print the diagnostic report as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Turn a device on
@@ -65,6 +78,12 @@ pub enum Command {
         /// Alias pattern used for group matching (normalized, case- and punctuation-insensitive)
         #[arg(value_name = "PATTERN")]
         pattern: String,
+        /// Show matched aliases without changing device state
+        #[arg(long)]
+        dry_run: bool,
+        /// Maximum number of devices controlled at once
+        #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u8).range(1..=32))]
+        concurrency: u8,
     },
 
     /// Set brightness 0-100 (bulbs and HS220 dimmers)
@@ -263,4 +282,46 @@ pub enum Command {
 pub enum LedAction {
     On,
     Off,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_safety_options_parse() {
+        let cli = Cli::try_parse_from([
+            "denki",
+            "group",
+            "off",
+            "office",
+            "--dry-run",
+            "--concurrency",
+            "8",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Group {
+                dry_run,
+                concurrency,
+                ..
+            } => {
+                assert!(dry_run);
+                assert_eq!(concurrency, 8);
+            }
+            _ => panic!("expected group command"),
+        }
+    }
+
+    #[test]
+    fn doctor_json_option_parses() {
+        let cli = Cli::try_parse_from(["denki", "doctor", "office", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Doctor { json: true, .. }));
+    }
+
+    #[test]
+    fn info_json_option_parses() {
+        let cli = Cli::try_parse_from(["denki", "info", "office", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Info { json: true, .. }));
+    }
 }

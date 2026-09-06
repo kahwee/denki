@@ -43,7 +43,9 @@ cargo build --release
 ### Supported but unverified
 
 - **LB130 smart bulbs** — same bulb commands as KL135; unverified
-- **KL420L5 / KL430 light strips** — scan/info plus energy monitoring; power, dimming, color temperature, and HSV color control are not yet implemented
+- **KL420L5 / KL430 light strips** — scan/info, power, dimming, color temperature, HSV color, energy monitoring, and effects
+- **P110 / P115 / KP125M Tapo plugs** — power and real-time/today/month energy usage through a saved `--klap` alias
+- **P125M Tapo plugs** — info and power through a saved `--klap` alias
 - **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
 - **HS300 / KP303 power strips** — info, outlet listing, per-outlet on/off/toggle power control, outlet rename, LED, schedules, and clock; energy only on ENE-capable models (verified on HS300 HW 2.0)
 
@@ -69,10 +71,14 @@ denki on "desk lamp"
 denki off "desk lamp"
 denki toggle "desk lamp"
 denki group off "office"
+denki group off "office" --dry-run
 ```
 
 Use `denki group <on|off|toggle> <pattern>` when multiple aliases should be controlled together
 (for example `denki group off "office"` for `Office Color 1`, `Office Color 2`, `Office Color 3`).
+Group operations run concurrently (four devices at a time by default), continue when one device
+fails, and finish with a success/failure summary. Use `--dry-run` to review every matched alias
+without contacting devices, or `--concurrency N` to tune the limit.
 
 ### Bulbs and dimmers
 
@@ -92,6 +98,15 @@ denki effect "light strip" Off
 
 `effects` lists built-in effect names and the active effect. `effect` activates one by name (for example `Aurora`, `Rainbow`, or `Off`).
 
+KL420/KL430 strips also support the standard lighting commands:
+
+```bash
+denki on "light strip"
+denki dim "light strip" 60
+denki color-temp "light strip" 3000
+denki color "light strip" -H 200 -s 80 -v 70
+```
+
 ### Energy
 
 ```bash
@@ -101,6 +116,22 @@ denki energy-monthly "desk plug" 2025
 ```
 
 `energy-daily` defaults to the current month, and `energy-monthly` defaults to the current year.
+For KLAP-based Tapo energy plugs, `energy` shows current power plus today's and this month's
+totals. Tapo's local API does not expose the same daily/monthly history used by Kasa devices,
+so `energy-daily` and `energy-monthly` remain Kasa-only.
+
+### Diagnostics and structured output
+
+```bash
+denki doctor "desk plug"
+denki doctor "desk plug" --json
+denki info "desk plug" --json
+```
+
+`doctor` checks alias resolution, protocol connectivity, device-info parsing, model support,
+firmware metadata, and advertised capabilities. Its versioned JSON report is suitable for bug
+reports and automation. It intentionally excludes raw device IDs, MAC addresses, Wi-Fi names,
+and credentials.
 
 ### Power strips
 
@@ -305,12 +336,11 @@ Tapo devices use a two-step handshake over plain HTTP on port `80`:
 
 ## Limitations
 
-- energy monitoring for Tapo devices
+- daily and monthly history for Tapo energy devices (the local API exposes current/day/month totals)
 - away mode (`anti_theft`) rule creation
 - countdown timer creation
 - schedule creation and deletion
 - firmware updates
-- KL430 power, dim, color-temp, and HSV color control
 - strip-level energy monitoring for HS300/KP303 on non-ENE models
 
 ## Contributing

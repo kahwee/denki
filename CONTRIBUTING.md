@@ -10,7 +10,8 @@ cd denki
 cargo build
 cargo test
 cargo fmt --check
-cargo clippy -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
+cargo doc --no-deps --document-private-items
 ```
 
 ## Development workflow
@@ -53,6 +54,7 @@ Include:
 - the exact command you ran
 - the error output
 - whether the device was discovered by scan or added with `denki alias`
+- sanitized output from `denki doctor "<device>" --json`
 
 ## Notes
 

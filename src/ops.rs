@@ -33,6 +33,70 @@ pub async fn bulb_off(host: &str) -> Result<()> {
     bulb_set_power(host, false).await
 }
 
+fn lightstrip_state_payload(state: serde_json::Value) -> serde_json::Value {
+    json!({"smartlife.iot.lightStrip": {"set_light_state": state}})
+}
+
+async fn lightstrip_set_state(host: &str, state: serde_json::Value) -> Result<()> {
+    transport::send(host, lightstrip_state_payload(state)).await?;
+    Ok(())
+}
+
+pub async fn lightstrip_set_power(host: &str, on: bool) -> Result<()> {
+    lightstrip_set_state(
+        host,
+        json!({"on_off": u8::from(on), "transition_period": 0}),
+    )
+    .await
+}
+
+pub async fn lightstrip_set_brightness(host: &str, level: u8) -> Result<()> {
+    if level == 0 {
+        return lightstrip_set_power(host, false).await;
+    }
+    lightstrip_set_state(
+        host,
+        json!({
+            "brightness": level,
+            "on_off": 1,
+            "ignore_default": 1,
+            "transition_period": 0
+        }),
+    )
+    .await
+}
+
+pub async fn lightstrip_set_color_temp(host: &str, kelvin: u16) -> Result<()> {
+    lightstrip_set_state(
+        host,
+        json!({
+            "color_temp": kelvin,
+            "hue": 0,
+            "saturation": 0,
+            "on_off": 1,
+            "ignore_default": 1,
+            "transition_period": 0
+        }),
+    )
+    .await
+}
+
+pub async fn lightstrip_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> Result<()> {
+    lightstrip_set_state(
+        host,
+        json!({
+            "hue": hue,
+            "saturation": saturation,
+            "brightness": value,
+            "color_temp": 0,
+            "on_off": u8::from(value > 0),
+            "ignore_default": 1,
+            "transition_period": 0
+        }),
+    )
+    .await
+}
+
 pub async fn bulb_set_brightness(host: &str, level: u8) -> Result<()> {
     transport::send(
         host,
@@ -372,6 +436,16 @@ pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::V
         .await
 }
 
+pub async fn tapo_energy_usage(session: &mut KlapSession) -> Result<serde_json::Value> {
+    let response = session
+        .send(&serde_json::to_string(
+            &json!({"method": "get_energy_usage", "params": {}}),
+        )?)
+        .await?;
+    check_tapo_error(&response)?;
+    Ok(response)
+}
+
 async fn tapo_set_power(session: &mut KlapSession, on: bool) -> Result<()> {
     let resp = session
         .send(&serde_json::to_string(
@@ -477,5 +551,19 @@ mod tests {
         assert!(inner.get("segments").is_some());
         assert!(inner.get("hue_range").is_some());
         assert!(inner.get("init_states").is_some());
+    }
+
+    #[test]
+    fn lightstrip_state_uses_lightstrip_namespace_and_method() {
+        let payload = lightstrip_state_payload(json!({"brightness": 42, "on_off": 1}));
+        assert_eq!(
+            payload.pointer("/smartlife.iot.lightStrip/set_light_state/brightness"),
+            Some(&json!(42))
+        );
+        assert!(
+            payload
+                .pointer("/smartlife.iot.smartbulb.lightingservice")
+                .is_none()
+        );
     }
 }

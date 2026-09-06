@@ -5,22 +5,18 @@ use anyhow::Result;
 
 pub fn can_control_power(kind: &DeviceKind) -> Result<()> {
     match kind {
-        DeviceKind::Bulb | DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        DeviceKind::LightStrip => anyhow::bail!(
-            "light strip power control is not yet implemented \
-             (KL430 uses smartlife.iot.lightStrip)"
-        ),
+        DeviceKind::Bulb
+        | DeviceKind::LightStrip
+        | DeviceKind::Plug
+        | DeviceKind::Dimmer
+        | DeviceKind::Strip => Ok(()),
         other => anyhow::bail!("{other} does not support power control"),
     }
 }
 
 pub fn can_dim(kind: &DeviceKind) -> Result<()> {
     match kind {
-        DeviceKind::Bulb | DeviceKind::Dimmer => Ok(()),
-        DeviceKind::LightStrip => anyhow::bail!(
-            "`dim` is not yet supported on light strips \
-             (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)"
-        ),
+        DeviceKind::Bulb | DeviceKind::LightStrip | DeviceKind::Dimmer => Ok(()),
         other => anyhow::bail!("`dim` is only supported on bulbs and HS220 dimmers, not {other}"),
     }
 }
@@ -43,11 +39,17 @@ fn require_relay_device(kind: &DeviceKind, cmd: &str) -> Result<()> {
 }
 
 pub fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
-    require_bulb(kind, "color-temp", "color bulbs (e.g. KL135)")
+    match kind {
+        DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
+        other => anyhow::bail!("`color-temp` is only supported on color lights, not {other}"),
+    }
 }
 
 pub fn can_set_color(kind: &DeviceKind) -> Result<()> {
-    require_bulb(kind, "color", "bulbs")
+    match kind {
+        DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
+        other => anyhow::bail!("`color` is only supported on color lights, not {other}"),
+    }
 }
 
 pub fn can_get_specs(kind: &DeviceKind) -> Result<()> {

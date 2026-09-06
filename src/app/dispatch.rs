@@ -6,17 +6,30 @@ use crate::cli::{Cli, Command};
 use crate::commands;
 use crate::effects;
 
+use super::doctor::handle_doctor;
 use super::info::handle_info;
 use super::scan::handle_scan;
 
 async fn dispatch_command(command: Command) -> Result<()> {
     match command {
         Command::Scan { timeout } => handle_scan(timeout).await,
-        Command::Info { host } => handle_info(host).await,
+        Command::Info { host, json } => {
+            if json {
+                handle_doctor(host, true).await
+            } else {
+                handle_info(host).await
+            }
+        }
+        Command::Doctor { host, json } => handle_doctor(host, json).await,
         Command::On { host, outlet } => commands::handle_on(&host, outlet).await,
         Command::Off { host, outlet } => commands::handle_off(&host, outlet).await,
         Command::Toggle { host, outlet } => commands::handle_toggle(&host, outlet).await,
-        Command::Group { action, pattern } => commands::handle_group(&pattern, action).await,
+        Command::Group {
+            action,
+            pattern,
+            dry_run,
+            concurrency,
+        } => commands::handle_group(&pattern, action, dry_run, concurrency as usize).await,
         Command::Dim { host, level } => commands::handle_dim(&host, level).await,
         Command::ColorTemp { host, kelvin } => commands::handle_color_temp(&host, kelvin).await,
         Command::Color {

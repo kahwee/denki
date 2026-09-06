@@ -6,20 +6,20 @@ use rstest::rstest;
 use serde_json::json;
 
 #[test]
-fn can_control_power_accepts_bulb_plug_dimmer_strip() {
+fn can_control_power_accepts_supported_device_kinds() {
     assert!(can_control_power(&DeviceKind::Bulb).is_ok());
     assert!(can_control_power(&DeviceKind::Plug).is_ok());
     assert!(can_control_power(&DeviceKind::Dimmer).is_ok());
     assert!(can_control_power(&DeviceKind::Strip).is_ok());
-    assert!(can_control_power(&DeviceKind::LightStrip).is_err());
+    assert!(can_control_power(&DeviceKind::LightStrip).is_ok());
     assert!(can_control_power(&DeviceKind::Unknown("IOT.X".into())).is_err());
 }
 
 #[test]
-fn can_dim_accepts_bulb_and_dimmer_only() {
+fn can_dim_accepts_lights_and_dimmer() {
     assert!(can_dim(&DeviceKind::Bulb).is_ok());
     assert!(can_dim(&DeviceKind::Dimmer).is_ok());
-    assert!(can_dim(&DeviceKind::LightStrip).is_err());
+    assert!(can_dim(&DeviceKind::LightStrip).is_ok());
     assert!(can_dim(&DeviceKind::Plug).is_err());
     assert!(can_dim(&DeviceKind::Strip).is_err());
     assert!(can_dim(&DeviceKind::Unknown("IOT.X".into())).is_err());
@@ -31,16 +31,7 @@ fn can_dim_error_names_the_command() {
     assert!(err.to_string().contains("`dim`"), "{err}");
 }
 
-#[test]
-fn can_dim_lightstrip_error_explains_namespace() {
-    let err = can_dim(&DeviceKind::LightStrip).unwrap_err();
-    assert!(err.to_string().contains("not yet supported"), "{err}");
-    assert!(err.to_string().contains("lightStrip"), "{err}");
-}
-
 #[rstest]
-#[case(can_set_color_temp as fn(&DeviceKind) -> anyhow::Result<()>, "`color-temp`")]
-#[case(can_set_color as fn(&DeviceKind) -> anyhow::Result<()>, "`color`")]
 #[case(crate::devices::can_get_specs as fn(&DeviceKind) -> anyhow::Result<()>, "`specs`")]
 #[case(crate::devices::can_get_presets as fn(&DeviceKind) -> anyhow::Result<()>, "`presets`")]
 fn bulb_only_guards_accept_bulb_reject_others(
@@ -66,9 +57,15 @@ fn bulb_only_guards_accept_bulb_reject_others(
 }
 
 #[test]
-fn can_set_color_temp_error_mentions_kl135() {
-    let err = can_set_color_temp(&DeviceKind::Plug).unwrap_err();
-    assert!(err.to_string().contains("KL135"), "{err}");
+fn color_guards_accept_bulbs_and_lightstrips() {
+    for guard in [
+        can_set_color_temp as fn(&DeviceKind) -> anyhow::Result<()>,
+        can_set_color as fn(&DeviceKind) -> anyhow::Result<()>,
+    ] {
+        assert!(guard(&DeviceKind::Bulb).is_ok());
+        assert!(guard(&DeviceKind::LightStrip).is_ok());
+        assert!(guard(&DeviceKind::Plug).is_err());
+    }
 }
 
 #[rstest]

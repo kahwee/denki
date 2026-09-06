@@ -1,27 +1,21 @@
-use crate::creds;
 use crate::devices::{self, DeviceKind};
 use crate::hosts;
-use crate::klap;
 use crate::ops;
 use crate::resolve::{Resolved, resolve};
 use crate::strip;
 use anyhow::Result;
 use clap::ValueEnum;
 use colored::Colorize;
+use futures_util::{StreamExt, stream};
 
 use super::shared::{
     StripOutletTarget, print_outlet_power_state, print_outlet_toggle_state, print_power_state,
-    resolve_power_target,
+    resolve_power_target, tapo_session,
 };
-
-async fn tapo_session(ip: &str) -> Result<klap::KlapSession> {
-    let (user, pass) = creds::load()?;
-    klap::handshake(ip, &user, &pass).await
-}
 
 fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
     match kind {
-        DeviceKind::Bulb => {
+        DeviceKind::Bulb | DeviceKind::LightStrip => {
             json.pointer("/system/get_sysinfo/light_state/on_off")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(0)
@@ -42,6 +36,7 @@ async fn kasa_set_power(ip: &str, kind: &DeviceKind, on: bool) -> Result<()> {
     match (kind, on) {
         (DeviceKind::Bulb, true) => ops::bulb_on(ip).await?,
         (DeviceKind::Bulb, false) => ops::bulb_off(ip).await?,
+        (DeviceKind::LightStrip, state) => ops::lightstrip_set_power(ip, state).await?,
         (_, true) => ops::relay_on(ip).await?,
         (_, false) => ops::relay_off(ip).await?,
     }
@@ -64,6 +59,40 @@ async fn set_device_power(r: &Resolved, on: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+trait DeviceTransport: Sync {
+    async fn apply_power(&self, target: &Resolved, action: GroupAction) -> Result<bool>;
+}
+
+struct LiveDeviceTransport;
+
+impl DeviceTransport for LiveDeviceTransport {
+    async fn apply_power(&self, target: &Resolved, action: GroupAction) -> Result<bool> {
+        match action {
+            GroupAction::On => {
+                set_device_power(target, true).await?;
+                Ok(true)
+            }
+            GroupAction::Off => {
+                set_device_power(target, false).await?;
+                Ok(false)
+            }
+            GroupAction::Toggle => match target.protocol {
+                hosts::Protocol::Klap => {
+                    let mut session = tapo_session(&target.ip).await?;
+                    ops::tapo_toggle(&mut session).await
+                }
+                hosts::Protocol::Kasa => {
+                    let json = ops::sysinfo(&target.ip).await?;
+                    let kind = devices::detect_kind(&json);
+                    let on = toggle_target(&kind, &json);
+                    kasa_set_power(&target.ip, &kind, on).await?;
+                    Ok(on)
+                }
+            },
+        }
+    }
 }
 
 pub async fn handle_on(host: &str, outlet: Option<u8>) -> Result<()> {
@@ -155,7 +184,40 @@ impl GroupAction {
     }
 }
 
-pub async fn handle_group(pattern: &str, action: GroupAction) -> Result<()> {
+#[derive(Debug)]
+struct GroupResult {
+    alias: String,
+    result: Result<bool>,
+}
+
+async fn execute_group<T: DeviceTransport>(
+    matches: Vec<(String, hosts::HostEntry)>,
+    action: GroupAction,
+    concurrency: usize,
+    transport: &T,
+) -> Vec<GroupResult> {
+    stream::iter(matches.into_iter().map(|(alias, entry)| async move {
+        let target = Resolved {
+            ip: entry.ip,
+            protocol: entry.protocol,
+            saved_name: Some(alias.clone()),
+        };
+        GroupResult {
+            alias,
+            result: transport.apply_power(&target, action).await,
+        }
+    }))
+    .buffer_unordered(concurrency)
+    .collect()
+    .await
+}
+
+pub async fn handle_group(
+    pattern: &str,
+    action: GroupAction,
+    dry_run: bool,
+    concurrency: usize,
+) -> Result<()> {
     let matches = hosts::lookup_many(pattern)?;
     if matches.is_empty() {
         anyhow::bail!(
@@ -164,28 +226,101 @@ pub async fn handle_group(pattern: &str, action: GroupAction) -> Result<()> {
         );
     }
 
+    if dry_run {
+        println!(
+            "Would turn {} {} alias(es) matching \"{}\":",
+            action.as_verb(),
+            matches.len(),
+            pattern
+        );
+        for (alias, entry) in matches {
+            println!("  {} [{}; {}]", alias.bold(), entry.ip, entry.protocol);
+        }
+        return Ok(());
+    }
+
     println!(
-        "{} {} aliases matching \"{}\":",
-        matches.len(),
+        "Turning {} {} alias(es) matching \"{}\" (up to {} at once):",
         action.as_verb(),
-        pattern
+        matches.len(),
+        pattern,
+        concurrency
     );
 
-    for (alias, _) in matches {
-        match action {
-            GroupAction::On => handle_on(&alias, None).await?,
-            GroupAction::Off => handle_off(&alias, None).await?,
-            GroupAction::Toggle => handle_toggle(&alias, None).await?,
+    let results = execute_group(matches, action, concurrency, &LiveDeviceTransport).await;
+    let total = results.len();
+    let mut failures = Vec::new();
+    for outcome in results {
+        match outcome.result {
+            Ok(on) => println!(
+                "  {} {} -> {}",
+                "OK".green().bold(),
+                outcome.alias,
+                if on { "on" } else { "off" }
+            ),
+            Err(error) => {
+                eprintln!("  {} {}: {error:#}", "FAILED".red().bold(), outcome.alias);
+                failures.push(outcome.alias);
+            }
         }
     }
 
-    Ok(())
+    let succeeded = total - failures.len();
+    println!(
+        "Completed: {} succeeded, {} failed.",
+        succeeded.to_string().green(),
+        failures.len().to_string().red()
+    );
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "Group action failed for {} alias(es): {}",
+            failures.len(),
+            failures.join(", ")
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support;
+    use std::sync::Mutex;
+
+    struct FakeTransport {
+        fail_alias: Option<&'static str>,
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl DeviceTransport for FakeTransport {
+        async fn apply_power(&self, target: &Resolved, action: GroupAction) -> Result<bool> {
+            let alias = target.saved_name.clone().unwrap_or_default();
+            self.calls.lock().unwrap().push(alias.clone());
+            if self.fail_alias == Some(alias.as_str()) {
+                anyhow::bail!("simulated transport failure");
+            }
+            Ok(!matches!(action, GroupAction::Off))
+        }
+    }
+
+    fn group_target(alias: &str, ip: &str) -> (String, hosts::HostEntry) {
+        group_target_with_protocol(alias, ip, hosts::Protocol::Kasa)
+    }
+
+    fn group_target_with_protocol(
+        alias: &str,
+        ip: &str,
+        protocol: hosts::Protocol,
+    ) -> (String, hosts::HostEntry) {
+        (
+            alias.to_string(),
+            hosts::HostEntry {
+                ip: ip.to_string(),
+                protocol,
+            },
+        )
+    }
 
     #[test]
     fn toggle_target_bulb_on_returns_false() {
@@ -249,5 +384,102 @@ mod tests {
             ],
         );
         assert!(toggle_target(&DeviceKind::Strip, &json));
+    }
+
+    #[tokio::test]
+    async fn group_executor_continues_after_transport_failure() {
+        let transport = FakeTransport {
+            fail_alias: Some("broken lamp"),
+            calls: Mutex::new(Vec::new()),
+        };
+        let results = execute_group(
+            vec![
+                group_target("first lamp", "192.0.2.1"),
+                group_target("broken lamp", "192.0.2.2"),
+                group_target("last lamp", "192.0.2.3"),
+            ],
+            GroupAction::Off,
+            2,
+            &transport,
+        )
+        .await;
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results.iter().filter(|r| r.result.is_ok()).count(), 2);
+        assert_eq!(results.iter().filter(|r| r.result.is_err()).count(), 1);
+        let calls = transport.calls.lock().unwrap();
+        assert!(calls.contains(&"last lamp".to_string()));
+    }
+
+    #[tokio::test]
+    async fn group_executor_reports_resulting_power_state() {
+        let transport = FakeTransport {
+            fail_alias: None,
+            calls: Mutex::new(Vec::new()),
+        };
+        let results = execute_group(
+            vec![group_target("office", "192.0.2.4")],
+            GroupAction::On,
+            1,
+            &transport,
+        )
+        .await;
+
+        assert_eq!(results[0].result.as_ref().unwrap(), &true);
+    }
+
+    struct FailureMatrixTransport;
+
+    impl DeviceTransport for FailureMatrixTransport {
+        async fn apply_power(&self, target: &Resolved, _: GroupAction) -> Result<bool> {
+            match target.saved_name.as_deref() {
+                Some("timeout") => anyhow::bail!("simulated timeout"),
+                Some("malformed") => anyhow::bail!("simulated malformed response"),
+                _ => Ok(target.protocol == hosts::Protocol::Klap),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn group_executor_handles_mixed_protocols_and_distinct_failures() {
+        let results = execute_group(
+            vec![
+                group_target("kasa", "192.0.2.10"),
+                group_target_with_protocol("tapo", "192.0.2.11", hosts::Protocol::Klap),
+                group_target("timeout", "192.0.2.12"),
+                group_target("malformed", "192.0.2.13"),
+            ],
+            GroupAction::Toggle,
+            3,
+            &FailureMatrixTransport,
+        )
+        .await;
+
+        assert_eq!(results.len(), 4);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result.result.is_ok())
+                .count(),
+            2
+        );
+        let errors = results
+            .iter()
+            .filter_map(|result| result.result.as_ref().err())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(errors.contains("timeout"));
+        assert!(errors.contains("malformed"));
+        assert_eq!(
+            results
+                .iter()
+                .find(|result| result.alias == "tapo")
+                .unwrap()
+                .result
+                .as_ref()
+                .unwrap(),
+            &true
+        );
     }
 }

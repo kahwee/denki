@@ -4,9 +4,12 @@ use colored::Colorize;
 use crate::devices;
 use crate::display;
 use crate::fmt;
+use crate::hosts;
 use crate::ops;
+use crate::resolve::{require_kasa, resolve};
+use crate::tapo;
 
-use super::shared::KasaContext;
+use super::shared::{KasaContext, tapo_session};
 
 async fn energy_realtime_for(ctx: &KasaContext) -> Result<serde_json::Value> {
     match ctx.kind() {
@@ -36,7 +39,18 @@ async fn energy_monthly_for(ctx: &KasaContext, year: u16) -> Result<serde_json::
 }
 
 pub async fn handle_energy(host: &str, outlet: Option<u8>) -> Result<()> {
-    let ctx = KasaContext::load(host, "energy").await?;
+    let resolved = resolve(host).await?;
+    if resolved.protocol == hosts::Protocol::Klap {
+        if outlet.is_some() {
+            anyhow::bail!("Tapo outlet-level energy monitoring is not supported");
+        }
+        let mut session = tapo_session(&resolved.ip).await?;
+        let response = ops::tapo_energy_usage(&mut session).await?;
+        let usage = tapo::parse_energy_usage(&response)?;
+        display::print_tapo_energy(&usage);
+        return Ok(());
+    }
+    let ctx = KasaContext::from_resolved(&resolved, "energy").await?;
     if let Some(outlet_num) = outlet {
         let (child_id, child_alias) = ctx.strip_energy_outlet(outlet_num)?;
         let resp = ops::strip_outlet_energy(ctx.ip(), &child_id).await?;
@@ -54,7 +68,9 @@ pub async fn handle_energy_daily(
     month: Option<String>,
     outlet: Option<u8>,
 ) -> Result<()> {
-    let ctx = KasaContext::load(host, "energy-daily").await?;
+    let resolved = resolve(host).await?;
+    require_kasa(&resolved, "energy-daily")?;
+    let ctx = KasaContext::from_resolved(&resolved, "energy-daily").await?;
     let month_str = month.unwrap_or_else(|| {
         let (y, m) = fmt::current_year_month();
         format!("{y}-{m:02}")
@@ -77,7 +93,9 @@ pub async fn handle_energy_monthly(
     year: Option<u16>,
     outlet: Option<u8>,
 ) -> Result<()> {
-    let ctx = KasaContext::load(host, "energy-monthly").await?;
+    let resolved = resolve(host).await?;
+    require_kasa(&resolved, "energy-monthly")?;
+    let ctx = KasaContext::from_resolved(&resolved, "energy-monthly").await?;
     let year = year.unwrap_or_else(|| fmt::current_year_month().0);
     if let Some(outlet_num) = outlet {
         let (child_id, child_alias) = ctx.strip_energy_outlet(outlet_num)?;

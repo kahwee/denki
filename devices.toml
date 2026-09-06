@@ -47,16 +47,14 @@ supports = ["power", "dim", "color_temp", "color", "energy", "specs", "presets"]
 model    = "KL430"
 kind     = "LightStrip"
 verified = false
-supports = ["energy", "effects"]
-# power / dim / color_temp / color not yet wired up in denki
-# (KL430 uses smartlife.iot.lightStrip, not smartbulb.lightingservice)
+supports = ["power", "dim", "color_temp", "color", "energy", "effects"]
 
 [[device]]
 model    = "KL420L5"
 kind     = "LightStrip"
 verified = false
-supports = ["energy", "effects"]
-# light-strip support matches the KL430 namespace for scan/info/energy
+supports = ["power", "dim", "color_temp", "color", "energy", "effects"]
+# light-strip support matches the KL430 namespace
 
 # ── Dimmers ───────────────────────────────────────────────────────────────────
 
@@ -114,3 +112,31 @@ protocol = "klap"
 verified = true
 supports = ["power"]
 # Tapo devices use the KLAP protocol; guards are protocol-level, not kind-level
+
+[[device]]
+model    = "P110"
+kind     = "Tapo"
+protocol = "klap"
+verified = false
+supports = ["power", "energy"]
+
+[[device]]
+model    = "P115"
+kind     = "Tapo"
+protocol = "klap"
+verified = false
+supports = ["power", "energy"]
+
+[[device]]
+model    = "KP125M"
+kind     = "Tapo"
+protocol = "klap"
+verified = false
+supports = ["power", "energy"]
+
+[[device]]
+model    = "P125M"
+kind     = "Tapo"
+protocol = "klap"
+verified = false
+supports = ["power"]

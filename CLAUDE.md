@@ -15,7 +15,7 @@ cargo build --release
 | File / module | Purpose |
 |---------------|---------|
 | `src/main.rs` | Async entry point — calls `denki::app::run()` |
-| `src/app/` | CLI wiring: `dispatch`, `info`, `scan`, shared helpers; capability/alias tests under `app/tests/` |
+| `src/app/` | CLI wiring: `dispatch`, `doctor`, `info`, `scan`, shared helpers; capability/alias tests under `app/tests/` |
 | `src/cli.rs` | Clap `Cli`, `Command`, `LedAction` — all argument definitions and help text (hidden `completions` subcommand) |
 | `src/commands/` | Command handlers for power, lighting, and energy |
 | `src/admin/` | Alias registry commands, device admin (LED/clock/rename/…), login, shell completions |
@@ -29,7 +29,7 @@ cargo build --release
 | `src/fmt.rs` | `duration(secs)`, `on_time()`, `parse_year_month()`, and `current_year_month()` via Howard Hinnant civil_from_days (no chrono) |
 | `src/ops.rs` | Every device API call — `bulb_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
 | `src/effects.rs` | Light-strip effect list/activate helpers |
-| `src/bulb.rs` | `Bulb` / `LightState` / `DftOnState` — KL135/LB130 bulbs and KL430; handles off-state field relocation |
+| `src/bulb.rs` | `Bulb` / `LightState` / `DftOnState` — KL135/LB130 bulbs and KL420/KL430 strips; handles off-state field relocation |
 | `src/plug.rs` | `Plug` — relay state, ENE energy flag, on-time |
 | `src/dimmer.rs` | `Dimmer` — HS220 relay state, brightness |
 | `src/strip.rs` | `Strip` + `StripChild` — outlet state; expands short child IDs for HS300 HW 2.0 |
@@ -126,7 +126,7 @@ Tapo devices respond only on port 80 via KLAP and never appear in UDP scan resul
 |-------|:--------:|:-----:|:---:|:--:|:-----:|:------:|:---------:|:---:|:-----:|:-------:|:-----:|:-------:|
 | KL135 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
 | LB130 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | ✅ | ✅ |
-| KL430 | — | ❌¹ | ❌¹ | ❌¹ | ❌¹ | ✅ | — | — | — | — | — | — |
+| KL420L5 / KL430 | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — | — |
 | HS220 | — | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | — | — | — |
 | KP115 | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | ✅ | — | — | — |
 | HS110 | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | ✅ | — | — | — |
@@ -134,10 +134,10 @@ Tapo devices respond only on port 80 via KLAP and never appear in UDP scan resul
 | HS300 | ✅ | ✅ | — | — | — | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
 | KP303 | — | ✅ | — | — | — | — | ✅ | ✅ | ✅ | ✅ | — | — |
 | P125 (Tapo) | ✅ | ✅ | — | — | — | — | — | — | — | — | — | — |
+| P110 / P115 / KP125M (Tapo) | — | ✅ | — | — | — | ✅ | — | — | — | — | — | — |
+| P125M (Tapo) | — | ✅ | — | — | — | — | — | — | — | — | — | — |
 
 CT = color temperature.
-
-¹ KL430 uses `smartlife.iot.lightStrip` namespace — `smartbulb.lightingservice` commands are rejected by the device. Power, dim, color-temp, and color are not yet routed through the correct namespace.
 
 **Energy notes:**
 - Bulbs and light strips always use `smartlife.iot.common.emeter`; bare `emeter` returns error -2001
@@ -161,11 +161,12 @@ CT = color temperature.
 
 ```
 denki scan [--timeout N]                          Scan LAN for Kasa devices; probe saved Tapo aliases concurrently
-denki info <device>                               Detailed device info (Kasa + Tapo)
+denki info <device> [--json]                       Detailed device info; JSON emits a stable diagnostic report
+denki doctor <device> [--json]                     Reachability, parsing, firmware, and capabilities report
 denki on <device> [N]                             Turn on; N = outlet number (strips, 1-based)
 denki off <device> [N]                            Turn off; N = outlet number (strips, 1-based)
 denki toggle <device> [N]                         Toggle; N = outlet number (strips, 1-based)
-denki group <on|off|toggle> <pattern>             Apply power action to all matching aliases
+denki group <on|off|toggle> <pattern> [options]    Apply power action to all matching aliases
 denki dim <device> <0-100>                        Brightness — bulbs + HS220 dimmers
 denki color-temp <device> <2500-9000>             Color temperature in Kelvin — bulbs only
 denki color <device> -H <hue> -s <sat> -v <val>  HSV color — bulbs only
@@ -188,6 +189,10 @@ denki unalias <name>                              Remove a saved alias
 denki aliases                                     List all saved aliases
 denki login <email> [password]                    Save Tapo credentials (prompts if password omitted)
 ```
+
+Group options: `--dry-run` lists matches without contacting devices; `--concurrency N` limits
+parallel operations (default 4, maximum 32). Group failures are summarized after all matches
+have been attempted.
 
 ## ops.rs Naming Conventions
 
@@ -212,10 +217,10 @@ The scan command loads hosts.json once before the UDP broadcast, updates the map
 | `lookup(name)` | Exact-then-substring match; errors on ambiguity |
 | `normalize(s)` | Lowercase + collapse non-alphanumeric to spaces for fuzzy matching |
 
-## Not Implemented
+## Current limitations
 
-- Energy monitoring for Tapo devices (P125 does not expose emeter locally)
-- KL430 power, dim, color-temp, color — uses `smartlife.iot.lightStrip`, not `smartbulb.lightingservice`
+- Daily and monthly history for Tapo energy devices (the local API exposes current/day/month totals)
+- P125 and P125M Tapo devices do not expose energy locally
 - Away mode (`anti_theft`) rule creation
 - Countdown timer creation
 - Schedule creation and deletion
