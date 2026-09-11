@@ -37,7 +37,7 @@ cbc = { version = "0.2.1", features = ["alloc"] }
 rand = "0.10.2"
 base64 = "0.23.1"
 
-toml = "1.1.5"
+toml = "1.1.6"
 if-addrs = "0.15.0"
 rpassword = "7.5.4"
 
