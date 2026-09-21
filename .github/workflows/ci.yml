@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -9,38 +10,50 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTDOCFLAGS: -D warnings
+  CARGO_INCREMENTAL: 0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","Linux","X64","denki-ci"]') || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/setup-rust
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo fmt --check
-      - run: cargo doc --no-deps --document-private-items
+      - run: cargo doc --locked --no-deps --document-private-items
 
   audit:
     name: Dependency Audit
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","Linux","X64","denki-ci"]') || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-audit --locked
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/setup-rust
+      - name: Install pinned audit tool when needed
+        run: |
+          if ! cargo audit --version 2>/dev/null | grep -qx 'cargo-audit 0.22.2'; then
+            cargo install cargo-audit --locked --version 0.22.2
+          fi
       - run: cargo audit
 
   build:
     name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","Linux","X64","denki-ci"]') || fromJSON(format('["{0}"]', matrix.os)) }}
+    timeout-minutes: 20
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/setup-rust
+      - run: cargo build --locked --release
