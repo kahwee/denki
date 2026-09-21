@@ -17,3 +17,20 @@ contributors require workflow approval; never approve a PR that targets the NAS.
 
 Run `gh workflow run ci.yml --ref main` and compare step timings with a rerun of the
 same commit. First runs include compilation; warm runs reuse unchanged artifacts.
+
+## Verified timings
+
+[Run 35550739631](https://github.com/kahwee/denki/actions/runs/35550739631) passed
+all jobs on commit `76fd756`, both initially and on rerun (2026-09-20 Pacific).
+
+| Job | Initial | Warm rerun |
+| --- | ---: | ---: |
+| Linux tests | 176s | 21s |
+| Linux release build | 76s | 9s |
+| Dependency audit | 640s | 11s |
+| Hosted macOS release build | 58s | 21s |
+
+Times include job setup and cleanup, but not queueing. The initial audit job spent
+615 seconds installing the pinned tool. Warm Linux jobs completed serially within
+44 seconds. These are single-run observations on a shared NAS, not medians or a
+controlled provider comparison. All test, audit and build commands still execute.
