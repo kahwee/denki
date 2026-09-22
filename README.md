@@ -124,8 +124,8 @@ denki color "light strip" -H 200 -s 80 -v 70
 
 ```bash
 denki energy "desk plug"
-denki energy-daily "desk plug" 2025-03
-denki energy-monthly "desk plug" 2025
+denki energy-daily "desk plug" 2026-03
+denki energy-monthly "desk plug" 2026
 ```
 
 `energy-daily` defaults to the current month, and `energy-monthly` defaults to the current year.
@@ -171,8 +171,8 @@ denki on "power strip" 2
 denki off "power strip" 2
 denki toggle "power strip" 2
 denki energy "power strip" 2
-denki energy-daily "power strip" 2025-03 -o 2
-denki energy-monthly "power strip" 2025 -o 2
+denki energy-daily "power strip" 2026-03 -o 2
+denki energy-monthly "power strip" 2026 -o 2
 denki outlet-rename "power strip" 2 "Coffee Maker"
 ```
 

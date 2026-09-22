@@ -3,14 +3,15 @@
 # Each entry maps a real device model to a DeviceKind and the set of
 # features denki supports on that kind.
 #
-# Tests in src/main.rs parse this file and verify that:
+# Capability consistency tests in src/app/tests/capabilities.rs parse this
+# file (via src/devices/registry.rs) and verify that:
 #   1. Every feature listed here is permitted by the corresponding can_* guard.
 #   2. Every guarded feature NOT listed here is denied by the guard.
 #
-# When you add or change a guard in src/devices.rs, update this file to match.
-# When you add a new device model, add an entry here.
+# When you add or change a guard in src/devices/guards.rs, update this file
+# to match. When you add a new device model, add an entry here.
 #
-# Guarded features (each maps to a can_* function in src/devices.rs):
+# Guarded features (each maps to a can_* function in src/devices/guards.rs):
 #   power      — can_control_power(kind)
 #   dim        — can_dim(kind)
 #   color_temp — can_set_color_temp(kind)
@@ -21,9 +22,11 @@
 #   led        — can_control_led(kind)
 #   clock      — can_get_clock(kind)
 #
-# Informational features (not guarded by a can_* function):
-#   energy     — available on Bulb always; Plug only when ENE flag is set
+# Informational features (listed in supports; not enforced by the
+# capabilities consistency test's GUARDED set):
+#   energy     — available on Bulb/LightStrip always; Plug/Strip when ENE is set
 #   outlets    — Strip kind only
+#   effects    — LightStrip only (also has can_get_effects; used by handlers)
 
 # ── Bulbs ─────────────────────────────────────────────────────────────────────
 
