@@ -7,11 +7,11 @@ Thanks for improving `denki`.
 ```bash
 git clone https://github.com/kahwee/denki.git
 cd denki
-cargo build
-cargo test
+cargo build --locked
+cargo test --locked
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo doc --no-deps --document-private-items
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo doc --locked --no-deps --document-private-items
 ```
 
 ## Development workflow
@@ -59,3 +59,25 @@ Include:
 ## Notes
 
 `denki` is intentionally local-network-first. Please avoid adding cloud dependencies unless there is a clear reason and a minimal, documented fallback.
+
+## Live Smoke Harness
+
+The repository includes an ignored integration harness that runs the real `denki`
+binary against live devices. It is useful for verifying actual on/off behavior
+without turning the main test suite into a network-dependent job.
+
+```bash
+cargo test --test live_smoke -- --ignored --nocapture
+```
+
+Environment variables:
+
+- `DENKI_SMOKE_POWER_TARGETS`: comma-separated aliases to power cycle
+- `DENKI_SMOKE_LIGHTSTRIP`: optional alias for a light-strip effect cycle
+
+If `DENKI_SMOKE_POWER_TARGETS` is unset, the harness defaults to
+`Living Room Right Lamp`.
+
+
+See [architecture and protocols](docs/architecture.md) for module ownership and
+[device commands](docs/commands.md) for support and usage.
