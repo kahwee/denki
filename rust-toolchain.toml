@@ -1,0 +1,5 @@
+# Validated stable toolchain for development and CI.
+# The minimum supported Rust version remains in Cargo.toml.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]

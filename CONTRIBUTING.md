@@ -4,6 +4,9 @@ Thanks for improving `denki`.
 
 ## Local setup
 
+Development and CI use Rust 1.99.0, selected by `rust-toolchain.toml` when using
+rustup. The minimum supported Rust version remains 1.97.
+
 ```bash
 git clone https://github.com/kahwee/denki.git
 cd denki
