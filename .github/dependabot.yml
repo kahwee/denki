@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Keep SHA-pinned actions current in one review and CI run.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
