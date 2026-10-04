@@ -30,7 +30,7 @@ use sha2::Sha256;
 use std::fmt::Write as FmtWrite;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, Instant, timeout_at};
 
 const KLAP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -86,8 +86,9 @@ async fn http_post(
     extra_headers: &[(&str, &str)],
     body: &[u8],
 ) -> Result<(u16, String, Vec<u8>)> {
+    let deadline = Instant::now() + KLAP_TIMEOUT;
     let addr = format!("{host}:80");
-    let mut stream = timeout(KLAP_TIMEOUT, TcpStream::connect(&addr))
+    let mut stream = timeout_at(deadline, TcpStream::connect(&addr))
         .await
         .map_err(|_| crate::transport::connect_timeout_error(&addr, KLAP_TIMEOUT.as_secs()))?
         .map_err(|e| crate::transport::connect_error(&addr, &e))?;
@@ -102,15 +103,15 @@ async fn http_post(
     }
     req.push_str("\r\n");
 
-    timeout(KLAP_TIMEOUT, stream.write_all(req.as_bytes()))
+    timeout_at(deadline, stream.write_all(req.as_bytes()))
         .await
         .map_err(|_| anyhow::anyhow!("Timed out sending request to {host}"))??;
-    timeout(KLAP_TIMEOUT, stream.write_all(body))
+    timeout_at(deadline, stream.write_all(body))
         .await
         .map_err(|_| anyhow::anyhow!("Timed out sending request body to {host}"))??;
 
     // Read headers byte by byte until \r\n\r\n
-    let header_bytes = timeout(KLAP_TIMEOUT, read_headers(&mut stream))
+    let header_bytes = timeout_at(deadline, read_headers(&mut stream))
         .await
         .map_err(|_| anyhow::anyhow!("Timed out reading response headers from {host}"))??;
     let headers_str = String::from_utf8_lossy(&header_bytes).into_owned();
@@ -125,25 +126,37 @@ async fn http_post(
 
     // Parse Content-Length to read exactly that many body bytes.
     // Absent on responses with no body (e.g. handshake2 200 OK); treat those as 0.
-    let content_length: usize = headers_str
-        .lines()
-        .find_map(|l| {
-            if l.to_lowercase().starts_with("content-length:") {
-                l["content-length:".len()..].trim().parse().ok()
-            } else {
-                None
-            }
-        })
-        .unwrap_or(0);
+    let content_length = response_content_length(&headers_str)?;
 
     let mut resp_body = vec![0u8; content_length];
     if content_length > 0 {
-        timeout(KLAP_TIMEOUT, stream.read_exact(&mut resp_body))
+        timeout_at(deadline, stream.read_exact(&mut resp_body))
             .await
             .map_err(|_| anyhow::anyhow!("Timed out reading response body from {host}"))??;
     }
 
     Ok((status, headers_str, resp_body))
+}
+
+fn response_content_length(headers: &str) -> Result<usize> {
+    let mut length = None;
+    for line in headers.lines() {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("content-length") {
+            let parsed = value
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| anyhow::anyhow!("Invalid HTTP Content-Length"))?;
+            crate::transport::validate_response_length(parsed)?;
+            if length.is_some_and(|previous| previous != parsed) {
+                bail!("Conflicting HTTP Content-Length headers");
+            }
+            length = Some(parsed);
+        }
+    }
+    Ok(length.unwrap_or(0))
 }
 
 pub async fn handshake(host: &str, username: &str, password: &str) -> Result<KlapSession> {
@@ -276,6 +289,17 @@ mod tests {
     use super::*;
     use crate::transport;
     use std::io::ErrorKind;
+
+    #[rstest::rstest]
+    #[case("HTTP/1.1 200 OK\r\n\r\n", Some(0))]
+    #[case("HTTP/1.1 200 OK\r\ncOnTeNt-LeNgTh: 48\r\n\r\n", Some(48))]
+    #[case("Content-Length: invalid\r\n", None)]
+    #[case("Content-Length: -1\r\n", None)]
+    #[case("Content-Length: 1048577\r\n", None)]
+    #[case("Content-Length: 48\r\nContent-Length: 16\r\n", None)]
+    fn bounded_content_length(#[case] headers: &str, #[case] expected: Option<usize>) {
+        assert_eq!(response_content_length(headers).ok(), expected);
+    }
 
     #[test]
     fn klap_timeout_is_positive() {

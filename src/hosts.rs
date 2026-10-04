@@ -252,13 +252,19 @@ pub fn save(map: &std::collections::BTreeMap<String, HostEntry>) -> Result<()> {
     save_map(&hosts_path(), map)
 }
 
-/// Insert name→ip (Kasa) into `map` if no entry for that IP exists. Returns true if inserted.
+/// Insert a new Kasa alias only when neither its IP nor normalized name is saved.
+/// Returns false for blank names or collisions, preserving existing aliases.
 pub fn save_if_new_in(
     name: &str,
     ip: &str,
     map: &mut std::collections::BTreeMap<String, HostEntry>,
 ) -> bool {
-    if name.is_empty() || map.values().any(|v| v.ip == ip) {
+    let name = name.trim();
+    let normalized = normalize(name);
+    if normalized.is_empty()
+        || map.values().any(|v| v.ip == ip)
+        || map.keys().any(|existing| normalize(existing) == normalized)
+    {
         return false;
     }
     map.insert(
@@ -510,6 +516,28 @@ mod tests {
         assert!(!saved);
         assert!(map.contains_key("hummer"));
         assert!(!map.contains_key("Hummer"));
+    }
+
+    #[rstest]
+    #[case("Desk Lamp")]
+    #[case("desk-lamp")]
+    #[case("  DESK   LAMP  ")]
+    fn auto_save_preserves_colliding_alias(#[case] incoming: &str) {
+        let mut map = BTreeMap::new();
+        map.insert("Desk Lamp".into(), entry("192.0.2.1", Protocol::Klap));
+        assert!(!save_if_new_in(incoming, "192.0.2.2", &mut map));
+        assert_eq!(map.len(), 1);
+        assert_eq!(map["Desk Lamp"].ip, "192.0.2.1");
+        assert_eq!(map["Desk Lamp"].protocol, Protocol::Klap);
+    }
+
+    #[rstest]
+    #[case("   ")]
+    #[case("---")]
+    fn auto_save_rejects_normalized_empty_names(#[case] name: &str) {
+        let mut map = BTreeMap::new();
+        assert!(!save_if_new_in(name, "192.0.2.1", &mut map));
+        assert!(map.is_empty());
     }
 
     #[test]

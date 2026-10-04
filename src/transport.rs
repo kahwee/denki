@@ -9,6 +9,17 @@ use tokio::net::{TcpStream, UdpSocket};
 
 /// Port used by all legacy Kasa devices (KL135/LB130, KP115, HS series, etc.)
 const PORT: u16 = 9999;
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+// Generous enough for device info and history, but never trust a peer's allocation size.
+pub(crate) const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+
+pub(crate) fn validate_response_length(len: usize) -> Result<()> {
+    anyhow::ensure!(
+        len <= MAX_RESPONSE_BYTES,
+        "Device response too large: {len} bytes (maximum {MAX_RESPONSE_BYTES})"
+    );
+    Ok(())
+}
 
 pub(crate) fn connect_timeout_error(addr: &str, seconds: u64) -> anyhow::Error {
     anyhow::anyhow!(
@@ -39,23 +50,33 @@ pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::
             .map_err(|_| connect_timeout_error(&addr, 5))?
             .map_err(|e| connect_error(&addr, &e))?;
 
-    // Serialize to JSON, then XOR-encrypt with 4-byte length prefix for TCP
-    let raw = serde_json::to_vec(&payload)?;
-    let encoded = cipher::encode(&raw);
-    stream.write_all(&encoded).await?;
+    exchange(&mut stream, &payload, REQUEST_TIMEOUT).await
+}
 
-    // Read exactly 4 bytes to learn how many cipher bytes follow
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_be_bytes(len_buf) as usize;
+async fn exchange(
+    stream: &mut TcpStream,
+    payload: &serde_json::Value,
+    deadline: std::time::Duration,
+) -> Result<serde_json::Value> {
+    tokio::time::timeout(deadline, async {
+        let raw = serde_json::to_vec(payload)?;
+        stream.write_all(&cipher::encode(&raw)).await?;
 
-    // Read exactly `len` cipher bytes, then decode
-    let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).await?;
-
-    let decoded = cipher::decode(&body);
-    let response = serde_json::from_slice(&decoded)?;
-    Ok(response)
+        let mut len_buf = [0u8; 4];
+        stream.read_exact(&mut len_buf).await?;
+        let len = u32::from_be_bytes(len_buf) as usize;
+        validate_response_length(len)?;
+        let mut body = vec![0u8; len];
+        stream.read_exact(&mut body).await?;
+        Ok(serde_json::from_slice(&cipher::decode(&body))?)
+    })
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "Timed out exchanging Kasa request after {}s",
+            deadline.as_secs_f64()
+        )
+    })?
 }
 
 /// Broadcast a sysinfo probe and call `f` for each device as it responds.
@@ -116,6 +137,73 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn local_exchange(reply: Option<Vec<u8>>, stall: bool) -> Result<serde_json::Value> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let deadline = if stall {
+            std::time::Duration::from_millis(100)
+        } else {
+            std::time::Duration::from_secs(5)
+        };
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut length = [0; 4];
+            socket.read_exact(&mut length).await.unwrap();
+            let mut body = vec![0; u32::from_be_bytes(length) as usize];
+            socket.read_exact(&mut body).await.unwrap();
+            if let Some(reply) = reply {
+                socket.write_all(&reply).await.unwrap();
+            }
+            if stall {
+                std::future::pending::<()>().await;
+            }
+        });
+        let mut client = TcpStream::connect(addr).await?;
+        let result = exchange(
+            &mut client,
+            &serde_json::json!({"system": {"get_sysinfo": {}}}),
+            deadline,
+        )
+        .await;
+        server.abort();
+        result
+    }
+
+    #[tokio::test]
+    async fn exchange_decodes_valid_response() {
+        let response = serde_json::json!({"system": {"get_sysinfo": {"model": "test"}}});
+        let reply = cipher::encode(&serde_json::to_vec(&response).unwrap());
+        assert_eq!(local_exchange(Some(reply), false).await.unwrap(), response);
+    }
+
+    #[tokio::test]
+    async fn exchange_times_out_when_peer_stalls() {
+        let error = local_exchange(None, true).await.unwrap_err();
+        assert!(error.to_string().contains("Timed out"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn exchange_times_out_when_body_stalls() {
+        let error = local_exchange(Some(10u32.to_be_bytes().to_vec()), true)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("Timed out"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn exchange_rejects_oversized_frame_before_reading_body() {
+        let reply = ((MAX_RESPONSE_BYTES + 1) as u32).to_be_bytes().to_vec();
+        let error = local_exchange(Some(reply), false).await.unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn exchange_rejects_truncated_frame() {
+        let mut reply = 10u32.to_be_bytes().to_vec();
+        reply.extend_from_slice(&[1, 2]);
+        assert!(local_exchange(Some(reply), false).await.is_err());
+    }
 
     #[test]
     fn timeout_error_mentions_offline_and_addr() {

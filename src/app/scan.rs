@@ -10,7 +10,7 @@ use super::shared::{print_kasa_summary, tapo_session};
 
 pub(super) async fn handle_scan(timeout: u64) -> Result<()> {
     println!("{}", format!("Scanning network for {timeout}s...").dimmed());
-    let mut host_map = hosts::load().unwrap_or_default();
+    let mut host_map = hosts::load()?;
     let mut map_dirty = false;
     let mut device_count = transport::broadcast_each(timeout, |ip, json| {
         let ip_str = ip.to_string();

@@ -69,10 +69,13 @@ XOR autokey cipher. Starting key `0xAB` (171); each output byte becomes the key 
 - **TCP:** `encode()` prepends a 4-byte big-endian length; receiver reads that many cipher bytes then calls `decode()`
 - **UDP:** `encode_raw()` for send (no prefix), `decode()` for receive — adding a prefix causes garbage
 - **Connect timeout:** 5 seconds
+- **Exchange deadline:** 10 seconds for the complete write/read exchange after connecting
+- **Response limit:** 1 MiB, checked before allocating the response body
+- **Mutations:** validate the requested namespace/method's `err_code`; missing, malformed, or nonzero codes are errors
 
 ### KLAP (Tapo) — port 80
 
-AES-128-CBC over plain HTTP. Uses raw `TcpStream` — some Tapo firmware returns 400 for standard HTTP clients. All I/O is wrapped with a 10-second timeout.
+AES-128-CBC over plain HTTP. Uses raw `TcpStream` — some Tapo firmware returns 400 for standard HTTP clients. Each HTTP request uses one shared 10-second deadline across connection, writes, headers, and body. Response bodies are capped at 1 MiB before allocation.
 
 **Auth hash:** `SHA256(SHA1(username) || SHA1(password))`
 
@@ -103,7 +106,7 @@ AES-128-CBC over plain HTTP. Uses raw `TcpStream` — some Tapo firmware returns
 
 ## hosts.rs Public API
 
-The scan command loads hosts.json once before the UDP broadcast, updates the map in memory as devices respond, and writes it once at the end only if new aliases were added (was N reads + N writes; now 1 read + 0 or 1 write).
+The scan command loads hosts.json once before discovery and stops if the registry cannot be loaded. It updates the map in memory as devices respond, preserving existing aliases when normalized names collide, then writes once at the end only if new aliases were added (1 read + 0 or 1 write).
 
 | Function | Purpose |
 |----------|---------|

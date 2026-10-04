@@ -10,19 +10,53 @@ use anyhow::Result;
 use serde::Serialize;
 use serde_json::json;
 
+// A TCP/JSON success does not establish that the requested mutation succeeded.
+async fn send_command(host: &str, payload: serde_json::Value) -> Result<()> {
+    let response = transport::send(host, payload.clone()).await?;
+    check_kasa_command(&payload, &response)
+}
+
+fn check_kasa_command(payload: &serde_json::Value, response: &serde_json::Value) -> Result<()> {
+    let namespaces = payload
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("Invalid Kasa command payload"))?;
+    for (namespace, commands) in namespaces {
+        if namespace == "context" {
+            continue; // Per-outlet routing is not a command response.
+        }
+        let commands = commands
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("Invalid Kasa commands for {namespace}"))?;
+        for command in commands.keys() {
+            let result = response.get(namespace).and_then(|value| value.get(command));
+            let code = result
+                .and_then(|value| value.get("err_code"))
+                .and_then(serde_json::Value::as_i64)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Kasa response missing valid err_code for {namespace}.{command}"
+                    )
+                })?;
+            if code != 0 {
+                anyhow::bail!("Kasa device error for {namespace}.{command}: code {code}");
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn sysinfo(host: &str) -> Result<serde_json::Value> {
     transport::send(host, json!({"system": {"get_sysinfo": {}}})).await
 }
 
 async fn bulb_set_power(host: &str, on: bool) -> Result<()> {
-    transport::send(
+    send_command(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
             "transition_light_state": {"on_off": u8::from(on), "transition_period": 0}
         }}),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 pub async fn bulb_on(host: &str) -> Result<()> {
@@ -38,8 +72,7 @@ fn lightstrip_state_payload(state: serde_json::Value) -> serde_json::Value {
 }
 
 async fn lightstrip_set_state(host: &str, state: serde_json::Value) -> Result<()> {
-    transport::send(host, lightstrip_state_payload(state)).await?;
-    Ok(())
+    send_command(host, lightstrip_state_payload(state)).await
 }
 
 pub async fn lightstrip_set_power(host: &str, on: bool) -> Result<()> {
@@ -98,19 +131,18 @@ pub async fn lightstrip_set_color(host: &str, hue: u16, saturation: u8, value: u
 }
 
 pub async fn bulb_set_brightness(host: &str, level: u8) -> Result<()> {
-    transport::send(
+    send_command(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
             "transition_light_state": {"brightness": level, "transition_period": 0}
         }}),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 /// hue/saturation must be 0 to clear any previous color mode state on the device.
 pub async fn bulb_set_color_temp(host: &str, kelvin: u16) -> Result<()> {
-    transport::send(
+    send_command(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
             "transition_light_state": {
@@ -121,13 +153,12 @@ pub async fn bulb_set_color_temp(host: &str, kelvin: u16) -> Result<()> {
             }
         }}),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 /// color_temp must be 0 to activate color mode; some firmware ignores hue/saturation otherwise.
 pub async fn bulb_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> Result<()> {
-    transport::send(
+    send_command(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {
             "transition_light_state": {
@@ -139,8 +170,7 @@ pub async fn bulb_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> 
             }
         }}),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 pub async fn bulb_specs(host: &str) -> Result<serde_json::Value> {
@@ -275,15 +305,13 @@ pub async fn lightstrip_set_effect(
     effect: &LightingEffectState,
     name: &str,
 ) -> Result<()> {
-    transport::send(host, lightstrip_effect_payload(effect, name, 1)?).await?;
-    Ok(())
+    send_command(host, lightstrip_effect_payload(effect, name, 1)?).await
 }
 
 pub async fn lightstrip_disable_effect(host: &str) -> Result<()> {
     let mut effect = lightstrip_current_effect(host).await?;
     effect.enable = 0;
-    transport::send(host, lightstrip_effect_payload(&effect, &effect.name, 0)?).await?;
-    Ok(())
+    send_command(host, lightstrip_effect_payload(&effect, &effect.name, 0)?).await
 }
 
 // HS220 rejects brightness=0 — route to relay_off instead.
@@ -291,32 +319,28 @@ pub async fn dimmer_set_brightness(host: &str, level: u8) -> Result<()> {
     if level == 0 {
         return relay_off(host).await;
     }
-    transport::send(
+    send_command(
         host,
         json!({"smartlife.iot.dimmer": {"set_brightness": {"brightness": level}}}),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 pub async fn relay_on(host: &str) -> Result<()> {
-    transport::send(host, json!({"system": {"set_relay_state": {"state": 1}}})).await?;
-    Ok(())
+    send_command(host, json!({"system": {"set_relay_state": {"state": 1}}})).await
 }
 
 pub async fn relay_off(host: &str) -> Result<()> {
-    transport::send(host, json!({"system": {"set_relay_state": {"state": 0}}})).await?;
-    Ok(())
+    send_command(host, json!({"system": {"set_relay_state": {"state": 0}}})).await
 }
 
 // set_led_off is inverted: off:0 = LED lit, off:1 = LED dark.
 pub async fn device_led(host: &str, on: bool) -> Result<()> {
-    transport::send(
+    send_command(
         host,
         json!({"system": {"set_led_off": {"off": i32::from(!on)}}}),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 pub async fn device_energy(host: &str) -> Result<serde_json::Value> {
@@ -345,15 +369,14 @@ pub async fn device_time(host: &str) -> Result<serde_json::Value> {
 
 // Individual outlets are addressed via context.child_ids; callers resolve outlet number → child id from sysinfo.
 async fn strip_outlet_set(host: &str, child_id: &str, on: bool) -> Result<()> {
-    transport::send(
+    send_command(
         host,
         json!({
             "context": {"child_ids": [child_id]},
             "system": {"set_relay_state": {"state": u8::from(on)}}
         }),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 pub async fn strip_outlet_on(host: &str, child_id: &str) -> Result<()> {
@@ -407,25 +430,22 @@ pub async fn strip_outlet_energy_monthly(
 }
 
 pub async fn strip_outlet_rename(host: &str, child_id: &str, name: &str) -> Result<()> {
-    transport::send(
+    send_command(
         host,
         json!({
             "context": {"child_ids": [child_id]},
             "system": {"set_dev_alias": {"alias": name}}
         }),
     )
-    .await?;
-    Ok(())
+    .await
 }
 
 pub async fn rename(host: &str, name: &str) -> Result<()> {
-    transport::send(host, json!({"system": {"set_dev_alias": {"alias": name}}})).await?;
-    Ok(())
+    send_command(host, json!({"system": {"set_dev_alias": {"alias": name}}})).await
 }
 
 pub async fn restart(host: &str) -> Result<()> {
-    transport::send(host, json!({"system": {"reboot": {"delay": 1}}})).await?;
-    Ok(())
+    send_command(host, json!({"system": {"reboot": {"delay": 1}}})).await
 }
 
 pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
@@ -493,6 +513,33 @@ fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[rstest::rstest]
+    #[case(json!({"system": {"set_relay_state": {"err_code": 0}}}), true)]
+    #[case(json!({"system": {"set_relay_state": {"err_code": -2001}}}), false)]
+    #[case(json!({"system": {"set_relay_state": {}}}), false)]
+    #[case(json!({"system": {"set_relay_state": {"err_code": "0"}}}), false)]
+    #[case(json!({"system": {"get_sysinfo": {"err_code": 0}}}), false)]
+    #[case(json!({}), false)]
+    fn kasa_mutation_requires_success_for_requested_command(
+        #[case] response: serde_json::Value,
+        #[case] succeeds: bool,
+    ) {
+        let payload = json!({"context": {"child_ids": ["test-child"]}, "system": {"set_relay_state": {"state": 1}}});
+        assert_eq!(check_kasa_command(&payload, &response).is_ok(), succeeds);
+    }
+
+    #[test]
+    fn kasa_error_names_namespace_command_and_code() {
+        let payload = json!({"smartlife.iot.lightStrip": {"set_light_state": {"on_off": 1}}});
+        let response =
+            json!({"smartlife.iot.lightStrip": {"set_light_state": {"err_code": -2001}}});
+        let message = check_kasa_command(&payload, &response)
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("smartlife.iot.lightStrip.set_light_state"));
+        assert!(message.contains("-2001"));
+    }
 
     fn effect() -> LightingEffectState {
         LightingEffectState {
