@@ -21,3 +21,6 @@ Never put real device addresses, credentials, or diagnostic captures in Git.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local workflow and
 [README.md](README.md) for user commands and support status.
+
+For release preparation, version tags, and GitHub publication, follow
+[the Denki release skill](.agents/skills/denki-release/SKILL.md).

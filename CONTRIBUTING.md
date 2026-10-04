@@ -24,6 +24,13 @@ cargo doc --locked --no-deps --document-private-items
 3. Add or update tests for parser or CLI behavior.
 4. Run the checks above before opening a PR.
 
+## Releases
+
+Use the [Denki release skill](.agents/skills/denki-release/SKILL.md) to prepare
+a release from green main, create an annotated tag matching the Cargo package
+version, and publish and verify the GitHub release. The guide also covers
+optional binary artifacts and separately requested crates.io publication.
+
 ## Code style
 
 - Keep protocol logic in the device/module that owns it.
