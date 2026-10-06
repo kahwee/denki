@@ -1,21 +1,48 @@
 # Rust library usage
 
-`denki` can also be used as a library from another Rust project:
+Requires Rust 1.99 or newer. Add these dependencies to your project:
 
 ```toml
 [dependencies]
 denki = { git = "https://github.com/kahwee/denki" }
+anyhow = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-```rust
+## Kasa device information
+
+```rust,no_run
+use denki::ops;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let info = ops::sysinfo("192.0.2.42").await?;
+    println!("{info}");
+    Ok(())
+}
+```
+
+## Tapo device information
+
+Create a KLAP session with your Tapo credentials and reuse it for subsequent calls:
+
+```rust,no_run
 use denki::{klap, ops};
 
-let json = ops::sysinfo("192.168.1.42").await?;
-let mut session = klap::handshake("192.168.1.50", "user@example.com", "pass").await?;
-let info = ops::tapo_device_info(&mut session).await?;
-ops::tapo_on(&mut session).await?;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let user = std::env::var("TAPO_USER")?;
+    let password = std::env::var("TAPO_PASS")?;
+    let mut session = klap::handshake("192.0.2.50", &user, &password).await?;
+    let info = ops::tapo_device_info(&mut session).await?;
+    println!("{info}");
+    Ok(())
+}
 ```
 
+Replace these documentation-only addresses with your device's local IP before
+running. The examples read information; they do not change power state. CI compiles
+these exact examples as doctests without contacting devices.
 
-See [`src/lib.rs`](../src/lib.rs) for public modules. The snippet belongs in an
-async function returning `anyhow::Result<()>`; it contacts real devices.
+The low-level `ops` functions take addresses or sessions directly. They do not
+resolve CLI aliases or enforce the saved-identity checks used by CLI commands.

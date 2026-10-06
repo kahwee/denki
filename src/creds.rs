@@ -1,5 +1,5 @@
 //! Tapo credentials — env vars (TAPO_USER/TAPO_PASS) take precedence over
-//! ~/.config/denki/credentials.json (written mode 0600 on Unix).
+//! denki/credentials.json in the platform configuration directory (mode 0600 on Unix).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

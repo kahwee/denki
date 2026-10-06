@@ -1,36 +1,34 @@
 # CI runners
 
-Main pushes and manual main runs use `stash-denki-ci` for Linux tests, audit and
-release builds. PRs use GitHub-hosted Linux; macOS always uses GitHub-hosted runners.
-The jobs retain their existing names and checks, with locked Cargo dependencies.
-Obsolete runs are cancelled when a newer commit arrives.
+The [CI workflow](workflows/ci.yml) uses GitHub-hosted runners for every event:
 
-The dedicated container keeps Cargo toolchains, downloaded crates, the pinned audit
-binary and compiled artifacts between jobs. `CARGO_TARGET_DIR` is outside checkout
-cleanup. Cargo validates fingerprints and all tests still execute; audit advisories
-refresh on every run. Linux jobs are serialized by the single repository runner.
+| Job | Runner | Checks |
+| --- | --- | --- |
+| Test | `ubuntu-latest` | Generated support docs, locked tests (including library examples), Clippy, formatting, rustdoc |
+| Dependency Audit | `ubuntu-latest` | `cargo audit` with refreshed advisories |
+| Build | `ubuntu-latest`, `macos-latest` | Locked release build |
 
-Infrastructure and maintenance live in
-[Thermark's runner directory](https://github.com/kahwee/thermark/tree/main/infra/github-runner).
-The runner rejects non-main and PR events before checkout. All external fork
-contributors require workflow approval; never approve a PR that targets the NAS.
+Development and CI use only Rust 1.99.0, configured by `rust-toolchain.toml` and
+[setup-rust](actions/setup-rust/action.yml). The minimum supported version is 1.99.
+Cargo caches may speed up compilation; checks still execute on every applicable run.
+There is no self-hosted or NAS runner requirement.
 
-Run `gh workflow run ci.yml --ref main` and compare step timings with a rerun of the
-same commit. First runs include compilation; warm runs reuse unchanged artifacts.
+Pushes to main, pull requests targeting main, and manual runs execute all jobs.
+Every Monday at 17:23 UTC, a scheduled run executes only the dependency audit.
+GitHub may delay scheduled runs. Concurrency groups include the event type, so a
+scheduled audit cannot cancel a full push/PR/manual run. Newer runs of the same
+event and ref cancel older ones.
 
-## Verified timings
+The workflow has read-only repository permissions. Action dependencies are pinned
+to commit SHAs; Dependabot opens weekly updates for actions and Cargo dependencies.
+See [dependency maintenance](../CONTRIBUTING.md#dependency-maintenance) for grouping
+and review policy.
 
-[Run 35550739631](https://github.com/kahwee/denki/actions/runs/35550739631) passed
-all jobs on commit `76fd756`, both initially and on rerun (2026-09-20 Pacific).
+To run all checks manually:
 
-| Job | Initial | Warm rerun |
-| --- | ---: | ---: |
-| Linux tests | 176s | 21s |
-| Linux release build | 76s | 9s |
-| Dependency audit | 640s | 11s |
-| Hosted macOS release build | 58s | 21s |
+```sh
+gh workflow run ci.yml --ref main
+```
 
-Times include job setup and cleanup, but not queueing. The initial audit job spent
-615 seconds installing the pinned tool. Warm Linux jobs completed serially within
-44 seconds. These are single-run observations on a shared NAS, not medians or a
-controlled provider comparison. All test, audit and build commands still execute.
+Use the Actions job logs to inspect timings. Cache misses and runner availability
+make historical timings unsuitable as performance guarantees.

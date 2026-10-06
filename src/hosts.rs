@@ -1,4 +1,4 @@
-//! Device alias registry — ~/.config/denki/hosts.json
+//! Device alias registry in the platform configuration directory (denki/hosts.json).
 //!
 //! v2 format: {"floor lamp": {"ip": "192.168.7.254", "protocol": "klap"}, ...}
 //! v1 compat: plain string values are read as Kasa protocol.

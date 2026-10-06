@@ -2,22 +2,34 @@
 
 ## Supported devices
 
-### Verified support
+The table is generated from [`devices.toml`](../devices.toml). “Hardware verified”
+records existing hardware evidence, not a guarantee for every firmware or region.
+Unverified models have implementation support but still need real-device testing.
+HS300 verification covers the US model, hardware 2.0 / firmware 1.1.2.
 
-- **KL135 smart bulbs** — power, dimming, color temperature, HSV color, energy, specs, presets
-- **KP115 smart plugs** — power, energy, schedules, clock, LED
-- **HS110 smart plugs** — power, energy, schedules, clock, LED
-- **HS105 smart plugs** — power, schedules, clock, LED; no energy chip
-- **P125 Tapo plugs** — info and on/off/toggle power through a saved `--klap` alias
+<!-- device-support:start -->
+| Model | Kind | Protocol | Hardware verified | Features |
+| --- | --- | --- | --- | --- |
+| KL135 | Bulb | kasa | Yes | power, dim, color_temp, color, energy, specs, presets |
+| LB130 | Bulb | kasa | No | power, dim, color_temp, color, energy, specs, presets |
+| KL430 | LightStrip | kasa | No | power, dim, color_temp, color, energy, effects |
+| KL420L5 | LightStrip | kasa | No | power, dim, color_temp, color, energy, effects |
+| HS220 | Dimmer | kasa | No | power, dim, schedules, led, clock |
+| KP115 | Plug | kasa | Yes | power, energy, schedules, led, clock |
+| HS110 | Plug | kasa | Yes | power, energy, schedules, led, clock |
+| HS105 | Plug | kasa | Yes | power, schedules, led, clock |
+| HS300 | Strip | kasa | Yes | power, energy, schedules, led, clock, outlets |
+| KP303 | Strip | kasa | No | power, schedules, led, clock, outlets |
+| P125 | Tapo | klap | Yes | power |
+| P110 | Tapo | klap | No | power, energy |
+| P115 | Tapo | klap | No | power, energy |
+| KP125M | Tapo | klap | No | power, energy |
+| P125M | Tapo | klap | No | power |
+<!-- device-support:end -->
 
-### Supported but unverified
-
-- **LB130 smart bulbs** — same bulb commands as KL135; unverified
-- **KL420L5 / KL430 light strips** — scan/info, power, dimming, color temperature, HSV color, energy monitoring, and effects
-- **P110 / P115 / KP125M Tapo plugs** — power and real-time/today/month energy usage through a saved `--klap` alias
-- **P125M Tapo plugs** — info and power through a saved `--klap` alias
-- **HS220 dimmers** — info, power, dimming, schedules, LED, and clock
-- **HS300 / KP303 power strips** — info, outlet listing, per-outlet on/off/toggle power control, outlet rename, LED, schedules, and clock; energy only on ENE-capable models (verified on HS300 HW 2.0)
+Tapo models use saved `--klap` aliases. Power strips expose individual outlets;
+energy requires an ENE-capable model. Feature names in the table match the registry;
+`color_temp` means color temperature and `dim` means brightness.
 
 > **Energy note:** Bulbs and light strips use `smartlife.iot.common.emeter`; ENE-capable plugs use `emeter`, and ENE-capable strips use `emeter` with the outlet argument for `energy` or `-o N` for daily/monthly reports. KL135 / LB130 report `power_mw` and `total_wh`; KP115 reports `voltage_mv`, `current_ma`, and `power_mw`; HS110 reports real units (`voltage`, `current`, `power`).
 
@@ -216,7 +228,16 @@ denki aliases
 denki unalias "tapo plug"
 ```
 
-Aliases are stored in `~/.config/denki/hosts.json`.
+Aliases are stored in `hosts.json` inside the platform's Denki configuration directory:
+
+| Platform | Configuration directory |
+| --- | --- |
+| Linux | `$XDG_CONFIG_HOME/denki`, or `~/.config/denki` when unset |
+| macOS | `~/Library/Application Support/denki` |
+| Windows | `%APPDATA%\denki` |
+
+`denki aliases` prints the actual registry path. These files are local to your user
+account; keep credentials and device identities out of bug reports.
 
 ### Save Tapo credentials locally
 
@@ -233,7 +254,8 @@ denki login "you@example.com"
 
 You can also pass the password on the command line, but prompting is safer for day-to-day use.
 
-Tapo credentials are stored in `~/.config/denki/credentials.json`, and `TAPO_USER` / `TAPO_PASS` override the saved file.
+Tapo credentials are stored in `credentials.json` in the same configuration directory.
+Set both `TAPO_USER` and `TAPO_PASS` to override the saved file.
 
 ## How device lookup works
 
@@ -241,7 +263,7 @@ Tapo credentials are stored in `~/.config/denki/credentials.json`, and `TAPO_USE
 - Exact normalized alias matches win first, then unambiguous normalized substring matches.
 - Raw IP addresses are treated as Kasa devices.
 - Tapo devices must be added with `denki alias <name> <ip> --klap`.
-- The alias registry parser accepts either the current v2 JSON shape or legacy v1 shape.
+- The alias registry parser accepts object entries with optional device identities, older object entries without identities, or legacy plain-string entries.
 - If `hosts.json` is malformed, the CLI prints parser details for both formats to make
   recovery easier.
 

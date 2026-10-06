@@ -57,6 +57,15 @@ If you change command names, supported devices, or output format, update:
 - relevant inline doc comments in `src/`
 - any examples in `CLAUDE.md` if they are affected
 
+The support table in `docs/commands.md` is generated from `devices.toml`. After
+changing the registry, run `python3 scripts/update-device-docs.py` (Python 3.11+).
+CI runs the same script with `--check` to reject stale tables. Keep hardware
+verification claims tied to actual device evidence.
+
+`docs/library.md` is also the crate's rustdoc page. Its `no_run` examples compile
+as part of `cargo test --locked` without connecting to any devices. Keep complete
+imports, dependencies, and async entry points in those examples.
+
 ## Reporting a bug
 
 Include:

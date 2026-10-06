@@ -1,18 +1,4 @@
-//! denki — TP-Link Kasa and Tapo device library.
-//!
-//! ```rust,no_run
-//! use denki::{klap, ops};
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     // Tapo device via KLAP
-//!     let mut session = klap::handshake("192.168.7.254", "user@example.com", "pass").await?;
-//!     ops::tapo_on(&mut session).await?;
-//!     // Kasa device via XOR
-//!     ops::relay_on("192.168.4.23").await?;
-//!     Ok(())
-//! }
-//! ```
+#![doc = include_str!("../docs/library.md")]
 
 pub mod app;
 pub mod bulb;
