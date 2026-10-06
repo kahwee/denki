@@ -2,6 +2,9 @@ name: CI
 
 on:
   workflow_dispatch:
+  # Refresh advisories weekly, including weeks without repository changes.
+  schedule:
+    - cron: "23 17 * * 1"
   push:
     branches: [main]
   pull_request:
@@ -16,11 +19,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -47,6 +51,7 @@ jobs:
       - run: cargo audit
 
   build:
+    if: github.event_name != 'schedule'
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

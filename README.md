@@ -5,7 +5,7 @@ usage, operate lights and plugs, and combine commands in shell scripts.
 
 ## Install
 
-Requires Rust 1.97 or newer:
+Requires Rust 1.99 or newer:
 
 ```sh
 git clone https://github.com/kahwee/denki.git

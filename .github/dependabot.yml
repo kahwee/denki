@@ -9,3 +9,19 @@ updates:
       github-actions:
         patterns:
           - "*"
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 5
+    # Batch compatible updates; major upgrades remain separate PRs.
+    groups:
+      cargo-compatible:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
