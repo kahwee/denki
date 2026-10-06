@@ -31,6 +31,9 @@ async fn kasa_set_power(ip: &str, kind: &DeviceKind, on: bool) -> Result<()> {
 
 async fn set_device_power(r: &Resolved, on: bool) -> Result<()> {
     match r.protocol {
+        hosts::Protocol::Tapo => {
+            crate::tapo_client::set_power(&r.ip, Some(on)).await?;
+        }
         hosts::Protocol::Klap => {
             let mut s = tapo_session(&r.ip).await?;
             if on {
@@ -65,6 +68,7 @@ impl DeviceTransport for LiveDeviceTransport {
                 Ok(false)
             }
             GroupAction::Toggle => match target.protocol {
+                hosts::Protocol::Tapo => crate::tapo_client::set_power(&target.ip, None).await,
                 hosts::Protocol::Klap => {
                     let mut session = tapo_session(&target.ip).await?;
                     ops::tapo_toggle(&mut session).await
@@ -133,6 +137,7 @@ pub async fn handle_toggle(host: &str, outlet: Option<u8>) -> Result<()> {
         print_outlet_toggle_state(outlet_num, &child_alias, now_on);
     } else {
         let now_on = match r.protocol {
+            hosts::Protocol::Tapo => crate::tapo_client::set_power(&r.ip, None).await?,
             hosts::Protocol::Klap => {
                 let mut s = tapo_session(&r.ip).await?;
                 ops::tapo_toggle(&mut s).await?

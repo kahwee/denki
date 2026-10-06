@@ -59,6 +59,12 @@ pub struct DeviceEntry {
     #[serde(default)]
     pub protocol: Option<String>,
     pub supports: Vec<String>,
+    /// Capabilities of the upstream auto-negotiating client.
+    #[serde(default)]
+    pub tapo_auto_supports: Vec<String>,
+    /// Full hardware verification of that separate adapter path.
+    #[serde(default)]
+    pub tapo_auto_verified: bool,
 }
 
 #[derive(Deserialize)]

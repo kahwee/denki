@@ -21,13 +21,14 @@ HS300 verification covers the US model, hardware 2.0 / firmware 1.1.2.
 | HS300 | Strip | kasa | Yes | power, energy, schedules, led, clock, outlets |
 | KP303 | Strip | kasa | No | power, schedules, led, clock, outlets |
 | P125 | Tapo | klap | Yes | power |
+| P125 | Tapo | tapo (auto TPAP/KLAP) | Partial; see notes below | power |
 | P110 | Tapo | klap | No | power, energy |
 | P115 | Tapo | klap | No | power, energy |
 | KP125M | Tapo | klap | No | power, energy |
 | P125M | Tapo | klap | No | power |
 <!-- device-support:end -->
 
-Tapo models use saved `--klap` aliases. Power strips expose individual outlets;
+Tapo models use saved `--klap` aliases, or `--tapo` for the new P125 adapter. Power strips expose individual outlets;
 energy requires an ENE-capable model. Feature names in the table match the registry;
 `color_temp` means color temperature and `dim` means brightness.
 
@@ -43,7 +44,7 @@ Devices marked `verified` in [`devices.toml`](../devices.toml) have been tested 
 denki scan
 ```
 
-`scan` auto-saves newly discovered aliases and also probes saved `--klap` Tapo aliases.
+`scan` auto-saves newly discovered aliases and also probes saved `--klap` and `--tapo` aliases.
 It stores the device identity locally and reconciles subsequent discoveries by
 identity, preserving your chosen name when DHCP changes the IP. It never moves an
 alias merely because a different address reports the same name. Existing v1/v2
@@ -52,7 +53,7 @@ address on their next successful scan. Until then, a DHCP move cannot be identif
 safely by name alone.
 
 Kasa UDP discovery can locate moved Kasa devices. Tapo discovery still requires
-known IPs: use `denki scan --tapo-target 192.0.2.51` to probe a moved Tapo device
+known IPs: for the original KLAP path, use `denki scan --tapo-target 192.0.2.51` to probe a moved Tapo device
 and recover its existing alias by identity. The option can be repeated. An old,
 unreachable Tapo address is reported as a failed probe even if another probe
 finds the device at its new address. Saved identity mismatches stop commands before
@@ -200,11 +201,60 @@ Aliasing is normalized for lookup, and duplicate aliases are detected using that
 normalized form. For example, `denki alias "Desk Lamp" ...` will not both be allowed
 alongside an existing `denki alias "desk   lamp" ...`.
 
-Add `--klap` for Tapo devices:
+Use `--klap` for the original Tapo client:
 
 ```bash
 denki alias "tapo plug" 192.168.1.51 --klap
 ```
+
+For P125 plugs on recent firmware, use automatic TPAP/KLAP negotiation:
+
+```sh
+denki alias "P125 A" 192.0.2.10 --tapo
+denki login "you@example.com"
+denki info "P125 A"
+denki info "P125 A" --json
+denki on "P125 A"
+denki off "P125 A"
+denki toggle "P125 A"
+```
+
+`--tpap` is a synonym for `--tapo`. Both use upstream `tapo` 0.11.1 to
+negotiate TPAP or KLAP; neither forces TPAP. `--klap` keeps Denki's original
+KLAP client. The options are mutually exclusive. Saved `protocol: "tapo"`
+identifies the connection policy, not the negotiated wire protocol.
+
+On recent P125 firmware, Third-Party Compatibility **on selects KLAP; off selects
+TPAP**, as described in the [upstream TPAP article](https://mihai.dinculescu.dev/posts/tapo-speaks-tpap/).
+Denki does not change that app setting. The article explains why TPAP's SPAKE2+
+login protects against offline password guessing; automatic mode does not provide
+that benefit when the device selects KLAP. Other integrations may still need the
+compatibility setting on.
+
+**Supported today:** P125 information, doctor, on/off/toggle, and grouped power
+commands. Writes check model, device type, saved identity, and resulting state.
+Toggle is read-then-write, so another controller can race it. Energy, outlets,
+lighting, schedules, timers, cameras, and hubs are not implemented by this adapter,
+even where upstream supports them. P125 has no energy capability in Denki's registry.
+
+**Hardware evidence:** two P125 plugs, HW 1.0, FW `1.4.0 Build 260803 Rel.232153`,
+passed information reads while advertising TPAP. One passed off → on → off with
+independent readbacks. This confirms reported relay state. The app setting was not
+independently confirmed; toggle, other firmware, and this adapter's KLAP path remain
+unverified. `devices.toml` tracks auto-mode evidence separately from original KLAP.
+
+Re-save the same alias with `--tapo` to migrate it. At the same address, a known
+identity survives KLAP ↔ auto migration; other aliases are preserved. Use the alias
+for commands: raw IPs still select Kasa. Auto-mode discovery probes saved addresses;
+`scan --tapo-target` remains KLAP-only, so it cannot discover a moved TPAP plug.
+
+Credentials use the saved login or `TAPO_USER`/`TAPO_PASS`. Stop on
+`TPAP_CREDENTIALS` or `TPAP_AUTH_ATTEMPTS_LIMIT`; repeated login attempts can lock
+the device. Denki adds no retry loop and bounds operations to 30 seconds. After a
+power timeout or readback failure, read `info` before retrying. For upstream failures,
+report model, hardware/firmware, app setting, and the sanitized error to
+[upstream issues](https://github.com/mihai-dinculescu/tapo/issues); never include
+credentials or raw captures. Denki routing/output failures belong in Denki's tracker.
 
 Then use the alias anywhere you would use an IP address:
 
@@ -262,7 +312,7 @@ Set both `TAPO_USER` and `TAPO_PASS` to override the saved file.
 - Device names can come from `scan` output, a saved alias, or a raw IP address.
 - Exact normalized alias matches win first, then unambiguous normalized substring matches.
 - Raw IP addresses are treated as Kasa devices.
-- Tapo devices must be added with `denki alias <name> <ip> --klap`.
+- Tapo devices require a saved `--klap` or `--tapo` alias.
 - The alias registry parser accepts object entries with optional device identities, older object entries without identities, or legacy plain-string entries.
 - If `hosts.json` is malformed, the CLI prints parser details for both formats to make
   recovery easier.

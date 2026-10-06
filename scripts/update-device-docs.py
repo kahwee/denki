@@ -28,6 +28,12 @@ def main():
             f"{'Yes' if device['verified'] else 'No'} | "
             f"{', '.join(device['supports'])} |"
         )
+        if device.get('tapo_auto_supports'):
+            rows.append(
+                f"| {device['model']} | {device['kind']} | tapo (auto TPAP/KLAP) | "
+                f"{'Yes' if device.get('tapo_auto_verified', False) else 'Partial; see notes below'} | "
+                f"{', '.join(device['tapo_auto_supports'])} |"
+            )
     rows.append(END)
     path = ROOT / "docs/commands.md"
     original = path.read_text()

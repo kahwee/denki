@@ -144,6 +144,18 @@ mod tests {
     }
 
     #[test]
+    fn kasa_only_commands_reject_auto_tapo_before_network_io() {
+        let r = Resolved {
+            ip: "192.0.2.1".into(),
+            protocol: hosts::Protocol::Tapo,
+            saved_name: None,
+        };
+        for command in ["energy", "dim", "on <outlet>", "schedules"] {
+            assert!(require_kasa(&r, command).is_err());
+        }
+    }
+
+    #[test]
     fn require_kasa_allows_kasa_protocol() {
         let r = kasa("1.2.3.4");
         assert!(require_kasa(&r, "energy").is_ok());

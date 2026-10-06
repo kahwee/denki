@@ -42,25 +42,76 @@ fn run_denki(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-#[test]
-#[ignore = "requires live TP-Link devices on the local network"]
-fn power_cycle_default_targets() -> Result<()> {
-    let targets = parse_targets("DENKI_SMOKE_POWER_TARGETS", &["Living Room Right Lamp"]);
+#[path = "support/power_cycle.rs"]
+mod power_cycle;
+use power_cycle::{Plug, State, round_trip};
 
-    for target in targets {
-        let on_output = run_denki(&["on", &target])?;
-        assert!(
-            on_output.contains(" on"),
-            "expected an on confirmation in output:\n{on_output}"
-        );
-
-        let off_output = run_denki(&["off", &target])?;
-        assert!(
-            off_output.contains(" off"),
-            "expected an off confirmation in output:\n{off_output}"
-        );
+struct Device {
+    target: String,
+}
+impl Plug for Device {
+    async fn read(&mut self) -> Result<State> {
+        let resolved = denki::resolve::resolve_quiet(&self.target)?;
+        match resolved.protocol {
+            denki::hosts::Protocol::Kasa => {
+                let json = denki::ops::sysinfo(&resolved.ip).await?;
+                if json.pointer("/system/get_sysinfo/children").is_some() {
+                    bail!(
+                        "Power strips require per-outlet restoration; this harness refuses to cycle them"
+                    );
+                }
+                let id = json
+                    .pointer("/system/get_sysinfo/deviceId")
+                    .and_then(serde_json::Value::as_str)
+                    .context("Missing device identity")?
+                    .to_owned();
+                Ok(State {
+                    id,
+                    on: denki::ops::kasa_power_state(&json)?,
+                })
+            }
+            denki::hosts::Protocol::Klap => {
+                let (user, pass) = denki::creds::load()?;
+                let mut session = denki::klap::handshake(&resolved.ip, &user, &pass).await?;
+                let json = denki::ops::tapo_device_info(&mut session).await?;
+                let info = denki::tapo::parse(&json).context("Invalid Tapo info")?;
+                Ok(State {
+                    id: info.device_id,
+                    on: info.device_on,
+                })
+            }
+            denki::hosts::Protocol::Tapo => {
+                let info = denki::tapo_client::info(&resolved.ip).await?;
+                Ok(State {
+                    id: info.device_id,
+                    on: info.device_on,
+                })
+            }
+        }
     }
+    async fn set(&mut self, on: bool) -> Result<()> {
+        if on {
+            denki::commands::handle_on(&self.target, None).await
+        } else {
+            denki::commands::handle_off(&self.target, None).await
+        }
+    }
+}
 
+#[tokio::test]
+#[ignore = "changes device power; requires explicit DENKI_SMOKE_POWER_TARGETS"]
+async fn power_cycle_selected_targets() -> Result<()> {
+    let targets = parse_targets("DENKI_SMOKE_POWER_TARGETS", &[]);
+    if targets.is_empty() {
+        bail!("Set DENKI_SMOKE_POWER_TARGETS; there is no default target");
+    }
+    for target in targets {
+        round_trip(
+            &mut Device { target },
+            std::time::Duration::from_millis(500),
+        )
+        .await?;
+    }
     Ok(())
 }
 

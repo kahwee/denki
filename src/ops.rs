@@ -107,7 +107,8 @@ pub(crate) fn binary_state(value: Option<&serde_json::Value>) -> Result<bool> {
     }
 }
 
-pub(crate) fn kasa_power_state(response: &serde_json::Value) -> Result<bool> {
+/// Parse a validated Kasa power state; strips return whether any outlet is on.
+pub fn kasa_power_state(response: &serde_json::Value) -> Result<bool> {
     let info = response
         .pointer("/system/get_sysinfo")
         .ok_or_else(|| crate::error::malformed("Missing system.get_sysinfo"))?;

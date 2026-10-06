@@ -45,12 +45,14 @@ device's actual local IP.
 
 ## 2. Connect a Tapo device instead
 
-Tapo uses authenticated KLAP sessions. Add its IP with `--klap`, then save the
+Tapo requires account credentials. For P125 plugs using TPAP, add the IP with
+`--tapo` (`--tpap` is a synonym); the client negotiates TPAP/KLAP automatically.
+For other registered Tapo models, use the original `--klap` client. Save the
 credentials for the TP-Link account associated with the device. `login` prompts
 for the password so it does not go into your shell history.
 
 ```sh
-denki alias "tapo plug" 192.0.2.50 --klap
+denki alias "tapo plug" 192.0.2.50 --tapo
 denki login "you@example.com"
 denki info "tapo plug"
 ```

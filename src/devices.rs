@@ -3,6 +3,8 @@
 mod classify;
 mod energy;
 mod guards;
+mod tapo;
+pub use tapo::require_tapo_auto_power;
 mod registry;
 
 pub use classify::{detect_kind, is_plug_switch};

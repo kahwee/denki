@@ -39,10 +39,16 @@ nonzero even when a new-address probe succeeds. Inspect the individual results.
 
 ## Tapo authentication failed
 
-Confirm you added the alias with `--klap` and use the account associated with the
+For P125 firmware advertising TPAP, re-save the alias with `--tapo`; `--klap`
+selects the original KLAP-only client. Use the account associated with the
 device. Save credentials again with `denki login "you@example.com"`. If both
 `TAPO_USER` and `TAPO_PASS` are set, they override the saved credentials; check for
 stale values in your shell. Do not paste passwords into issue reports.
+
+For auto-mode aliases, `tpap_credentials` means login was rejected and
+`tpap_auth_attempts_limit` means the device has locked logins. Stop retries, check
+the saved account credentials, and wait for lockout to clear. A `state_mismatch`
+or a power timeout leaves the state uncertain; read `info` before another write.
 
 ## Unsupported operation or missing energy
 

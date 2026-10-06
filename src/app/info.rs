@@ -11,6 +11,13 @@ pub(super) async fn handle_info(host: String) -> Result<()> {
     let r = resolve_quiet(&host)?;
     let hint = r.saved_name.as_deref().unwrap_or(&r.ip).to_string();
     match r.protocol {
+        hosts::Protocol::Tapo => {
+            let device = crate::tapo_client::info(&r.ip).await?;
+            crate::output::record(
+                serde_json::json!({"ip": r.ip, "protocol": "tapo", "device": crate::output::sanitized(serde_json::to_value(&device)?)}),
+            );
+            crate::display::print_tapo_detail(&r.ip, &device, &hint);
+        }
         hosts::Protocol::Klap => {
             let mut session = tapo_session(&r.ip).await?;
             let json = ops::tapo_device_info(&mut session).await?;

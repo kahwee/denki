@@ -26,6 +26,8 @@
 | `src/dimmer.rs` | HS220 dimmer sysinfo parsing |
 | `src/strip.rs` | HS300/KP303 power strip sysinfo + per-outlet state |
 | `src/tapo.rs` | Tapo `get_device_info` response parsing |
+| `src/tapo_client.rs` | Upstream TPAP/KLAP plug adapter and identity-checked operations |
+| `src/tapo_client/` | Redacted error translation and offline adapter tests |
 | `src/ops.rs` | All API calls — `bulb_set_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
 | `src/effects.rs` | Light-strip effect helpers |
 | `src/display/` | Colored terminal output for all device types |
@@ -53,13 +55,13 @@ Classic Kasa devices use TCP port `9999` with an XOR autokey cipher:
 
 ### KLAP (Tapo)
 
-Tapo devices use a two-step handshake over plain HTTP on port `80`:
+The original KLAP client uses a two-step handshake over plain HTTP on port `80`:
 
 1. `POST /app/handshake1` with 16 random bytes
 2. `POST /app/handshake2` with the client proof
 3. `POST /app/request?seq=N` for encrypted requests
 
-`denki` uses raw `tokio::net::TcpStream` rather than a higher-level HTTP client because some Tapo firmware rejects standard clients.
+The original KLAP client uses raw `tokio::net::TcpStream` because some Tapo firmware rejects standard HTTP clients. Automatic mode uses the upstream client described below.
 
 
 ## Protocol details
@@ -167,3 +169,18 @@ Temporary files start with mode 0600 on Unix, before any credential bytes are
 written; atomic replacement also tightens permissions on previously permissive
 credential files. Other platforms inherit their filesystem's access controls.
 This provides local file protection, not encryption at rest.
+
+## Tapo automatic mode
+
+`Protocol::Tapo` selects the pinned upstream `tapo` crate; `Protocol::Klap` still
+selects Denki's original KLAP implementation. The upstream `p100` constructor
+selects a generic plug handler and negotiates TPAP or KLAP; it is not a P125 model
+assertion or a forced TPAP transport. Denki's adapter converts already-decoded
+upstream fields directly, without running the KLAP base64 decoder again.
+
+The adapter reuses `creds::load`, sets 10-second upstream request timeouts and a
+30-second overall operation deadline, and makes no automatic retries. Upstream
+errors become stage-specific, redacted messages. P125 power writes require the
+model/type guard in `src/devices/tapo.rs`, then verify state and device identity
+in the same session. `devices.toml` tracks `tapo_auto_supports` and
+`tapo_auto_verified` separately from original-client capabilities and verification.

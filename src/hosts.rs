@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 pub enum Protocol {
     Kasa,
     Klap,
+    /// Upstream plug client with automatic TPAP/KLAP negotiation.
+    Tapo,
 }
 
 impl std::fmt::Display for Protocol {
@@ -21,6 +23,7 @@ impl std::fmt::Display for Protocol {
         match self {
             Protocol::Kasa => write!(f, "kasa"),
             Protocol::Klap => write!(f, "klap"),
+            Protocol::Tapo => write!(f, "tapo"),
         }
     }
 }
@@ -82,7 +85,7 @@ fn format_map_parse_error(
     format!(
         "{} is malformed and cannot be loaded.\n\
          Expected either:\n\
-         - v2: {{\"alias\": {{\"ip\":\"...\",\"protocol\":\"kasa|klap\"}}, ...}}\n\
+         - v2: {{\"alias\": {{\"ip\":\"...\",\"protocol\":\"kasa|klap|tapo\"}}, ...}}\n\
          - v1: {{\"alias\": \"ip\", ...}}\n\
          Parse details:\n\
          - v2 parse: {v2_error}\n\
@@ -211,12 +214,23 @@ pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
                 "Alias \"{name}\" is too similar to existing alias \"{existing}\". Use a more specific name or remove the existing alias first."
             );
         }
+        let device_id = map
+            .get(&name)
+            .filter(|entry| {
+                entry.ip == ip
+                    && (entry.protocol == protocol
+                        || matches!(
+                            (&entry.protocol, &protocol),
+                            (Protocol::Klap, Protocol::Tapo) | (Protocol::Tapo, Protocol::Klap)
+                        ))
+            })
+            .and_then(|entry| entry.device_id.clone());
         map.insert(
             name.to_string(),
             HostEntry {
                 ip: ip.to_string(),
                 protocol,
-                device_id: None,
+                device_id,
             },
         );
         Ok(())

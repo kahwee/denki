@@ -84,7 +84,12 @@ async fn dispatch_command(command: Command) -> Result<()> {
         Command::OutletRename { host, outlet, name } => {
             admin::handle_outlet_rename(&host, outlet, &name).await
         }
-        Command::Alias { name, ip, klap } => admin::handle_alias(&name, &ip, klap),
+        Command::Alias {
+            name,
+            ip,
+            klap,
+            tapo,
+        } => admin::handle_alias(&name, &ip, klap, tapo),
         Command::Unalias { name } => admin::handle_unalias(&name),
         Command::Aliases => admin::handle_aliases(),
         Command::Login { email, password } => admin::handle_login(&email, password),

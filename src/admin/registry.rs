@@ -6,7 +6,7 @@ use crate::hosts;
 fn format_alias_rows(list: &[(String, hosts::HostEntry)]) -> String {
     if list.is_empty() {
         return format!(
-            "No saved aliases. Use `denki alias <name> <ip> [--klap]` to add one.\nFile: {}",
+            "No saved aliases. Use `denki alias <name> <ip> [--klap | --tapo]` to add one.\nFile: {}",
             hosts::path_display()
         );
     }
@@ -33,15 +33,22 @@ fn format_alias_rows(list: &[(String, hosts::HostEntry)]) -> String {
     out
 }
 
-pub fn handle_alias(name: &str, ip: &str, klap: bool) -> Result<()> {
-    let protocol = if klap {
+pub fn handle_alias(name: &str, ip: &str, klap: bool, tapo: bool) -> Result<()> {
+    if klap && tapo {
+        bail!("Choose either --klap or --tapo");
+    }
+    let protocol = if tapo {
+        hosts::Protocol::Tapo
+    } else if klap {
         hosts::Protocol::Klap
     } else {
         hosts::Protocol::Kasa
     };
     hosts::set(name, ip, protocol.clone())?;
     crate::output::record(serde_json::json!({"alias":name,"ip":ip,"protocol":protocol}));
-    let tag = if klap {
+    let tag = if tapo {
+        " (tapo: auto TPAP/KLAP)".dimmed()
+    } else if klap {
         " (klap)".dimmed()
     } else {
         "".normal()

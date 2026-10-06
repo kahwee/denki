@@ -37,15 +37,21 @@ address changes, and probes saved Tapo aliases. Existing names are preserved;
 identity mismatches block control. Legacy aliases learn identity at their current
 address on the next scan. An unreadable or malformed
 alias registry stops the scan without overwriting it. Add Tapo
-devices with `denki alias "tapo plug" 192.168.1.51 --klap`, then run `denki login`
-with your account email. `group --dry-run` lists matches without contacting devices.
+P125 plugs with `denki alias "tapo plug" 192.0.2.50 --tapo`, then run
+`denki login <email>`. `--tapo` (also spelled `--tpap`) negotiates TPAP/KLAP through
+upstream `tapo` 0.11.1. Existing `--klap` aliases retain the original client. `group --dry-run` lists matches without contacting devices.
 
-Only models marked verified in [devices.toml](devices.toml) have hardware evidence.
+P125 info and on/off readbacks have hardware evidence with the new adapter; toggle
+remains unverified on hardware. Advanced operations, including energy, are not
+implemented in auto mode. Original-client and auto-adapter verification are
+tracked separately in [devices.toml](devices.toml).
 Kasa control commands report device rejection codes instead of claiming success.
 All commands accept `--json` with a versioned result and stable error categories.
 Energy watch streams timestamped JSONL or CSV, reuses Tapo sessions, and records
 failed samples explicitly instead of treating them as zero consumption.
-Network exchanges have time limits and reject response bodies larger than 1 MiB.
+Network exchanges have time limits. The original Kasa/KLAP clients reject response
+bodies larger than 1 MiB; the upstream Tapo adapter uses upstream response handling
+with a 30-second overall operation deadline.
 KLAP replies are authenticated before decryption. Configuration writes are atomic;
 alias edits are locked, and scans reject concurrent changes instead of overwriting
 them. Credential files are created with private permissions on Unix.

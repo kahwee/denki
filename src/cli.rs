@@ -257,6 +257,9 @@ pub enum Command {
         /// Mark as a Tapo device (uses KLAP protocol on port 80)
         #[arg(long)]
         klap: bool,
+        /// Auto-negotiate TPAP/KLAP with the upstream plug client (P125 power support)
+        #[arg(long, visible_alias = "tpap", conflicts_with = "klap")]
+        tapo: bool,
     },
 
     /// Remove a saved device alias
@@ -293,6 +296,36 @@ pub enum LedAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tapo_alias_options_are_exclusive_and_support_tpap_spelling() {
+        for flag in ["--tapo", "--tpap"] {
+            let cli =
+                Cli::try_parse_from(["denki", "alias", "Test Plug", "192.0.2.1", flag]).unwrap();
+            assert!(matches!(
+                cli.command,
+                Command::Alias {
+                    tapo: true,
+                    klap: false,
+                    ..
+                }
+            ));
+            assert!(
+                Cli::try_parse_from(["denki", "alias", "Test Plug", "192.0.2.1", flag, "--klap"])
+                    .is_err()
+            );
+        }
+        let cli =
+            Cli::try_parse_from(["denki", "alias", "Test Plug", "192.0.2.1", "--klap"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Alias {
+                tapo: false,
+                klap: true,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn group_safety_options_parse() {

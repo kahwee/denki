@@ -21,6 +21,7 @@ pub mod resolve;
 mod storage;
 pub mod strip;
 pub mod tapo;
+pub mod tapo_client;
 pub mod transport;
 
 // display is CLI-focused (uses `colored`); keep it public for the binary to reuse.

@@ -59,6 +59,15 @@ impl DoctorReport {
             return;
         };
         if let Some(entry) = devices::lookup(model) {
+            if self.protocol == "tapo" {
+                self.capabilities = entry.tapo_auto_supports.clone();
+                self.verified_model = Some(entry.tapo_auto_verified);
+                self.warnings.push("Tapo auto mode negotiates TPAP/KLAP; upstream does not expose the selected wire protocol.".into());
+                if !entry.tapo_auto_verified {
+                    self.warnings.push("Full auto-adapter support is not hardware-verified; see the support guide for tested operations.".into());
+                }
+                return;
+            }
             self.capabilities = entry.supports.clone();
             self.verified_model = Some(entry.verified);
             if !entry.verified {
@@ -144,6 +153,23 @@ async fn inspect(host: &str) -> Result<DoctorReport> {
     );
 
     match resolved.protocol {
+        hosts::Protocol::Tapo => match crate::tapo_client::info(&resolved.ip).await {
+            Ok(device) => report = tapo_report(report, &device),
+            Err(error) => {
+                let code = crate::error::code(&error);
+                report.reachable = matches!(
+                    code,
+                    "malformed_response"
+                        | "device_rejected"
+                        | "identity_mismatch"
+                        | "authentication_failed"
+                        | "tpap_credentials"
+                        | "tpap_auth_attempts_limit"
+                );
+                report.error_code = Some(code);
+                report.error = Some(format!("{error:#}"));
+            }
+        },
         hosts::Protocol::Kasa => match ops::sysinfo(&resolved.ip).await {
             Ok(json) => report = kasa_report(report, &json),
             Err(error) => {
@@ -237,6 +263,24 @@ pub(super) async fn handle_doctor(host: String) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn auto_adapter_does_not_inherit_klap_verification() {
+        let mut report = DoctorReport::pending(None, "192.0.2.1".into(), &hosts::Protocol::Tapo);
+        report.model = Some("P125".into());
+        report.apply_registry();
+        assert_eq!(report.verified_model, Some(false));
+        assert_eq!(report.capabilities, vec!["power"]);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("wire protocol"))
+        );
+        report.model = Some("P110".into());
+        report.apply_registry();
+        assert!(report.capabilities.is_empty());
+    }
 
     #[test]
     fn kasa_diagnostics_are_structured_and_sanitized() {

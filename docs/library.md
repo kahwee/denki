@@ -46,3 +46,21 @@ these exact examples as doctests without contacting devices.
 
 The low-level `ops` functions take addresses or sessions directly. They do not
 resolve CLI aliases or enforce the saved-identity checks used by CLI commands.
+
+## P125 through TPAP/KLAP auto negotiation
+
+The adapter reuses credentials saved by `denki login` or `TAPO_USER`/`TAPO_PASS`.
+It checks any identity already bound to the address in the alias registry.
+
+```rust,no_run
+# async fn example() -> anyhow::Result<()> {
+let info = denki::tapo_client::info("192.0.2.50").await?;
+println!("{}: {}", info.model, info.device_on);
+# Ok(())
+# }
+```
+
+`set_power(ip, Some(true))` turns a supported P125 on, `Some(false)` turns it off,
+and `None` toggles its observed state. Writes check capabilities and verify the
+result with a readback; they are not retried. The client negotiates automatically,
+and currently does not expose the selected wire protocol.

@@ -114,7 +114,11 @@ kind     = "Tapo"
 protocol = "klap"
 verified = true
 supports = ["power"]
-# Tapo devices use the KLAP protocol; guards are protocol-level, not kind-level
+# Auto-adapter info and on/off readbacks verified on HW 1.0,
+# FW 1.4.0 Build 260803 Rel.232153; toggle remains unverified.
+tapo_auto_supports = ["power"]
+tapo_auto_verified = false
+# Original Tapo entries select KLAP; auto-adapter capabilities are separate.
 
 [[device]]
 model    = "P110"
