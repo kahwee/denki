@@ -57,6 +57,7 @@ from Kasa. See the [command and support guide](docs/commands.md).
 - [Getting started with Kasa or Tapo](docs/getting-started.md)
 - [Energy readings, units, and recording](docs/energy.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Experimental read-only TPAP probe](docs/tpap-probe.md)
 - [Commands, aliases, credentials, and limitations](docs/commands.md)
 - [Rust library usage](docs/library.md)
 - [Architecture and protocols](docs/architecture.md)
