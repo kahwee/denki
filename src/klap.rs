@@ -17,7 +17,7 @@
 //!   sig     = SHA256(b"ldk" + local_seed + remote_seed + auth_hash)[..28]
 //!
 //! Per request: seq += 1; iv = iv_base + seq.to_be_bytes(); body = SHA256(sig+seq+cipher) + cipher.
-//! Response: skip 32-byte sig, decrypt the rest.
+//! Response: authenticate the 32-byte signature against the current sequence before decrypting.
 //!
 //! Uses raw TcpStream (not reqwest) — some Tapo firmware returns 400 for standard HTTP clients.
 
@@ -28,6 +28,7 @@ use rand::RngExt;
 use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
 use std::fmt::Write as FmtWrite;
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{Duration, Instant, timeout_at};
@@ -211,7 +212,7 @@ async fn handshake_at(
 
     // Verify server proved it knows auth_hash
     let expected = sha256_multi(&[&local_seed, &remote_seed, &ah]);
-    if expected != server_hash {
+    if !bool::from(expected.as_slice().ct_eq(server_hash)) {
         bail!("Authentication failed for {host} — check TAPO_USER and TAPO_PASS");
     }
 
@@ -299,8 +300,17 @@ impl KlapSession {
     }
 
     fn decrypt(&self, data: &[u8]) -> Result<String> {
-        if data.len() < 32 {
-            bail!("Response too short to decrypt ({} bytes)", data.len());
+        if data.len() < 48 || !(data.len() - 32).is_multiple_of(16) {
+            return Err(crate::error::malformed(
+                "Invalid KLAP response frame length",
+            ));
+        }
+        let expected = sha256_multi(&[&self.sig, &self.seq.to_be_bytes(), &data[32..]]);
+        if !bool::from(expected.as_slice().ct_eq(&data[..32])) {
+            return Err(crate::error::error(
+                "integrity_failed",
+                "KLAP response signature does not match the session and request sequence",
+            ));
         }
         let iv = self.iv_for_seq(self.seq);
         let plaintext = Aes128CbcDec::new(&self.key.into(), &iv.into())
@@ -364,3 +374,72 @@ mod tests {
 #[cfg(test)]
 #[path = "klap_tests.rs"]
 mod protocol_tests;
+
+#[cfg(test)]
+mod integrity_tests {
+    use super::*;
+    fn session() -> KlapSession {
+        KlapSession {
+            key: [0x11; 16],
+            iv_base: [0x22; 12],
+            sig: [0x33; 28],
+            seq: 7,
+            cookie: "test".into(),
+            host: "127.0.0.1".into(),
+            port: 80,
+        }
+    }
+    // Independently generated with OpenSSL AES-128-CBC and Python hashlib SHA-256.
+    fn vector() -> Vec<u8> {
+        let hex = "fdeff61de989b62a68bc094d95842f06fe91c7297de36fc8ea9a5b401e9b6861820537a8703e0082acf8356b933a1f3231ea0fb429980ea3558201853efecd13a974114c7698b57ad882d96faa4baa50";
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect()
+    }
+    #[test]
+    fn accepts_independent_authenticated_vector() {
+        assert_eq!(
+            session().decrypt(&vector()).unwrap(),
+            r#"{"error_code":0,"result":{"device_on":true}}"#
+        );
+    }
+    #[test]
+    fn tampering_any_tag_or_ciphertext_byte_fails_before_decryption() {
+        let original = vector();
+        for i in 0..original.len() {
+            let mut altered = original.clone();
+            altered[i] ^= 1;
+            assert_eq!(
+                crate::error::code(&session().decrypt(&altered).unwrap_err()),
+                "integrity_failed",
+                "byte {i}"
+            );
+        }
+    }
+    #[test]
+    fn rejects_replay_and_cross_session_responses() {
+        let mut next = session();
+        next.seq += 1;
+        assert_eq!(
+            crate::error::code(&next.decrypt(&vector()).unwrap_err()),
+            "integrity_failed"
+        );
+        let mut other = session();
+        other.sig[0] ^= 1;
+        assert_eq!(
+            crate::error::code(&other.decrypt(&vector()).unwrap_err()),
+            "integrity_failed"
+        );
+    }
+    #[test]
+    fn rejects_truncated_or_unaligned_frames() {
+        let bytes = vector();
+        for size in [0, 1, 31, 32, 33, 47, 49, 79] {
+            assert_eq!(
+                crate::error::code(&session().decrypt(&bytes[..size]).unwrap_err()),
+                "malformed_response"
+            );
+        }
+    }
+}

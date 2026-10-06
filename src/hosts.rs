@@ -25,7 +25,7 @@ impl std::fmt::Display for Protocol {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostEntry {
     pub ip: String,
     pub protocol: Protocol,
@@ -116,11 +116,7 @@ fn find_normalized_alias_collision(
 }
 
 fn save_map(path: &Path, map: &BTreeMap<String, HostEntry>) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(path, serde_json::to_string_pretty(map)?)?;
-    Ok(())
+    crate::storage::atomic_write(path, &serde_json::to_vec_pretty(map)?)
 }
 
 pub fn normalize(s: &str) -> String {
@@ -209,33 +205,41 @@ fn lookup_in(
 pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
     let name = normalize_alias_name(name)?;
     validate_alias_ip(ip)?;
-    let path = hosts_path();
-    let mut map = load_map(&path)?;
-    if let Some(existing) = find_normalized_alias_collision(&map, &name) {
-        anyhow::bail!(
-            "Alias \"{name}\" is too similar to existing alias \"{existing}\". \
-             Use a more specific name or remove the existing alias first."
+    update_map(&hosts_path(), |map| {
+        if let Some(existing) = find_normalized_alias_collision(map, &name) {
+            anyhow::bail!(
+                "Alias \"{name}\" is too similar to existing alias \"{existing}\". Use a more specific name or remove the existing alias first."
+            );
+        }
+        map.insert(
+            name.to_string(),
+            HostEntry {
+                ip: ip.to_string(),
+                protocol,
+                device_id: None,
+            },
         );
-    }
-    map.insert(
-        name.to_string(),
-        HostEntry {
-            ip: ip.to_string(),
-            protocol,
-            device_id: None,
-        },
-    );
-    save_map(&path, &map)
+        Ok(())
+    })
 }
 
 pub fn remove(name: &str) -> Result<bool> {
-    let path = hosts_path();
-    let mut map = load_map(&path)?;
-    let removed = map.remove(name).is_some();
-    if removed {
-        save_map(&path, &map)?;
+    update_map(&hosts_path(), |map| Ok(map.remove(name).is_some()))
+}
+
+/// Serialize read-modify-write against other processes. Readers see whole snapshots.
+fn update_map<T>(
+    path: &Path,
+    update: impl FnOnce(&mut BTreeMap<String, HostEntry>) -> Result<T>,
+) -> Result<T> {
+    let _lock = crate::storage::FileLock::acquire(path)?;
+    let mut map = load_map(path)?;
+    let previous = map.clone();
+    let result = update(&mut map)?;
+    if map != previous {
+        save_map(path, &map)?;
     }
-    Ok(removed)
+    Ok(result)
 }
 
 pub fn list() -> Result<Vec<(String, HostEntry)>> {
@@ -251,9 +255,38 @@ pub fn load() -> Result<std::collections::BTreeMap<String, HostEntry>> {
     load_map(&hosts_path())
 }
 
-/// Save the full host map to disk.
+/// Explicitly replace the full registry under a lock. For a previously loaded
+/// snapshot use `save_if_unchanged` to reject concurrent edits instead.
 pub fn save(map: &std::collections::BTreeMap<String, HostEntry>) -> Result<()> {
-    save_map(&hosts_path(), map)
+    let path = hosts_path();
+    let _lock = crate::storage::FileLock::acquire(&path)?;
+    save_map(&path, map)
+}
+
+/// Commit a scan snapshot without holding a lock during network discovery.
+/// Concurrent edits are preserved; the caller must rerun discovery on conflict.
+pub fn save_if_unchanged(
+    previous: &BTreeMap<String, HostEntry>,
+    map: &BTreeMap<String, HostEntry>,
+) -> Result<()> {
+    save_if_unchanged_at(&hosts_path(), previous, map)
+}
+
+fn save_if_unchanged_at(
+    path: &Path,
+    previous: &BTreeMap<String, HostEntry>,
+    map: &BTreeMap<String, HostEntry>,
+) -> Result<()> {
+    update_map(path, |current| {
+        if current != previous {
+            return Err(crate::error::error(
+                "registry_conflict",
+                "Aliases changed during discovery; no scan updates were saved. Run denki scan again.",
+            ));
+        }
+        *current = map.clone();
+        Ok(())
+    })
 }
 
 /// Insert a new Kasa alias only when neither its IP nor normalized name is saved.
@@ -740,5 +773,69 @@ mod identity_tests {
             load_map(&path).unwrap()["desk"].device_id.as_deref(),
             Some("a")
         );
+    }
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    fn entry(ip: &str) -> HostEntry {
+        HostEntry {
+            ip: ip.into(),
+            protocol: Protocol::Kasa,
+            device_id: None,
+        }
+    }
+    #[test]
+    fn stale_scan_cannot_overwrite_an_added_changed_or_removed_alias() {
+        for kind in ["added", "changed", "removed"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("hosts.json");
+            let before = BTreeMap::from([("desk".into(), entry("192.0.2.1"))]);
+            save_map(&path, &before).unwrap();
+            let mut scanned = before.clone();
+            scanned.get_mut("desk").unwrap().device_id = Some("synthetic-id".into());
+            update_map(&path, |map| {
+                match kind {
+                    "added" => {
+                        map.insert("other".into(), entry("192.0.2.2"));
+                    }
+                    "changed" => {
+                        map.get_mut("desk").unwrap().ip = "192.0.2.3".into();
+                    }
+                    _ => {
+                        map.remove("desk");
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+            let current = std::fs::read(&path).unwrap();
+            let error = save_if_unchanged_at(&path, &before, &scanned).unwrap_err();
+            assert_eq!(crate::error::code(&error), "registry_conflict");
+            assert_eq!(std::fs::read(&path).unwrap(), current);
+        }
+    }
+    #[test]
+    fn unchanged_snapshot_commits_and_failed_transaction_preserves_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hosts.json");
+        let before = BTreeMap::new();
+        let after = BTreeMap::from([("desk".into(), entry("192.0.2.1"))]);
+        save_if_unchanged_at(&path, &before, &after).unwrap();
+        assert_eq!(load_map(&path).unwrap(), after);
+        let result: Result<()> = update_map(&path, |map| {
+            map.clear();
+            anyhow::bail!("validation failed")
+        });
+        assert!(result.is_err());
+        assert_eq!(load_map(&path).unwrap(), after);
+        // An error also releases the lock.
+        update_map(&path, |map| {
+            map.clear();
+            Ok(())
+        })
+        .unwrap();
+        assert!(load_map(&path).unwrap().is_empty());
     }
 }

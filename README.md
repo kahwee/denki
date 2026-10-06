@@ -41,6 +41,9 @@ All commands accept `--json` with a versioned result and stable error categories
 Energy watch streams timestamped JSONL or CSV, reuses Tapo sessions, and records
 failed samples explicitly instead of treating them as zero consumption.
 Network exchanges have time limits and reject response bodies larger than 1 MiB.
+KLAP replies are authenticated before decryption. Configuration writes are atomic;
+alias edits are locked, and scans reject concurrent changes instead of overwriting
+them. Credential files are created with private permissions on Unix.
 Commands depend on each device's capabilities; Tapo daily/monthly history differs
 from Kasa. See the [command and support guide](docs/commands.md).
 

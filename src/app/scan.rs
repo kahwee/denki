@@ -7,6 +7,7 @@ use std::net::IpAddr;
 
 pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Result<()> {
     let mut map = hosts::load()?;
+    let previous = map.clone();
     crate::output::println!("Scanning network for {timeout}s...");
     let mut found = Vec::new();
     transport::broadcast_each(timeout, |ip, response| found.push((ip, response))).await?;
@@ -94,7 +95,7 @@ pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Resu
         }
     }
     if dirty {
-        hosts::save(&map)?;
+        hosts::save_if_unchanged(&previous, &map)?;
     }
     results.sort_by(|a, b| a["ip"].as_str().cmp(&b["ip"].as_str()));
     let failed = results.iter().filter(|r| r["status"] == "error").count();

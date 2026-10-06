@@ -12,7 +12,7 @@ pub fn handle_login(email: &str, password: Option<String>) -> Result<()> {
     crate::output::record(serde_json::json!({"credentials_saved":true}));
     crate::output::println!("Tapo credentials saved to {}", creds::path_display());
     crate::output::println!(
-        "(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)"
+        "(On Unix, only your account can read this file. Use TAPO_USER/TAPO_PASS env vars to override.)"
     );
     Ok(())
 }

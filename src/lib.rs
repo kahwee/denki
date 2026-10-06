@@ -32,6 +32,7 @@ pub mod ops;
 pub mod output;
 pub mod plug;
 pub mod resolve;
+mod storage;
 pub mod strip;
 pub mod tapo;
 pub mod transport;

@@ -106,3 +106,11 @@ request signatures, AES framing, advancing sequence numbers, strict response cod
 and rejection of malformed state before any mutation. Identity/energy unit tests
 cover swapped addresses, legacy registry migration, collisions, unit normalization,
 and missing data. These checks are offline evidence, not hardware verification.
+
+Hardening regressions additionally cover an independently generated KLAP ciphertext
+vector, bit flips throughout its tag and ciphertext, replay/cross-session rejection,
+and a tampered response from the local HTTP peer with no subsequent power mutation.
+Storage tests inject write/rename failures, verify temporary permissions before the
+first write, and test stale scan snapshots. Linux CLI subprocess tests race alias
+adds/removals while reading JSON, check credentials under umask 000, and kill a lock
+holder to verify automatic OS lock release. No live devices are used.

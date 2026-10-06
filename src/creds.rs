@@ -46,23 +46,12 @@ pub fn load() -> Result<(String, String)> {
 
 pub fn save(user: &str, pass: &str) -> Result<()> {
     let path = creds_path();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-
-    std::fs::write(
-        &path,
-        serde_json::to_string_pretty(&CredFile {
-            tapo_user: user.to_string(),
-            tapo_pass: pass.to_string(),
-        })?,
-    )?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-    }
+    let _lock = crate::storage::FileLock::acquire(&path)?;
+    let data = serde_json::to_vec_pretty(&CredFile {
+        tapo_user: user.to_string(),
+        tapo_pass: pass.to_string(),
+    })?;
+    crate::storage::atomic_write(&path, &data)?;
 
     Ok(())
 }

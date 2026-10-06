@@ -267,7 +267,8 @@ Single-result commands emit exactly one JSON object with this envelope:
 or an object with stable `code` and human-readable `message`. Codes include
 `invalid_arguments`, `not_found`, `malformed_response`, `device_rejected`,
 `unsupported_operation`, `identity_mismatch`, `connection_failed`, `timeout`,
-`io_error`, `partial_failure`, and the fallback `command_failed`.
+`io_error`, `partial_failure`, `integrity_failed`, `registry_conflict`, and the
+fallback `command_failed`.
 Messages may change; branch on codes. Resolution and argument failures also emit
 JSON. Help/version requests retain their normal output.
 
@@ -330,3 +331,16 @@ code/message. It never becomes a zero-watt sample. Later samples continue, but
 any failed sample makes the eventual process exit nonzero. Summaries go to stderr,
 so exported files contain only records. Historical collection starts when you run
 watch; it cannot reconstruct periods before collection or fill gaps while offline.
+
+## Safe local updates
+
+Credential saves and alias changes use atomic file replacement. On Unix, credential
+files are created with mode 0600 before credentials are written. Concurrent Denki
+alias edits are serialized through an OS file lock. A scan that detects another
+process changed the registry returns `registry_conflict` and saves none of its
+updates; rerun `denki scan` to reconcile against the latest aliases.
+
+The empty `.lock` sidecar files are intentionally retained. Do not remove them to
+unlock a process: locks are released automatically when the holding process exits.
+KLAP responses that fail authentication return `integrity_failed` before decryption
+or any state-dependent follow-up command.

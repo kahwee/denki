@@ -4,6 +4,12 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 async fn peer(replies: Vec<Value>) -> (u16, tokio::task::JoinHandle<Vec<Value>>) {
+    peer_with_corruption(replies, false).await
+}
+async fn peer_with_corruption(
+    replies: Vec<Value>,
+    corrupt: bool,
+) -> (u16, tokio::task::JoinHandle<Vec<Value>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let task = tokio::spawn(async move {
@@ -18,7 +24,7 @@ async fn peer(replies: Vec<Value>) -> (u16, tokio::task::JoinHandle<Vec<Value>>)
             let length = response_content_length(&headers).unwrap();
             let mut body = vec![0; length];
             socket.read_exact(&mut body).await.unwrap();
-            let response = match step {
+            let mut response = match step {
                 0 => {
                     assert!(headers.starts_with("POST /app/handshake1 "));
                     assert_eq!(body.len(), 16);
@@ -65,6 +71,9 @@ async fn peer(replies: Vec<Value>) -> (u16, tokio::task::JoinHandle<Vec<Value>>)
                     [tag.as_slice(), &ciphertext].concat()
                 }
             };
+            if corrupt && step >= 2 {
+                response[0] ^= 1;
+            }
             let header = format!(
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nSet-Cookie: TP_SESSIONID=test-session; Path=/\r\n\r\n",
                 response.len()
@@ -164,4 +173,16 @@ async fn repeated_energy_reads_reuse_the_authenticated_session() {
     let requests = peer.await.unwrap();
     assert_eq!(requests.len(), 2);
     assert!(requests.iter().all(|r| r["method"] == "get_energy_usage"));
+}
+
+#[tokio::test]
+async fn tampered_http_response_never_triggers_a_power_mutation() {
+    let info = json!({"error_code":0,"result":{"model":"P125","hw_ver":"1.0","fw_ver":"1.0","rssi":-40,"device_on":false,"device_id":"synthetic-tapo"}});
+    let (port, peer) = peer_with_corruption(vec![info], true).await;
+    let mut session = handshake_at("127.0.0.1", port, "test@example.invalid", "test-password")
+        .await
+        .unwrap();
+    let error = crate::ops::tapo_toggle(&mut session).await.unwrap_err();
+    assert_eq!(crate::error::code(&error), "integrity_failed");
+    assert_eq!(peer.await.unwrap().len(), 1);
 }
