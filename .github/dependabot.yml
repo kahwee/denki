@@ -25,3 +25,7 @@ updates:
         update-types:
           - minor
           - patch
+  - package-ecosystem: pip
+    directory: /docs/site
+    schedule:
+      interval: weekly

@@ -3,6 +3,11 @@
 Control TP-Link Kasa and Tapo devices on your local network. Inspect energy
 usage, operate lights and plugs, and combine commands in shell scripts.
 
+[**Documentation & interactive demo →**](https://kahwee.github.io/denki/)
+
+Try sample energy output and copy commands, or follow the
+[getting-started guide](docs/getting-started.md).
+
 ## Install
 
 Requires Rust 1.99 or newer:
@@ -49,6 +54,9 @@ from Kasa. See the [command and support guide](docs/commands.md).
 
 ## Documentation
 
+- [Getting started with Kasa or Tapo](docs/getting-started.md)
+- [Energy readings, units, and recording](docs/energy.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Commands, aliases, credentials, and limitations](docs/commands.md)
 - [Rust library usage](docs/library.md)
 - [Architecture and protocols](docs/architecture.md)

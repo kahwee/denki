@@ -1,0 +1,27 @@
+<section class="hero">
+  <div class="eyebrow"><span class="dot"></span> YOUR DEVICES. YOUR NETWORK.</div>
+  <h1>A little more insight.<br><em>A little less energy.</em></h1>
+  <p class="lede">See what your devices are using. Record it, understand it, and take control—with a small command-line tool for Kasa and Tapo.</p>
+  <div class="hero-actions"><a class="primary" href="getting-started.html">Connect your first device <span>↗</span></a><a class="text-link" href="#demo">Try the command demo ↓</a></div>
+  <div class="facts"><span>Local network control</span><span>CSV & JSONL exports</span><span>No Denki cloud service</span></div>
+</section>
+<section id="demo" class="demo-section">
+  <div class="section-heading"><div><div class="eyebrow">01 / SEE IT IN ACTION</div><h2>Your next command, ready to copy.</h2></div><span class="pill">Illustrative demo</span></div>
+  <p>Choose a format and use your saved device name. This preview uses sample data; it does not connect to your devices. Commands are for a POSIX shell.</p>
+  <noscript><p>Enable JavaScript for the interactive preview and copy buttons. All guides and code examples remain readable.</p></noscript>
+  <div class="demo-grid">
+    <form id="demo-form" class="controls">
+      <label for="device">Device alias</label><input id="device" value="desk plug" maxlength="80" required autocomplete="off" spellcheck="false">
+      <label for="format">What do you want to do?</label><select id="format"><option value="json">Read energy · JSON</option><option value="csv">Record energy · CSV</option><option value="jsonl">Stream energy · JSONL</option></select>
+      <div id="watch-controls" hidden><label for="interval">Seconds between samples</label><input id="interval" type="number" min="1" max="3600" value="5" required><label for="count">Number of samples</label><input id="count" type="number" min="1" max="10000" value="12" required></div>
+      <p class="control-note">Reading energy never changes power. Use an <a href="commands.html#supported-devices">energy-capable model</a>.</p>
+    </form>
+    <div class="terminal"><div class="terminal-bar"><span><i></i><i></i><i></i></span><span>denki / energy</span><span>SAMPLE</span></div><div class="command-line"><span class="prompt" aria-hidden="true">$</span><code id="demo-command">denki energy 'desk plug' --json</code><button type="button" class="copy" id="copy-command">Copy</button></div><div class="reading"><div><span class="reading-label">CURRENT POWER</span><strong>42.6 <small>W</small></strong></div><svg viewBox="0 0 260 66" role="img" aria-label="Illustrative power trend"><path d="M0 54 L20 52 L40 55 L60 38 L80 40 L100 43 L120 24 L140 26 L160 20 L180 28 L200 16 L220 18 L240 12 L260 15"/></svg></div><div class="output-label" id="output-label">Sample JSON result</div><pre class="demo-output"><code id="demo-output"></code></pre></div>
+  </div>
+  <p class="caption" id="demo-note">Unavailable measurements are null, not zero. One-shot JSON uses a schema-v2 envelope.</p>
+</section>
+<section class="next-section"><div class="eyebrow">02 / MAKE IT YOURS</div><h2>From first reading to daily routine.</h2><div class="cards"><a href="getting-started.html"><span>01 ↗</span><h3>Get connected</h3><p>Install Denki, find a Kasa device, or sign in to a Tapo plug.</p></a><a href="energy.html"><span>02 ↗</span><h3>Understand the watts</h3><p>Read units, record a session, and take your data to a spreadsheet.</p></a><a href="commands.html"><span>03 ↗</span><h3>Build your routine</h3><p>Explore power, lighting, groups, diagnostics, and structured output.</p></a></div></section>
+<section class="install"><div><div class="eyebrow">SMALL TOOL. USEFUL SIGNAL.</div><h2>Start in your terminal.</h2><p>Requires Rust 1.99+. <a href="getting-started.html">Full setup guide ↗</a></p></div><pre><code class="language-sh">git clone https://github.com/kahwee/denki.git
+cd denki
+cargo install --path . --locked
+denki --help</code></pre></section>
