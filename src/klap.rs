@@ -44,6 +44,7 @@ pub struct KlapSession {
     seq: i32,
     cookie: String,
     host: String,
+    port: u16,
 }
 
 fn sha1_of(data: &[u8]) -> [u8; 20] {
@@ -82,12 +83,16 @@ async fn read_headers(stream: &mut TcpStream) -> Result<Vec<u8>> {
 
 async fn http_post(
     host: &str,
+    port: u16,
     path: &str,
     extra_headers: &[(&str, &str)],
     body: &[u8],
 ) -> Result<(u16, String, Vec<u8>)> {
     let deadline = Instant::now() + KLAP_TIMEOUT;
-    let addr = format!("{host}:80");
+    let addr = match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => std::net::SocketAddr::new(ip, port).to_string(),
+        Err(_) => format!("{host}:{port}"),
+    };
     let mut stream = timeout_at(deadline, TcpStream::connect(&addr))
         .await
         .map_err(|_| crate::transport::connect_timeout_error(&addr, KLAP_TIMEOUT.as_secs()))?
@@ -160,12 +165,22 @@ fn response_content_length(headers: &str) -> Result<usize> {
 }
 
 pub async fn handshake(host: &str, username: &str, password: &str) -> Result<KlapSession> {
+    handshake_at(host, 80, username, password).await
+}
+
+async fn handshake_at(
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+) -> Result<KlapSession> {
     let ah = auth_hash(username, password);
 
     let mut local_seed = [0u8; 16];
     rand::rng().fill(&mut local_seed);
 
-    let (status1, headers1, body1) = http_post(host, "/app/handshake1", &[], &local_seed).await?;
+    let (status1, headers1, body1) =
+        http_post(host, port, "/app/handshake1", &[], &local_seed).await?;
     if status1 != 200 {
         bail!("Handshake 1 failed: HTTP {status1}");
     }
@@ -203,6 +218,7 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
     let client_proof = sha256_multi(&[&remote_seed, &local_seed, &ah]);
     let (status2, _, _) = http_post(
         host,
+        port,
         "/app/handshake2",
         &[("Cookie", &cookie)],
         &client_proof,
@@ -227,16 +243,26 @@ pub async fn handshake(host: &str, username: &str, password: &str) -> Result<Kla
         seq,
         cookie,
         host: host.to_string(),
+        port,
     })
 }
 
 impl KlapSession {
+    pub(crate) fn host(&self) -> &str {
+        &self.host
+    }
     pub async fn send(&mut self, json: &str) -> Result<serde_json::Value> {
         let (payload, seq) = self.encrypt(json.as_bytes());
         let path = format!("/app/request?seq={seq}");
 
-        let (status, _, resp_body) =
-            http_post(&self.host, &path, &[("Cookie", &self.cookie)], &payload).await?;
+        let (status, _, resp_body) = http_post(
+            &self.host,
+            self.port,
+            &path,
+            &[("Cookie", &self.cookie)],
+            &payload,
+        )
+        .await?;
 
         if status != 200 {
             bail!("Request failed: HTTP {status}");
@@ -334,3 +360,7 @@ mod tests {
         assert!(msg.contains("unreachable"), "{msg}");
     }
 }
+
+#[cfg(test)]
+#[path = "klap_tests.rs"]
+mod protocol_tests;

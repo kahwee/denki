@@ -12,15 +12,12 @@ use super::scan::handle_scan;
 
 async fn dispatch_command(command: Command) -> Result<()> {
     match command {
-        Command::Scan { timeout } => handle_scan(timeout).await,
-        Command::Info { host, json } => {
-            if json {
-                handle_doctor(host, true).await
-            } else {
-                handle_info(host).await
-            }
-        }
-        Command::Doctor { host, json } => handle_doctor(host, json).await,
+        Command::Scan {
+            timeout,
+            tapo_target,
+        } => handle_scan(timeout, tapo_target).await,
+        Command::Info { host } => handle_info(host).await,
+        Command::Doctor { host } => handle_doctor(host).await,
         Command::On { host, outlet } => commands::handle_on(&host, outlet).await,
         Command::Off { host, outlet } => commands::handle_off(&host, outlet).await,
         Command::Toggle { host, outlet } => commands::handle_toggle(&host, outlet).await,
@@ -38,7 +35,31 @@ async fn dispatch_command(command: Command) -> Result<()> {
             saturation,
             value,
         } => commands::handle_color(&host, hue, saturation, value).await,
-        Command::Energy { host, outlet } => commands::handle_energy(&host, outlet).await,
+        Command::Energy {
+            host,
+            outlet,
+            command,
+        } => match command {
+            Some(crate::cli::EnergyCommand::Watch {
+                host,
+                outlet,
+                interval,
+                count,
+                format,
+            }) => commands::handle_energy_watch(&host, outlet, interval, count, format).await,
+            None => {
+                commands::handle_energy(
+                    &host.ok_or_else(|| {
+                        crate::error::error(
+                            "invalid_arguments",
+                            "energy requires DEVICE or watch DEVICE",
+                        )
+                    })?,
+                    outlet,
+                )
+                .await
+            }
+        },
         Command::EnergyDaily {
             host,
             month,
@@ -75,6 +96,36 @@ async fn dispatch_command(command: Command) -> Result<()> {
 }
 
 pub async fn run() -> Result<()> {
-    let cli = Cli::parse();
-    dispatch_command(cli.command).await
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let wants_json = args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == "--json");
+    let cli = match Cli::try_parse_from(&args) {
+        Ok(cli) => cli,
+        Err(error) => {
+            if wants_json && error.use_stderr() {
+                let result = Err(crate::error::error("invalid_arguments", error.to_string()));
+                std::println!(
+                    "{}",
+                    crate::output::envelope("parse", &result, serde_json::Value::Null)
+                );
+                return result;
+            }
+            error.exit();
+        }
+    };
+    let streaming = matches!(
+        &cli.command,
+        Command::Energy {
+            command: Some(_),
+            ..
+        }
+    ) && !matches!(&cli.command, Command::Energy { command: Some(crate::cli::EnergyCommand::Watch { format: crate::cli::WatchFormat::Csv, .. }), .. } if cli.json);
+    let command = cli.command.name();
+    let (result, data) = crate::output::collect(cli.json, dispatch_command(cli.command)).await;
+    if cli.json && !streaming {
+        std::println!("{}", crate::output::envelope(command, &result, data));
+    }
+    result
 }

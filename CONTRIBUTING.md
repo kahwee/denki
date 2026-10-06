@@ -91,3 +91,18 @@ If `DENKI_SMOKE_POWER_TARGETS` is unset, the harness defaults to
 
 See [architecture and protocols](docs/architecture.md) for module ownership and
 [device commands](docs/commands.md) for support and usage.
+
+## Offline automation regression coverage
+
+`cargo test --locked` includes real CLI subprocesses against a local Kasa TCP
+simulator (`tests/automation_cli.rs`, Linux). Scenarios cover normalized energy,
+JSON purity, malformed/rejected replies, no mutation after invalid state or identity,
+DHCP reconciliation, dry runs and partial group failures, JSONL/CSV, failed-sample
+recovery, and Ctrl-C. The simulator binds only `127.0.0.1:9999` and never contacts
+physical devices. Keep these scenarios in one test to avoid fixed-port races.
+
+`src/klap_tests.rs` uses an ephemeral loopback HTTP peer to exercise KLAP handshakes,
+request signatures, AES framing, advancing sequence numbers, strict response codes,
+and rejection of malformed state before any mutation. Identity/energy unit tests
+cover swapped addresses, legacy registry migration, collisions, unit normalization,
+and missing data. These checks are offline evidence, not hardware verification.

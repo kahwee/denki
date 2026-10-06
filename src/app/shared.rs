@@ -77,7 +77,7 @@ pub(super) fn print_kasa_detail(ip: &str, json: &serde_json::Value, hint: &str) 
                 format!("Detailed info is not available for {kind} yet. Raw sysinfo from {ip}:")
                     .yellow()
             );
-            println!(
+            crate::output::println!(
                 "{}",
                 serde_json::to_string_pretty(json).unwrap_or_else(|_| json.to_string())
             );

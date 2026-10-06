@@ -1,7 +1,7 @@
 // Device name/IP resolution and protocol guards for the CLI.
 
 use crate::{hosts, strip};
-use anyhow::{Result, bail};
+use anyhow::Result;
 use colored::Colorize;
 use std::net::IpAddr;
 
@@ -13,8 +13,10 @@ pub struct Resolved {
 }
 
 fn not_found(input: &str) -> anyhow::Error {
-    anyhow::anyhow!(
-        "No device named \"{input}\" was found in saved aliases.\n\
+    crate::error::error(
+        "not_found",
+        format!(
+            "No device named \"{input}\" was found in saved aliases.\n\
          \n\
          If you just ran `denki scan`, use the device IP directly:\n\
          \x20 denki <command> 192.168.x.x\n\
@@ -24,6 +26,7 @@ fn not_found(input: &str) -> anyhow::Error {
          \n\
          To review saved names:\n\
          \x20 denki aliases"
+        ),
     )
 }
 
@@ -31,7 +34,7 @@ fn not_found(input: &str) -> anyhow::Error {
 pub async fn resolve(input: &str) -> Result<Resolved> {
     let r = resolve_quiet(input)?;
     if let Some(name) = &r.saved_name {
-        println!("{}", format!("Using alias \"{name}\" [{}]", r.ip).dimmed());
+        crate::output::println!("{}", format!("Using alias \"{name}\" [{}]", r.ip).dimmed());
     }
     Ok(r)
 }
@@ -75,7 +78,10 @@ pub fn resolve_outlet(s: &strip::Strip, outlet: u8) -> Result<&strip::StripChild
 /// KLAP (Tapo) devices don't support the Kasa XOR protocol.
 pub fn require_kasa(r: &Resolved, cmd: &str) -> Result<()> {
     if r.protocol != hosts::Protocol::Kasa {
-        bail!("`{cmd}` requires Kasa protocol — save the alias without --klap");
+        return Err(crate::error::error(
+            "unsupported_operation",
+            format!("`{cmd}` requires Kasa protocol"),
+        ));
     }
     Ok(())
 }

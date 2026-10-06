@@ -28,6 +28,7 @@ struct DoctorReport {
     verified_model: Option<bool>,
     warnings: Vec<String>,
     error: Option<String>,
+    error_code: Option<&'static str>,
 }
 
 impl DoctorReport {
@@ -49,6 +50,7 @@ impl DoctorReport {
             verified_model: None,
             warnings: Vec::new(),
             error: None,
+            error_code: None,
         }
     }
 
@@ -76,9 +78,15 @@ fn kasa_report(mut report: DoctorReport, json: &serde_json::Value) -> DoctorRepo
     let info = json.pointer("/system/get_sysinfo");
     let Some(info) = info else {
         report.error = Some("Response did not contain system.get_sysinfo".into());
+        report.error_code = Some("malformed_response");
         return report;
     };
 
+    if let Err(error) = ops::validate_sysinfo(json) {
+        report.error_code = Some(crate::error::code(&error));
+        report.error = Some(error.to_string());
+        return report;
+    }
     report.status = "ok";
     report.model = info
         .get("model")
@@ -138,7 +146,15 @@ async fn inspect(host: &str) -> Result<DoctorReport> {
     match resolved.protocol {
         hosts::Protocol::Kasa => match ops::sysinfo(&resolved.ip).await {
             Ok(json) => report = kasa_report(report, &json),
-            Err(error) => report.error = Some(format!("{error:#}")),
+            Err(error) => {
+                let code = crate::error::code(&error);
+                report.reachable = matches!(
+                    code,
+                    "malformed_response" | "device_rejected" | "identity_mismatch"
+                );
+                report.error_code = Some(code);
+                report.error = Some(format!("{error:#}"));
+            }
         },
         hosts::Protocol::Klap => match tapo_session(&resolved.ip).await {
             Ok(mut session) => match ops::tapo_device_info(&mut session).await {
@@ -146,12 +162,20 @@ async fn inspect(host: &str) -> Result<DoctorReport> {
                     Some(device) => report = tapo_report(report, &device),
                     None => {
                         report.reachable = true;
+                        report.error_code = Some("malformed_response");
                         report.error = Some("Could not parse Tapo device info".into());
                     }
                 },
-                Err(error) => report.error = Some(format!("{error:#}")),
+                Err(error) => {
+                    report.reachable = true; // The KLAP handshake already established connectivity.
+                    report.error_code = Some(crate::error::code(&error));
+                    report.error = Some(format!("{error:#}"));
+                }
             },
-            Err(error) => report.error = Some(format!("{error:#}")),
+            Err(error) => {
+                report.error_code = Some(crate::error::code(&error));
+                report.error = Some(format!("{error:#}"));
+            }
         },
     }
     Ok(report)
@@ -159,10 +183,10 @@ async fn inspect(host: &str) -> Result<DoctorReport> {
 
 fn print_text(report: &DoctorReport) {
     let label = report.alias.as_deref().unwrap_or(&report.ip);
-    println!("{}", format!("Diagnostics: {label}").bold());
-    println!("  Host:         {}", report.ip);
-    println!("  Protocol:     {}", report.protocol);
-    println!(
+    crate::output::println!("{}", format!("Diagnostics: {label}").bold());
+    crate::output::println!("  Host:         {}", report.ip);
+    crate::output::println!("  Protocol:     {}", report.protocol);
+    crate::output::println!(
         "  Reachable:    {}",
         if report.reachable {
             "yes".green().bold()
@@ -171,38 +195,40 @@ fn print_text(report: &DoctorReport) {
         }
     );
     if let Some(model) = &report.model {
-        println!("  Model:        {model}");
+        crate::output::println!("  Model:        {model}");
     }
     if let Some(kind) = &report.kind {
-        println!("  Type:         {kind}");
+        crate::output::println!("  Type:         {kind}");
     }
     if let Some(firmware) = &report.firmware_version {
-        println!("  Firmware:     {firmware}");
+        crate::output::println!("  Firmware:     {firmware}");
     }
     if let Some(on) = report.power_on {
-        println!("  Power:        {}", if on { "on" } else { "off" });
+        crate::output::println!("  Power:        {}", if on { "on" } else { "off" });
     }
     if !report.capabilities.is_empty() {
-        println!("  Capabilities: {}", report.capabilities.join(", "));
+        crate::output::println!("  Capabilities: {}", report.capabilities.join(", "));
     }
     for warning in &report.warnings {
-        println!("  {} {warning}", "Warning:".yellow());
+        crate::output::println!("  {} {warning}", "Warning:".yellow());
     }
     if let Some(error) = &report.error {
-        println!("  {} {error}", "Error:".red().bold());
+        crate::output::println!("  {} {error}", "Error:".red().bold());
     }
 }
 
-pub(super) async fn handle_doctor(host: String, json: bool) -> Result<()> {
+pub(super) async fn handle_doctor(host: String) -> Result<()> {
     let report = inspect(&host).await?;
     let failed = report.status != "ok";
-    if json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
-    } else {
-        print_text(&report);
-    }
+    crate::output::record(serde_json::to_value(&report)?);
+    print_text(&report);
     if failed {
-        anyhow::bail!("Diagnostics reported a device error")
+        return Err(crate::error::error(
+            report.error_code.unwrap_or("command_failed"),
+            report
+                .error
+                .unwrap_or_else(|| "Diagnostics reported a device error".into()),
+        ));
     }
     Ok(())
 }
@@ -217,7 +243,7 @@ mod tests {
         let report = kasa_report(
             DoctorReport::pending(None, "192.0.2.1".into(), &hosts::Protocol::Kasa),
             &json!({"system": {"get_sysinfo": {
-                "model": "KL135(US)", "mic_type": "IOT.SMARTBULB",
+                "alias":"Test", "err_code": 0, "model": "KL135(US)", "mic_type": "IOT.SMARTBULB",
                 "hw_ver": "1.0", "sw_ver": "1.2.3", "rssi": -44,
                 "deviceId": "secret-device-id", "mac": "00:11:22:33:44:55",
                 "light_state": {"on_off": 1}

@@ -54,15 +54,15 @@ pub fn resolve(name: &str) -> Option<&'static str> {
 
 pub fn print_catalog(current: &LightingEffectState) {
     let state = if current.enable == 1 { "On" } else { "Off" };
-    println!("Current effect: {} ({state})", current.name.bold());
-    println!("{}", "Built-in effects:".bold());
+    crate::output::println!("Current effect: {} ({state})", current.name.bold());
+    crate::output::println!("{}", "Built-in effects:".bold());
     for effect in BUILTIN_EFFECTS {
         if effect.eq_ignore_ascii_case("off") {
-            println!("  {effect}");
+            crate::output::println!("  {effect}");
         } else if effect.eq_ignore_ascii_case(&current.name) {
-            println!("  {effect}  {}", "(selected)".dimmed());
+            crate::output::println!("  {effect}  {}", "(selected)".dimmed());
         } else {
-            println!("  {effect}");
+            crate::output::println!("  {effect}");
         }
     }
 }
@@ -70,7 +70,9 @@ pub fn print_catalog(current: &LightingEffectState) {
 pub async fn handle_effects_command(host: &str) -> anyhow::Result<()> {
     let ctx = KasaContext::load(host, "effects").await?;
     devices::can_get_effects(ctx.kind())?;
-    print_catalog(&ops::lightstrip_current_effect(ctx.ip()).await?);
+    let current = ops::lightstrip_current_effect(ctx.ip()).await?;
+    crate::output::record(serde_json::json!({"current":current,"available":BUILTIN_EFFECTS}));
+    print_catalog(&current);
     Ok(())
 }
 
@@ -80,7 +82,8 @@ pub async fn handle_effect_command(host: &str, name: &str) -> anyhow::Result<()>
 
     if name.eq_ignore_ascii_case("off") {
         ops::lightstrip_disable_effect(ctx.ip()).await?;
-        println!("Effect -> {}", "Off".dimmed());
+        crate::output::record(serde_json::json!({"effect":"Off"}));
+        crate::output::println!("Effect -> {}", "Off".dimmed());
         return Ok(());
     }
 
@@ -92,7 +95,8 @@ pub async fn handle_effect_command(host: &str, name: &str) -> anyhow::Result<()>
     })?;
     let current = ops::lightstrip_current_effect(ctx.ip()).await?;
     ops::lightstrip_set_effect(ctx.ip(), &current, resolved).await?;
-    println!("Effect -> {}", resolved.bold());
+    crate::output::record(serde_json::json!({"effect":resolved}));
+    crate::output::println!("Effect -> {}", resolved.bold());
     Ok(())
 }
 

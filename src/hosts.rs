@@ -29,6 +29,8 @@ impl std::fmt::Display for Protocol {
 pub struct HostEntry {
     pub ip: String,
     pub protocol: Protocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
 }
 
 fn hosts_path() -> PathBuf {
@@ -55,6 +57,7 @@ fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
                         HostEntry {
                             ip,
                             protocol: Protocol::Kasa,
+                            device_id: None,
                         },
                     )
                 })
@@ -219,6 +222,7 @@ pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
         HostEntry {
             ip: ip.to_string(),
             protocol,
+            device_id: None,
         },
     );
     save_map(&path, &map)
@@ -272,9 +276,99 @@ pub fn save_if_new_in(
         HostEntry {
             ip: ip.to_string(),
             protocol: Protocol::Kasa,
+            device_id: None,
         },
     );
     true
+}
+
+/// Reconcile an observed identity, never guessing from a colliding name.
+pub fn reconcile_in(
+    name: &str,
+    ip: &str,
+    protocol: Protocol,
+    device_id: Option<&str>,
+    map: &mut BTreeMap<String, HostEntry>,
+) -> Result<bool> {
+    let id = device_id.filter(|id| !id.trim().is_empty());
+    if let Some(id) = id {
+        let matches: Vec<String> = map
+            .iter()
+            .filter(|(_, e)| e.protocol == protocol && e.device_id.as_deref() == Some(id))
+            .map(|(n, _)| n.clone())
+            .collect();
+        if !matches.is_empty() {
+            let mut changed = false;
+            for name in matches {
+                let entry = map.get_mut(&name).unwrap();
+                changed |= entry.ip != ip;
+                entry.ip = ip.into();
+            }
+            return Ok(changed);
+        }
+    }
+    for entry in map
+        .values()
+        .filter(|e| e.ip == ip && e.protocol == protocol)
+    {
+        if let Some(expected) = entry.device_id.as_deref()
+            && id != Some(expected)
+        {
+            return Err(crate::error::error(
+                "identity_mismatch",
+                "Saved address now belongs to a different device or its identity is missing",
+            ));
+        }
+    }
+    let mut changed = false;
+    let mut same_address = false;
+    for entry in map
+        .values_mut()
+        .filter(|e| e.ip == ip && e.protocol == protocol)
+    {
+        same_address = true;
+        if entry.device_id.is_none()
+            && let Some(id) = id
+        {
+            entry.device_id = Some(id.into());
+            changed = true;
+        }
+    }
+    if same_address {
+        return Ok(changed);
+    }
+    let normalized = normalize(name);
+    if normalized.is_empty() || map.keys().any(|n| normalize(n) == normalized) {
+        return Ok(false);
+    }
+    map.insert(
+        name.trim().into(),
+        HostEntry {
+            ip: ip.into(),
+            protocol,
+            device_id: id.map(str::to_owned),
+        },
+    );
+    Ok(true)
+}
+
+/// Check stored identities before using an address. Legacy entries bind on scan.
+pub fn verify_identity(ip: &str, protocol: Protocol, actual: Option<&str>) -> Result<()> {
+    let map = load()?;
+    for entry in map
+        .values()
+        .filter(|e| e.ip == ip && e.protocol == protocol)
+    {
+        if let Some(expected) = &entry.device_id
+            && actual != Some(expected.as_str())
+        {
+            return Err(crate::error::error(
+                "identity_mismatch",
+                "Device identity does not match the saved alias. Run denki scan to reconcile addresses.",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Return the alias name for a given IP, if one exists in `map`.
@@ -301,6 +395,7 @@ mod tests {
         HostEntry {
             ip: ip.to_string(),
             protocol,
+            device_id: None,
         }
     }
 
@@ -546,5 +641,104 @@ mod tests {
         let saved = save_if_new_in("", "192.168.4.99", &mut map);
         assert!(!saved);
         assert!(map.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use serde_json::json;
+    fn known(ip: &str, id: Option<&str>) -> HostEntry {
+        HostEntry {
+            ip: ip.into(),
+            protocol: Protocol::Kasa,
+            device_id: id.map(str::to_owned),
+        }
+    }
+    #[test]
+    fn identity_reconciles_changed_and_swapped_addresses_preserving_names() {
+        let mut map = BTreeMap::from([
+            ("custom a".into(), known("192.0.2.1", Some("a"))),
+            ("custom b".into(), known("192.0.2.2", Some("b"))),
+        ]);
+        assert!(
+            reconcile_in(
+                "factory a",
+                "192.0.2.2",
+                Protocol::Kasa,
+                Some("a"),
+                &mut map
+            )
+            .unwrap()
+        );
+        assert!(
+            reconcile_in(
+                "factory b",
+                "192.0.2.1",
+                Protocol::Kasa,
+                Some("b"),
+                &mut map
+            )
+            .unwrap()
+        );
+        assert_eq!(map["custom a"].ip, "192.0.2.2");
+        assert_eq!(map["custom b"].ip, "192.0.2.1");
+        assert_eq!(map.len(), 2);
+        assert!(
+            !reconcile_in(
+                "factory a",
+                "192.0.2.2",
+                Protocol::Kasa,
+                Some("a"),
+                &mut map
+            )
+            .unwrap()
+        );
+    }
+    #[test]
+    fn legacy_entries_learn_at_current_address_but_never_move_by_name() {
+        let mut map = BTreeMap::from([("custom".into(), known("192.0.2.1", None))]);
+        assert!(!reconcile_in("custom", "192.0.2.2", Protocol::Kasa, Some("a"), &mut map).unwrap());
+        assert_eq!(map["custom"].ip, "192.0.2.1");
+        assert!(reconcile_in("factory", "192.0.2.1", Protocol::Kasa, Some("a"), &mut map).unwrap());
+        assert_eq!(map["custom"].device_id.as_deref(), Some("a"));
+    }
+    #[test]
+    fn conflicting_or_missing_identity_never_changes_any_entry() {
+        for actual in [Some("different"), None, Some("")] {
+            let mut map = BTreeMap::from([
+                ("unbound".into(), known("192.0.2.1", None)),
+                ("bound".into(), known("192.0.2.1", Some("original"))),
+            ]);
+            let before = serde_json::to_value(&map).unwrap();
+            assert!(
+                reconcile_in("factory", "192.0.2.1", Protocol::Kasa, actual, &mut map).is_err()
+            );
+            assert_eq!(serde_json::to_value(&map).unwrap(), before);
+        }
+    }
+    #[test]
+    fn same_identity_on_different_protocol_cannot_move_alias() {
+        let mut map = BTreeMap::from([("desk".into(), known("192.0.2.1", Some("a")))]);
+        assert!(!reconcile_in("desk", "192.0.2.2", Protocol::Klap, Some("a"), &mut map).unwrap());
+        assert_eq!(map["desk"].ip, "192.0.2.1");
+    }
+    #[test]
+    fn identity_round_trips_and_old_v2_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hosts.json");
+        std::fs::write(
+            &path,
+            json!({"desk":{"ip":"192.0.2.1","protocol":"kasa"}}).to_string(),
+        )
+        .unwrap();
+        let mut map = load_map(&path).unwrap();
+        assert!(map["desk"].device_id.is_none());
+        reconcile_in("factory", "192.0.2.1", Protocol::Kasa, Some("a"), &mut map).unwrap();
+        save_map(&path, &map).unwrap();
+        assert_eq!(
+            load_map(&path).unwrap()["desk"].device_id.as_deref(),
+            Some("a")
+        );
     }
 }

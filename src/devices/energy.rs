@@ -10,12 +10,13 @@ pub fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()>
             let p = crate::plug::parse(json)
                 .ok_or_else(|| anyhow::anyhow!("could not parse plug sysinfo"))?;
             if !p.has_energy_monitoring() {
-                anyhow::bail!(
-                    "{} ({}) does not have energy monitoring (feature: {:?})",
-                    p.alias,
-                    p.model,
-                    p.feature
-                );
+                return Err(crate::error::error(
+                    "unsupported_operation",
+                    format!(
+                        "{} ({}) does not have energy monitoring (feature: {:?})",
+                        p.alias, p.model, p.feature
+                    ),
+                ));
             }
             Ok(())
         }
@@ -23,15 +24,19 @@ pub fn require_energy(json: &serde_json::Value, kind: &DeviceKind) -> Result<()>
             let s = crate::strip::parse(json)
                 .ok_or_else(|| anyhow::anyhow!("could not parse strip sysinfo"))?;
             if !s.has_energy_monitoring() {
-                anyhow::bail!(
-                    "{} ({}) does not have energy monitoring (feature: {:?})",
-                    s.alias,
-                    s.model,
-                    s.feature
-                );
+                return Err(crate::error::error(
+                    "unsupported_operation",
+                    format!(
+                        "{} ({}) does not have energy monitoring (feature: {:?})",
+                        s.alias, s.model, s.feature
+                    ),
+                ));
             }
             Ok(())
         }
-        other => anyhow::bail!("{other} does not support energy monitoring"),
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!("{other} does not support energy monitoring"),
+        )),
     }
 }

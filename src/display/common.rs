@@ -91,7 +91,7 @@ pub(crate) fn tapo_signal_label(level: u8) -> colored::ColoredString {
 
 pub(crate) fn print_light_color(ls: &LightState, indent: &str) {
     if ls.color_temp() > 0 {
-        println!(
+        crate::output::println!(
             "{indent}Brightness: {}%  Warmth: {}K",
             ls.brightness(),
             ls.color_temp()
@@ -99,7 +99,7 @@ pub(crate) fn print_light_color(ls: &LightState, indent: &str) {
     } else {
         let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
         let swatch = "██".truecolor(r, g, b);
-        println!(
+        crate::output::println!(
             "{indent}Brightness: {}%  Color: {} {}° hue  {} sat",
             ls.brightness(),
             swatch,
@@ -110,12 +110,12 @@ pub(crate) fn print_light_color(ls: &LightState, indent: &str) {
 }
 
 pub(crate) fn print_light_state_detail(ls: &LightState) {
-    println!("  Brightness: {}%", ls.brightness());
+    crate::output::println!("  Brightness: {}%", ls.brightness());
     if ls.color_temp() > 0 {
-        println!("  Warmth:     {}K", ls.color_temp());
+        crate::output::println!("  Warmth:     {}K", ls.color_temp());
     } else {
         let (r, g, b) = hsv_to_rgb(ls.hue(), ls.saturation(), ls.brightness());
-        println!(
+        crate::output::println!(
             "  Color:      {} {}° hue  {} sat",
             "██".truecolor(r, g, b),
             ls.hue(),
@@ -131,7 +131,7 @@ pub(crate) fn print_light_effect_detail(effect: Option<&LightingEffectState>) {
         } else {
             "Off"
         };
-        println!("  Effect:     {}", name);
+        crate::output::println!("  Effect:     {}", name);
     }
 }
 

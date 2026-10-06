@@ -9,7 +9,9 @@ use crate::ops;
 pub async fn handle_schedules(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "schedules").await?;
     devices::can_get_schedules(ctx.kind())?;
-    display::print_schedules(&ops::device_schedules(ctx.ip()).await?);
+    let response = ops::device_schedules(ctx.ip()).await?;
+    crate::output::record(crate::output::sanitized(response.clone()));
+    display::print_schedules(&response);
     Ok(())
 }
 
@@ -17,7 +19,8 @@ pub async fn handle_led(host: &str, on: bool) -> Result<()> {
     let ctx = KasaContext::load(host, "led").await?;
     devices::can_control_led(ctx.kind())?;
     ops::device_led(ctx.ip(), on).await?;
-    println!(
+    crate::output::record(serde_json::json!({"led_on":on}));
+    crate::output::println!(
         "LED indicator {}",
         if on { "on".green() } else { "off".dimmed() }
     );
@@ -41,8 +44,9 @@ pub async fn handle_clock(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "clock").await?;
     devices::can_get_clock(ctx.kind())?;
     let resp = ops::device_time(ctx.ip()).await?;
+    crate::output::record(serde_json::json!({"clock":resp["time"]["get_time"]}));
     if let Some(line) = format_clock(&resp) {
-        println!("{line}");
+        crate::output::println!("{line}");
     } else {
         bail!("Unexpected response from {}: no time data", ctx.ip());
     }
@@ -52,21 +56,28 @@ pub async fn handle_clock(host: &str) -> Result<()> {
 pub async fn handle_rename(host: &str, name: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "rename").await?;
     ops::rename(ctx.ip(), name).await?;
-    println!("Renamed to \"{}\"", name.bold());
+    crate::output::record(serde_json::json!({"name":name}));
+    crate::output::println!("Renamed to \"{}\"", name.bold());
     Ok(())
 }
 
 pub async fn handle_restart(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "restart").await?;
     ops::restart(ctx.ip()).await?;
-    println!("{} rebooting...", ctx.ip());
+    crate::output::record(serde_json::json!({"restarting":true}));
+    crate::output::println!("{} rebooting...", ctx.ip());
     Ok(())
 }
 
 pub async fn handle_outlets(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "outlets").await?;
     match crate::strip::parse(ctx.json()) {
-        Some(s) => display::print_strip_outlets(&s),
+        Some(s) => {
+            crate::output::record(
+                serde_json::json!({"outlets":s.children.iter().enumerate().map(|(i,c)| serde_json::json!({"outlet":i+1,"name":c.alias,"power_on":c.is_on()})).collect::<Vec<_>>()}),
+            );
+            display::print_strip_outlets(&s);
+        }
         None => bail!("{} does not appear to be a power strip", ctx.ip()),
     }
     Ok(())
@@ -76,7 +87,8 @@ pub async fn handle_outlet_rename(host: &str, outlet: u8, name: &str) -> Result<
     let ctx = KasaContext::load(host, "outlet-rename").await?;
     let (child_id, child_alias, _) = ctx.strip_outlet(outlet)?;
     ops::strip_outlet_rename(ctx.ip(), &child_id, name).await?;
-    println!(
+    crate::output::record(serde_json::json!({"outlet":outlet,"name":name}));
+    crate::output::println!(
         "Outlet {} renamed: {} → {}",
         outlet,
         child_alias,
@@ -88,14 +100,18 @@ pub async fn handle_outlet_rename(host: &str, outlet: u8, name: &str) -> Result<
 pub async fn handle_specs(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "specs").await?;
     devices::can_get_specs(ctx.kind())?;
-    display::print_bulb_specs(&ops::bulb_specs(ctx.ip()).await?);
+    let response = ops::bulb_specs(ctx.ip()).await?;
+    crate::output::record(crate::output::sanitized(response.clone()));
+    display::print_bulb_specs(&response);
     Ok(())
 }
 
 pub async fn handle_presets(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "presets").await?;
     devices::can_get_presets(ctx.kind())?;
-    display::print_bulb_presets(&ops::bulb_presets(ctx.ip()).await?);
+    let response = ops::bulb_presets(ctx.ip()).await?;
+    crate::output::record(crate::output::sanitized(response.clone()));
+    display::print_bulb_presets(&response);
     Ok(())
 }
 

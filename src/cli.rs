@@ -9,16 +9,22 @@ use clap_complete::Shell;
     version
 )]
 pub struct Cli {
+    /// Emit one versioned JSON result; progress goes to stderr
+    #[arg(long, global = true)]
+    pub json: bool,
     #[command(subcommand)]
     pub command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum Command {
     /// Scan Kasa devices and saved Tapo aliases; save new names without replacing existing aliases
     Scan {
         #[arg(short, long, default_value = "5")]
         timeout: u64,
+        /// Probe an additional Tapo address and reconcile its saved identity
+        #[arg(long, value_name = "IP")]
+        tapo_target: Vec<std::net::IpAddr>,
     },
 
     /// Show detailed info about a device
@@ -26,9 +32,6 @@ pub enum Command {
         /// Device name from scan output, a saved alias, or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
-        /// Print stable, machine-readable device information
-        #[arg(long)]
-        json: bool,
     },
 
     /// Check reachability, protocol, parsing, and advertised capabilities
@@ -36,9 +39,6 @@ pub enum Command {
         /// Device name, saved alias, or IP address
         #[arg(value_name = "DEVICE")]
         host: String,
-        /// Print the diagnostic report as JSON
-        #[arg(long)]
-        json: bool,
     },
 
     /// Turn a device on
@@ -121,10 +121,16 @@ pub enum Command {
     },
 
     /// Show real-time energy usage (bulbs, light strips, and ENE-capable plugs/strips)
+    #[command(
+        subcommand_precedence_over_arg = true,
+        args_conflicts_with_subcommands = true
+    )]
     Energy {
-        /// Device name from scan output, a saved alias, or an IP address
+        #[command(subcommand)]
+        command: Option<EnergyCommand>,
+        /// Device name, saved alias, or IP; use `energy watch` for streaming
         #[arg(value_name = "DEVICE")]
-        host: String,
+        host: Option<String>,
         /// Outlet number, 1-based (strips only)
         #[arg(value_parser = clap::value_parser!(u8).range(1..))]
         outlet: Option<u8>,
@@ -278,7 +284,7 @@ pub enum Command {
     },
 }
 
-#[derive(ValueEnum, Clone)]
+#[derive(ValueEnum, Clone, Debug)]
 pub enum LedAction {
     On,
     Off,
@@ -316,12 +322,73 @@ mod tests {
     #[test]
     fn doctor_json_option_parses() {
         let cli = Cli::try_parse_from(["denki", "doctor", "office", "--json"]).unwrap();
-        assert!(matches!(cli.command, Command::Doctor { json: true, .. }));
+        assert!(cli.json);
     }
 
     #[test]
     fn info_json_option_parses() {
         let cli = Cli::try_parse_from(["denki", "info", "office", "--json"]).unwrap();
-        assert!(matches!(cli.command, Command::Info { json: true, .. }));
+        assert!(cli.json);
     }
+}
+
+impl Command {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Scan { .. } => "scan",
+            Self::Info { .. } => "info",
+            Self::Doctor { .. } => "doctor",
+            Self::On { .. } => "on",
+            Self::Off { .. } => "off",
+            Self::Toggle { .. } => "toggle",
+            Self::Group { .. } => "group",
+            Self::Dim { .. } => "dim",
+            Self::ColorTemp { .. } => "color-temp",
+            Self::Color { .. } => "color",
+            Self::Energy { .. } => "energy",
+            Self::EnergyDaily { .. } => "energy-daily",
+            Self::EnergyMonthly { .. } => "energy-monthly",
+            Self::Specs { .. } => "specs",
+            Self::Presets { .. } => "presets",
+            Self::Effects { .. } => "effects",
+            Self::Effect { .. } => "effect",
+            Self::Schedules { .. } => "schedules",
+            Self::Led { .. } => "led",
+            Self::Clock { .. } => "clock",
+            Self::Rename { .. } => "rename",
+            Self::Restart { .. } => "restart",
+            Self::Outlets { .. } => "outlets",
+            Self::OutletRename { .. } => "outlet-rename",
+            Self::Alias { .. } => "alias",
+            Self::Unalias { .. } => "unalias",
+            Self::Aliases => "aliases",
+            Self::Completions { .. } => "completions",
+            Self::Login { .. } => "login",
+        }
+    }
+}
+
+#[derive(Subcommand, Debug)]
+pub enum EnergyCommand {
+    /// Poll read-only measurements; export with --format jsonl or csv
+    Watch {
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        #[arg(long, short = 'o', value_parser = clap::value_parser!(u8).range(1..))]
+        outlet: Option<u8>,
+        /// Delay in seconds after each completed sample (no overlapping requests)
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=86400))]
+        interval: u64,
+        /// Stop after this many samples; omit to run until Ctrl-C
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+        count: Option<u64>,
+        #[arg(long, value_enum, default_value_t = WatchFormat::Table)]
+        format: WatchFormat,
+    },
+}
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq)]
+pub enum WatchFormat {
+    Table,
+    Jsonl,
+    Csv,
 }

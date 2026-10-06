@@ -32,6 +32,24 @@ denki scan
 ```
 
 `scan` auto-saves newly discovered aliases and also probes saved `--klap` Tapo aliases.
+It stores the device identity locally and reconciles subsequent discoveries by
+identity, preserving your chosen name when DHCP changes the IP. It never moves an
+alias merely because a different address reports the same name. Existing v1/v2
+registries remain readable; aliases without identity learn it at their current
+address on their next successful scan. Until then, a DHCP move cannot be identified
+safely by name alone.
+
+Kasa UDP discovery can locate moved Kasa devices. Tapo discovery still requires
+known IPs: use `denki scan --tapo-target 192.0.2.51` to probe a moved Tapo device
+and recover its existing alias by identity. The option can be repeated. An old,
+unreachable Tapo address is reported as a failed probe even if another probe
+finds the device at its new address. Saved identity mismatches stop commands before
+sending mutations. Device IDs identify peers; the legacy Kasa protocol does not
+cryptographically authenticate them.
+
+Malformed discovery replies and failed Tapo probes are reported individually;
+partial scans return nonzero and retain their successful results. Tapo probes
+are limited to four concurrent connections.
 
 ### Inspect and control power
 
@@ -103,9 +121,12 @@ denki color-temp "bedroom lamp" 2700
 denki effect "living room strip" Aurora
 ```
 
-For machine-readable device and diagnostic data, add `--json` to `info` or `doctor`.
-The `group` command supports `--dry-run` so an automation can verify its targets
-before changing device state.
+Every command accepts `--json` before or after the subcommand. Data goes to stdout;
+human-readable details and progress go to stderr. The `group` command supports
+`--dry-run` so an automation can verify its targets before changing device state.
+Missing or malformed success codes, invalid power state, rejected operations,
+and missing energy measurements return errors. Toggle never assumes unknown state
+means off.
 
 ### Diagnostics and structured output
 
@@ -233,3 +254,79 @@ Tapo credentials are stored in `~/.config/denki/credentials.json`, and `TAPO_USE
 - firmware updates
 - strip-level energy monitoring for HS300/KP303 on non-ENE models
 
+
+## JSON result contract
+
+Single-result commands emit exactly one JSON object with this envelope:
+
+```json
+{"schema_version":2,"command":"energy","status":"ok","data":{"device":"desk plug","outlet":null,"source":"device","measurement":{"power_w":1.234,"voltage_v":null,"current_a":null,"energy_wh":null,"today_energy_wh":12.0,"month_energy_wh":345.0}},"error":null}
+```
+
+`status` is `ok` or `error`; the process exits nonzero on error. `error` is null
+or an object with stable `code` and human-readable `message`. Codes include
+`invalid_arguments`, `not_found`, `malformed_response`, `device_rejected`,
+`unsupported_operation`, `identity_mismatch`, `connection_failed`, `timeout`,
+`io_error`, `partial_failure`, and the fallback `command_failed`.
+Messages may change; branch on codes. Resolution and argument failures also emit
+JSON. Help/version requests retain their normal output.
+
+- `info`: `data.ip`, `data.protocol`, and `data.device` contain device information,
+  with local device identifiers removed. Device-specific fields retain their API
+  names and depend on model/firmware. `info --json` no longer calls `doctor`.
+- `doctor`: `data` contains the diagnostic report, including `error_code` when a
+  device check fails. It validates response status, model, and explicit power state.
+- `energy`: normalized `data.measurement`; unavailable measurements are null,
+  not zero. `power_w`, `voltage_v`, `current_a`, and `energy_wh` use W, V, A, and Wh.
+  `energy_wh` is the device-reported cumulative total; Tapo today/month totals
+  are separate fields. These are not integrated estimates.
+- `energy-daily` / `energy-monthly`: `data.period` and sorted `data.entries` with
+  `day` or `month` and `energy_wh`. An empty list is valid; a missing list is an error.
+- `group`: `data.results` contains each alias's status, resulting power state, and
+  error, plus `succeeded` / `failed` counts. A partial failure still emits every result.
+  Dry runs instead include `data.targets` and `dry_run: true`.
+- `scan`: `data.devices` contains each discovered/probed address's result, with
+  `failed` and `registry_updated` summary fields.
+- `aliases`: `data.aliases` includes `identity_known` without exposing device IDs.
+- Other commands put their result under `data`; metadata APIs such as schedules,
+  specs, and presets retain their device-specific namespace/method shape.
+
+**Migration:** the former `info --json` / `doctor --json` output was a bare
+schema-v1 diagnostic report. Single-result output now uses the schema-v2 envelope.
+For doctor, move selectors such as `.model` to `.data.model`. Info now returns
+actual device details under `.data.device` instead of a diagnostic report.
+
+## Streaming energy measurements
+
+```sh
+denki energy watch "desk plug"
+denki energy watch "desk plug" --interval 5 --count 120 --format jsonl > energy.jsonl
+denki energy watch "power strip" --outlet 2 --interval 10 --format csv > energy.csv
+denki energy watch "desk plug" --json --count 3
+```
+
+`energy DEVICE [OUTLET]` remains the one-shot command. `watch` is reserved as a
+subcommand in this position; use the device's IP if an alias is literally `watch`.
+
+The default interval is five seconds, with a minimum of one second. Each completed
+sample is followed by that delay, so slow devices never cause overlapping requests
+or a catch-up burst. Omit `--count` to run until Ctrl-C; interruption cancels an
+in-flight read and exits cleanly. Polling only reads device information and energy;
+it never changes power. The Tapo authenticated session is reused, and a failed
+sample causes a reconnect on the next interval. Memory use is bounded; each sample
+is flushed immediately. Redirect stdout to a file to collect history locally.
+
+JSONL emits one schema-v1 sample per line, with `timestamp_unix_ms` (UTC Unix
+epoch milliseconds at completion), `device`, `outlet`, `status`, `source: "device"`,
+`measurement`, and `error`. `--json` is shorthand for JSONL here, not a final
+schema-v2 envelope; it cannot be combined with `--format csv`.
+
+CSV columns are `timestamp_unix_ms,device,outlet,status,power_w,voltage_v,current_a,
+energy_wh,today_energy_wh,month_energy_wh,error_code,error_message`. Fields containing
+commas, quotes, or newlines are quoted. Missing values are empty CSV cells.
+
+A failed sample has `status: "error"`, null `measurement` in JSONL, and an error
+code/message. It never becomes a zero-watt sample. Later samples continue, but
+any failed sample makes the eventual process exit nonzero. Summaries go to stderr,
+so exported files contain only records. Historical collection starts when you run
+watch; it cannot reconstruct periods before collection or fill gaps while offline.

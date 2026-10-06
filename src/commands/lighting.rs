@@ -35,7 +35,8 @@ pub async fn handle_dim(host: &str, level: u8) -> Result<()> {
         }
         other => anyhow::bail!("`dim` is only supported on bulbs and dimmers, not {other}"),
     }
-    println!("Brightness -> {level}%");
+    crate::output::record(serde_json::json!({"brightness_pct":level}));
+    crate::output::println!("Brightness -> {level}%");
     Ok(())
 }
 
@@ -50,7 +51,8 @@ pub async fn handle_color_temp(host: &str, kelvin: u16) -> Result<()> {
         DeviceKind::LightStrip => ops::lightstrip_set_color_temp(ctx.ip(), kelvin).await?,
         _ => unreachable!("capability guard accepted a non-light device"),
     }
-    println!("Color temperature -> {kelvin}K");
+    crate::output::record(serde_json::json!({"color_temp_k":kelvin}));
+    crate::output::println!("Color temperature -> {kelvin}K");
     Ok(())
 }
 
@@ -67,6 +69,9 @@ pub async fn handle_color(host: &str, hue: u16, saturation: u8, value: u8) -> Re
         }
         _ => unreachable!("capability guard accepted a non-light device"),
     }
-    println!("Color -> hue:{hue} sat:{saturation} val:{value}");
+    crate::output::record(
+        serde_json::json!({"hue_deg":hue,"saturation_pct":saturation,"brightness_pct":value}),
+    );
+    crate::output::println!("Color -> hue:{hue} sat:{saturation} val:{value}");
     Ok(())
 }

@@ -39,19 +39,21 @@ pub fn handle_alias(name: &str, ip: &str, klap: bool) -> Result<()> {
     } else {
         hosts::Protocol::Kasa
     };
-    hosts::set(name, ip, protocol)?;
+    hosts::set(name, ip, protocol.clone())?;
+    crate::output::record(serde_json::json!({"alias":name,"ip":ip,"protocol":protocol}));
     let tag = if klap {
         " (klap)".dimmed()
     } else {
         "".normal()
     };
-    println!("Saved: {} → {}{}", name.bold(), ip, tag);
+    crate::output::println!("Saved: {} → {}{}", name.bold(), ip, tag);
     Ok(())
 }
 
 pub fn handle_unalias(name: &str) -> Result<()> {
     if hosts::remove(name)? {
-        println!("Removed alias \"{name}\"");
+        crate::output::record(serde_json::json!({"removed":name}));
+        crate::output::println!("Removed alias \"{name}\"");
     } else {
         bail!("No alias named \"{name}\" found");
     }
@@ -60,7 +62,10 @@ pub fn handle_unalias(name: &str) -> Result<()> {
 
 pub fn handle_aliases() -> Result<()> {
     let list = hosts::list()?;
-    println!("{}", format_alias_rows(&list));
+    crate::output::record(
+        serde_json::json!({"aliases":list.iter().map(|(alias,e)| serde_json::json!({"alias":alias,"ip":e.ip,"protocol":e.protocol,"identity_known":e.device_id.is_some()})).collect::<Vec<_>>()}),
+    );
+    crate::output::println!("{}", format_alias_rows(&list));
     Ok(())
 }
 
@@ -72,6 +77,7 @@ mod tests {
         hosts::HostEntry {
             ip: ip.to_string(),
             protocol,
+            device_id: None,
         }
     }
 

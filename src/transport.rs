@@ -22,8 +22,11 @@ pub(crate) fn validate_response_length(len: usize) -> Result<()> {
 }
 
 pub(crate) fn connect_timeout_error(addr: &str, seconds: u64) -> anyhow::Error {
-    anyhow::anyhow!(
-        "Timed out connecting to {addr} after {seconds}s. The device may be offline or unreachable."
+    crate::error::error(
+        "timeout",
+        format!(
+            "Timed out connecting to {addr} after {seconds}s. The device may be offline or unreachable."
+        ),
     )
 }
 
@@ -39,11 +42,17 @@ pub(crate) fn connect_error(addr: &str, err: &std::io::Error) -> anyhow::Error {
         ErrorKind::TimedOut => "The device may be offline or not responding.",
         _ => "The device may be offline or unreachable.",
     };
-    anyhow::anyhow!("Could not connect to {addr}: {err}. {hint}")
+    crate::error::error(
+        "connection_failed",
+        format!("Could not connect to {addr}: {err}. {hint}"),
+    )
 }
 
 pub async fn send(host: &str, payload: serde_json::Value) -> Result<serde_json::Value> {
-    let addr = format!("{host}:{PORT}");
+    let addr = match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => std::net::SocketAddr::new(ip, PORT).to_string(),
+        Err(_) => format!("{host}:{PORT}"),
+    };
     let mut stream =
         tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(&addr))
             .await
@@ -72,9 +81,12 @@ async fn exchange(
     })
     .await
     .map_err(|_| {
-        anyhow::anyhow!(
-            "Timed out exchanging Kasa request after {}s",
-            deadline.as_secs_f64()
+        crate::error::error(
+            "timeout",
+            format!(
+                "Timed out exchanging Kasa request after {}s",
+                deadline.as_secs_f64()
+            ),
         )
     })?
 }

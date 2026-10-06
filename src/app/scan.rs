@@ -1,62 +1,113 @@
-use anyhow::Result;
-use colored::Colorize;
-
-use crate::hosts;
-use crate::ops;
-use crate::tapo;
-use crate::transport;
-
 use super::shared::{print_kasa_summary, tapo_session};
+use crate::{hosts, ops, tapo, transport};
+use anyhow::Result;
+use futures_util::{StreamExt, stream};
+use serde_json::json;
+use std::net::IpAddr;
 
-pub(super) async fn handle_scan(timeout: u64) -> Result<()> {
-    println!("{}", format!("Scanning network for {timeout}s...").dimmed());
-    let mut host_map = hosts::load()?;
-    let mut map_dirty = false;
-    let mut device_count = transport::broadcast_each(timeout, |ip, json| {
-        let ip_str = ip.to_string();
-        let is_new = json
-            .pointer("/system/get_sysinfo/alias")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|name| hosts::save_if_new_in(name, &ip_str, &mut host_map));
-        if is_new {
-            map_dirty = true;
-        }
-        let hint = hosts::lookup_by_ip_in(&ip_str, &host_map).unwrap_or_else(|| ip_str.clone());
-        print_kasa_summary(ip, &json, &hint);
-        if is_new {
-            println!("{}", "  ↳ (new) alias auto-saved".dimmed());
-        }
-    })
-    .await?;
-    if map_dirty {
-        hosts::save(&host_map)?;
-    }
-
-    let klap_aliases: Vec<(String, hosts::HostEntry)> = host_map
-        .into_iter()
-        .filter(|(_, v)| v.protocol == hosts::Protocol::Klap)
-        .collect();
-    let mut join_set = tokio::task::JoinSet::new();
-    for (name, entry) in klap_aliases {
-        join_set.spawn(async move {
-            let ip = entry.ip;
-            let mut session = tapo_session(&ip).await.ok()?;
-            let json = ops::tapo_device_info(&mut session).await.ok()?;
-            let d = tapo::parse(&json)?;
-            Some((ip, name, d))
+pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Result<()> {
+    let mut map = hosts::load()?;
+    crate::output::println!("Scanning network for {timeout}s...");
+    let mut found = Vec::new();
+    transport::broadcast_each(timeout, |ip, response| found.push((ip, response))).await?;
+    // Reconcile known identities before learning new devices, including swapped leases.
+    found.sort_by_key(|(_, response)| {
+        let id = response
+            .pointer("/system/get_sysinfo/deviceId")
+            .and_then(|v| v.as_str());
+        !map.values().any(|entry| {
+            id.is_some()
+                && entry.device_id.as_deref() == id
+                && entry.protocol == hosts::Protocol::Kasa
+        })
+    });
+    let mut dirty = false;
+    let mut results = Vec::new();
+    for (ip, response) in found {
+        let outcome = ops::validate_sysinfo(&response).and_then(|()| {
+            let info = &response["system"]["get_sysinfo"];
+            hosts::reconcile_in(
+                info["alias"].as_str().unwrap_or(""),
+                &ip.to_string(),
+                hosts::Protocol::Kasa,
+                info["deviceId"].as_str(),
+                &mut map,
+            )
         });
-    }
-    while let Some(result) = join_set.join_next().await {
-        if let Ok(Some((ip, name, d))) = result {
-            crate::display::print_tapo_summary(&ip, &d, &name);
-            device_count += 1;
+        match outcome {
+            Ok(changed) => {
+                dirty |= changed;
+                let alias = hosts::lookup_by_ip_in(&ip.to_string(), &map);
+                print_kasa_summary(ip, &response, alias.as_deref().unwrap_or(""));
+                results.push(json!({"ip":ip.to_string(),"protocol":"kasa","alias":alias,"status":"ok","registry_updated":changed,
+                    "device":crate::output::sanitized(response["system"]["get_sysinfo"].clone())}));
+            }
+            Err(error) => {
+                eprintln!("{ip}: {error}");
+                results.push(json!({"ip":ip.to_string(),"protocol":"kasa","status":"error","error":crate::output::failure(&error)}));
+            }
         }
     }
-
-    if device_count == 0 {
-        println!("No devices found.");
-    } else {
-        println!("{}", format!("Found {device_count} device(s)").dimmed());
+    let mut targets: Vec<String> = map
+        .values()
+        .filter(|e| e.protocol == hosts::Protocol::Klap)
+        .map(|e| e.ip.clone())
+        .collect();
+    targets.extend(tapo_targets.into_iter().map(|ip| ip.to_string()));
+    targets.sort();
+    targets.dedup();
+    let probes = stream::iter(targets.into_iter().map(|ip| async move {
+        let result = async {
+            let mut session = tapo_session(&ip).await?;
+            let response = ops::tapo_probe_info(&mut session).await?;
+            tapo::parse(&response)
+                .ok_or_else(|| crate::error::malformed("Could not parse Tapo device info"))
+        }
+        .await;
+        (ip, result)
+    }))
+    .buffer_unordered(4)
+    .collect::<Vec<_>>()
+    .await;
+    for (ip, result) in probes {
+        let result = result.and_then(|device| {
+            let changed = hosts::reconcile_in(
+                &device.nickname,
+                &ip,
+                hosts::Protocol::Klap,
+                Some(&device.device_id),
+                &mut map,
+            )?;
+            dirty |= changed;
+            Ok(device)
+        });
+        match result {
+            Ok(device) => {
+                let alias = hosts::lookup_by_ip_in(&ip, &map);
+                crate::display::print_tapo_summary(&ip, &device, alias.as_deref().unwrap_or(""));
+                results.push(json!({"ip":ip,"protocol":"klap","alias":alias,"status":"ok","device":crate::output::sanitized(serde_json::to_value(device)?)}));
+            }
+            Err(error) => {
+                eprintln!("{ip}: {error}");
+                results.push(json!({"ip":ip,"protocol":"klap","status":"error","error":crate::output::failure(&error)}));
+            }
+        }
+    }
+    if dirty {
+        hosts::save(&map)?;
+    }
+    results.sort_by(|a, b| a["ip"].as_str().cmp(&b["ip"].as_str()));
+    let failed = results.iter().filter(|r| r["status"] == "error").count();
+    crate::output::println!(
+        "Found {} device(s); {failed} failed probes.",
+        results.len() - failed
+    );
+    crate::output::record(json!({"devices":results,"failed":failed,"registry_updated":dirty}));
+    if failed > 0 {
+        return Err(crate::error::error(
+            "partial_failure",
+            format!("{failed} discovery probes failed"),
+        ));
     }
     Ok(())
 }

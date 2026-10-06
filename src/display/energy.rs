@@ -4,20 +4,20 @@ use colored::Colorize;
 
 pub fn print_tapo_energy(usage: &TapoEnergyUsage) {
     if let Some(power) = usage.current_power {
-        println!("Power:         {:.3} W", power as f64 / 1000.0);
+        crate::output::println!("Power:         {:.3} W", power as f64 / 1000.0);
     }
     if let Some(today) = usage.today_energy {
-        println!("Today:         {today} Wh");
+        crate::output::println!("Today:         {today} Wh");
     }
     if let Some(month) = usage.month_energy {
-        println!("This month:    {month} Wh");
+        crate::output::println!("This month:    {month} Wh");
     }
     if let Some(minutes) = usage.today_runtime {
-        println!("Runtime today: {}m", minutes);
+        crate::output::println!("Runtime today: {}m", minutes);
     }
     if usage.current_power.is_none() && usage.today_energy.is_none() && usage.month_energy.is_none()
     {
-        println!(
+        crate::output::println!(
             "{}",
             "No energy measurements were returned by this Tapo device.".yellow()
         );
@@ -30,10 +30,10 @@ pub fn print_schedules(json: &serde_json::Value) {
         .and_then(|v| v.as_array())
     {
         if rules.is_empty() {
-            println!("No schedules configured.");
+            crate::output::println!("No schedules configured.");
             return;
         }
-        println!("{}", "Schedules:".bold());
+        crate::output::println!("{}", "Schedules:".bold());
         for r in rules {
             let enabled = r
                 .get("enable")
@@ -60,7 +60,7 @@ pub fn print_schedules(json: &serde_json::Value) {
             } else {
                 " (disabled)".dimmed()
             };
-            println!(
+            crate::output::println!(
                 "  {} at {}  {}  {}{}",
                 action,
                 time,
@@ -87,14 +87,14 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
                 .get("err_msg")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown error");
-            println!("{}", format!("Energy not supported: {msg}").yellow());
+            crate::output::println!("{}", format!("Energy not supported: {msg}").yellow());
             return;
         }
         for line in format_energy_lines(d) {
-            println!("{line}");
+            crate::output::println!("{line}");
         }
     } else {
-        println!(
+        crate::output::println!(
             "{}",
             "No energy data — device may not support energy monitoring.".yellow()
         );
@@ -108,10 +108,10 @@ pub fn print_energy_daily(json: &serde_json::Value, month: &str) {
         .and_then(|v| v.as_array());
 
     if let Some(list) = days {
-        println!("{}", format!("Daily energy usage for {month}:").bold());
+        crate::output::println!("{}", format!("Daily energy usage for {month}:").bold());
         for (day, wh) in sort_energy_entries(list, "day") {
             let bar = "#".repeat((wh / 10).min(40) as usize);
-            println!("  Day {:2}: {:4} Wh  {}", day, wh, bar.yellow());
+            crate::output::println!("  Day {:2}: {:4} Wh  {}", day, wh, bar.yellow());
         }
     }
 }
@@ -123,10 +123,10 @@ pub fn print_energy_monthly(json: &serde_json::Value, year: u16) {
         .and_then(|v| v.as_array());
 
     if let Some(list) = months {
-        println!("{}", format!("Monthly energy usage for {year}:").bold());
+        crate::output::println!("{}", format!("Monthly energy usage for {year}:").bold());
         for (month, wh) in sort_energy_entries(list, "month") {
             let bar = "#".repeat((wh / 100).min(40) as usize);
-            println!("  Month {:2}: {:5} Wh  {}", month, wh, bar.yellow());
+            crate::output::println!("  Month {:2}: {:5} Wh  {}", month, wh, bar.yellow());
         }
     }
 }

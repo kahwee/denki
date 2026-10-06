@@ -1,6 +1,8 @@
 #![allow(dead_code, unused_imports)]
 
 mod energy;
+mod watch;
+pub use watch::handle_energy_watch;
 mod lighting;
 mod power;
 mod shared;

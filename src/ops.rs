@@ -11,8 +11,14 @@ use serde::Serialize;
 use serde_json::json;
 
 // A TCP/JSON success does not establish that the requested mutation succeeded.
-async fn send_command(host: &str, payload: serde_json::Value) -> Result<()> {
+async fn query(host: &str, payload: serde_json::Value) -> Result<serde_json::Value> {
     let response = transport::send(host, payload.clone()).await?;
+    check_kasa_command(&payload, &response)?;
+    Ok(response)
+}
+
+async fn send_command(host: &str, payload: serde_json::Value) -> Result<()> {
+    let response = query(host, payload.clone()).await?;
     check_kasa_command(&payload, &response)
 }
 
@@ -33,12 +39,15 @@ fn check_kasa_command(payload: &serde_json::Value, response: &serde_json::Value)
                 .and_then(|value| value.get("err_code"))
                 .and_then(serde_json::Value::as_i64)
                 .ok_or_else(|| {
-                    anyhow::anyhow!(
+                    crate::error::malformed(format!(
                         "Kasa response missing valid err_code for {namespace}.{command}"
-                    )
+                    ))
                 })?;
             if code != 0 {
-                anyhow::bail!("Kasa device error for {namespace}.{command}: code {code}");
+                return Err(crate::error::error(
+                    "device_rejected",
+                    format!("Kasa device error for {namespace}.{command}: code {code}"),
+                ));
             }
         }
     }
@@ -46,7 +55,77 @@ fn check_kasa_command(payload: &serde_json::Value, response: &serde_json::Value)
 }
 
 pub async fn sysinfo(host: &str) -> Result<serde_json::Value> {
-    transport::send(host, json!({"system": {"get_sysinfo": {}}})).await
+    let response = query(host, json!({"system": {"get_sysinfo": {}}})).await?;
+    validate_sysinfo(&response)?;
+    crate::hosts::verify_identity(
+        host,
+        crate::hosts::Protocol::Kasa,
+        response
+            .pointer("/system/get_sysinfo/deviceId")
+            .and_then(|v| v.as_str()),
+    )?;
+    Ok(response)
+}
+
+pub(crate) fn validate_sysinfo(response: &serde_json::Value) -> Result<()> {
+    check_kasa_command(&json!({"system": {"get_sysinfo": {}}}), response)?;
+    let info = &response["system"]["get_sysinfo"];
+    if info
+        .get("model")
+        .and_then(|v| v.as_str())
+        .is_none_or(|v| v.trim().is_empty())
+    {
+        return Err(crate::error::malformed(
+            "Device info is missing a valid model",
+        ));
+    }
+    kasa_power_state(response)?;
+    let parsed = match crate::devices::detect_kind(response) {
+        crate::devices::DeviceKind::Bulb | crate::devices::DeviceKind::LightStrip => {
+            crate::bulb::parse(response).is_some()
+        }
+        crate::devices::DeviceKind::Plug => crate::plug::parse(response).is_some(),
+        crate::devices::DeviceKind::Dimmer => crate::dimmer::parse(response).is_some(),
+        crate::devices::DeviceKind::Strip => crate::strip::parse(response).is_some(),
+        _ => true, // An unknown model can still provide valid core information.
+    };
+    if !parsed {
+        return Err(crate::error::malformed(
+            "Could not parse device information for its advertised kind",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn binary_state(value: Option<&serde_json::Value>) -> Result<bool> {
+    match value.and_then(|v| v.as_u64()) {
+        Some(0) => Ok(false),
+        Some(1) => Ok(true),
+        _ => Err(crate::error::malformed(
+            "Device state must be explicitly 0 or 1",
+        )),
+    }
+}
+
+pub(crate) fn kasa_power_state(response: &serde_json::Value) -> Result<bool> {
+    let info = response
+        .pointer("/system/get_sysinfo")
+        .ok_or_else(|| crate::error::malformed("Missing system.get_sysinfo"))?;
+    if let Some(children) = info.get("children") {
+        let children = children
+            .as_array()
+            .filter(|c| !c.is_empty())
+            .ok_or_else(|| crate::error::malformed("Invalid strip children"))?;
+        let states: Result<Vec<bool>> = children
+            .iter()
+            .map(|c| binary_state(c.get("state")))
+            .collect();
+        return Ok(states?.into_iter().any(|state| state));
+    }
+    binary_state(
+        info.pointer("/light_state/on_off")
+            .or_else(|| info.get("relay_state")),
+    )
 }
 
 async fn bulb_set_power(host: &str, on: bool) -> Result<()> {
@@ -174,7 +253,7 @@ pub async fn bulb_set_color(host: &str, hue: u16, saturation: u8, value: u8) -> 
 }
 
 pub async fn bulb_specs(host: &str) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {"get_light_details": {}}}),
     )
@@ -182,7 +261,7 @@ pub async fn bulb_specs(host: &str) -> Result<serde_json::Value> {
 }
 
 pub async fn bulb_presets(host: &str) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({"smartlife.iot.smartbulb.lightingservice": {"get_preferred_state": {}}}),
     )
@@ -191,7 +270,7 @@ pub async fn bulb_presets(host: &str) -> Result<serde_json::Value> {
 
 // Bulbs and light strips use smartlife.iot.common.emeter — bare "emeter" returns -2001 on bulbs/light strips.
 pub async fn bulb_energy(host: &str) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({"smartlife.iot.common.emeter": {"get_realtime": {}}}),
     )
@@ -199,7 +278,7 @@ pub async fn bulb_energy(host: &str) -> Result<serde_json::Value> {
 }
 
 pub async fn bulb_energy_daily(host: &str, year: u16, month: u8) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({"smartlife.iot.common.emeter": {
             "get_daystat": {"month": month, "year": year}
@@ -209,7 +288,7 @@ pub async fn bulb_energy_daily(host: &str, year: u16, month: u8) -> Result<serde
 }
 
 pub async fn bulb_energy_monthly(host: &str, year: u16) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({"smartlife.iot.common.emeter": {"get_monthstat": {"year": year}}}),
     )
@@ -217,7 +296,7 @@ pub async fn bulb_energy_monthly(host: &str, year: u16) -> Result<serde_json::Va
 }
 
 pub async fn lightstrip_current_effect(host: &str) -> Result<LightingEffectState> {
-    transport::send(
+    query(
         host,
         json!({"smartlife.iot.lighting_effect": {"get_lighting_effect": {}}}),
     )
@@ -344,11 +423,11 @@ pub async fn device_led(host: &str, on: bool) -> Result<()> {
 }
 
 pub async fn device_energy(host: &str) -> Result<serde_json::Value> {
-    transport::send(host, json!({"emeter": {"get_realtime": {}}})).await
+    query(host, json!({"emeter": {"get_realtime": {}}})).await
 }
 
 pub async fn device_energy_daily(host: &str, year: u16, month: u8) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({"emeter": {"get_daystat": {"month": month, "year": year}}}),
     )
@@ -356,15 +435,15 @@ pub async fn device_energy_daily(host: &str, year: u16, month: u8) -> Result<ser
 }
 
 pub async fn device_energy_monthly(host: &str, year: u16) -> Result<serde_json::Value> {
-    transport::send(host, json!({"emeter": {"get_monthstat": {"year": year}}})).await
+    query(host, json!({"emeter": {"get_monthstat": {"year": year}}})).await
 }
 
 pub async fn device_schedules(host: &str) -> Result<serde_json::Value> {
-    transport::send(host, json!({"schedule": {"get_rules": {}}})).await
+    query(host, json!({"schedule": {"get_rules": {}}})).await
 }
 
 pub async fn device_time(host: &str) -> Result<serde_json::Value> {
-    transport::send(host, json!({"time": {"get_time": {}}})).await
+    query(host, json!({"time": {"get_time": {}}})).await
 }
 
 // Individual outlets are addressed via context.child_ids; callers resolve outlet number → child id from sysinfo.
@@ -388,7 +467,7 @@ pub async fn strip_outlet_off(host: &str, child_id: &str) -> Result<()> {
 }
 
 pub async fn strip_outlet_energy(host: &str, child_id: &str) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({
             "context": {"child_ids": [child_id]},
@@ -404,7 +483,7 @@ pub async fn strip_outlet_energy_daily(
     year: u16,
     month: u8,
 ) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({
             "context": {"child_ids": [child_id]},
@@ -419,7 +498,7 @@ pub async fn strip_outlet_energy_monthly(
     child_id: &str,
     year: u16,
 ) -> Result<serde_json::Value> {
-    transport::send(
+    query(
         host,
         json!({
             "context": {"child_ids": [child_id]},
@@ -448,12 +527,31 @@ pub async fn restart(host: &str) -> Result<()> {
     send_command(host, json!({"system": {"reboot": {"delay": 1}}})).await
 }
 
-pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
-    session
+pub(crate) async fn tapo_probe_info(session: &mut KlapSession) -> Result<serde_json::Value> {
+    let response = session
         .send(&serde_json::to_string(
             &json!({"method": "get_device_info", "params": {}}),
         )?)
-        .await
+        .await?;
+    check_tapo_error(&response)?;
+    let device = crate::tapo::parse(&response)
+        .ok_or_else(|| crate::error::malformed("Could not parse Tapo device info"))?;
+    if device.device_id.trim().is_empty() {
+        return Err(crate::error::malformed("Missing Tapo device identity"));
+    }
+    Ok(response)
+}
+
+pub async fn tapo_device_info(session: &mut KlapSession) -> Result<serde_json::Value> {
+    let response = tapo_probe_info(session).await?;
+    crate::hosts::verify_identity(
+        session.host(),
+        crate::hosts::Protocol::Klap,
+        response
+            .pointer("/result/device_id")
+            .and_then(|v| v.as_str()),
+    )?;
+    Ok(response)
 }
 
 pub async fn tapo_energy_usage(session: &mut KlapSession) -> Result<serde_json::Value> {
@@ -467,6 +565,7 @@ pub async fn tapo_energy_usage(session: &mut KlapSession) -> Result<serde_json::
 }
 
 async fn tapo_set_power(session: &mut KlapSession, on: bool) -> Result<()> {
+    tapo_device_info(session).await?;
     let resp = session
         .send(&serde_json::to_string(
             &json!({"method": "set_device_info", "params": {"device_on": on}}),
@@ -488,7 +587,7 @@ pub async fn tapo_toggle(session: &mut KlapSession) -> Result<bool> {
     let is_on = info
         .pointer("/result/device_on")
         .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+        .ok_or_else(|| crate::error::malformed("Tapo response missing boolean device_on"))?;
     if is_on {
         tapo_off(session).await?;
         Ok(false)
@@ -502,9 +601,12 @@ fn check_tapo_error(resp: &serde_json::Value) -> Result<()> {
     let code = resp
         .get("error_code")
         .and_then(serde_json::Value::as_i64)
-        .unwrap_or(0);
+        .ok_or_else(|| crate::error::malformed("Tapo response missing valid error_code"))?;
     if code != 0 {
-        anyhow::bail!("Tapo device error: code {code}");
+        return Err(crate::error::error(
+            "device_rejected",
+            format!("Tapo device error: code {code}"),
+        ));
     }
     Ok(())
 }

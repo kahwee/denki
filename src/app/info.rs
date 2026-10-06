@@ -14,6 +14,9 @@ pub(super) async fn handle_info(host: String) -> Result<()> {
         hosts::Protocol::Klap => {
             let mut session = tapo_session(&r.ip).await?;
             let json = ops::tapo_device_info(&mut session).await?;
+            crate::output::record(
+                serde_json::json!({"ip": r.ip, "protocol": "klap", "device": crate::output::sanitized(json["result"].clone())}),
+            );
             match tapo::parse(&json) {
                 Some(d) => crate::display::print_tapo_detail(&r.ip, &d, &hint),
                 None => anyhow::bail!("Could not parse Tapo device info from {}", r.ip),
@@ -21,6 +24,9 @@ pub(super) async fn handle_info(host: String) -> Result<()> {
         }
         hosts::Protocol::Kasa => {
             let json = ops::sysinfo(&r.ip).await?;
+            crate::output::record(
+                serde_json::json!({"ip": r.ip, "protocol": "kasa", "device": crate::output::sanitized(json["system"]["get_sysinfo"].clone())}),
+            );
             print_kasa_detail(&r.ip, &json, &hint)?;
         }
     }

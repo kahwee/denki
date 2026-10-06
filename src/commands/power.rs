@@ -13,22 +13,8 @@ use super::shared::{
     resolve_power_target, tapo_session,
 };
 
-fn toggle_target(kind: &DeviceKind, json: &serde_json::Value) -> bool {
-    match kind {
-        DeviceKind::Bulb | DeviceKind::LightStrip => {
-            json.pointer("/system/get_sysinfo/light_state/on_off")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0)
-                == 0
-        }
-        DeviceKind::Strip => !strip::parse(json).is_some_and(|s| s.is_any_on()),
-        _ => {
-            json.pointer("/system/get_sysinfo/relay_state")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0)
-                == 0
-        }
-    }
+fn toggle_target(_kind: &DeviceKind, json: &serde_json::Value) -> Result<bool> {
+    Ok(!ops::kasa_power_state(json)?)
 }
 
 async fn kasa_set_power(ip: &str, kind: &DeviceKind, on: bool) -> Result<()> {
@@ -86,7 +72,7 @@ impl DeviceTransport for LiveDeviceTransport {
                 hosts::Protocol::Kasa => {
                     let json = ops::sysinfo(&target.ip).await?;
                     let kind = devices::detect_kind(&json);
-                    let on = toggle_target(&kind, &json);
+                    let on = toggle_target(&kind, &json)?;
                     kasa_set_power(&target.ip, &kind, on).await?;
                     Ok(on)
                 }
@@ -154,7 +140,7 @@ pub async fn handle_toggle(host: &str, outlet: Option<u8>) -> Result<()> {
             hosts::Protocol::Kasa => {
                 let json = ops::sysinfo(&r.ip).await?;
                 let kind = devices::detect_kind(&json);
-                let on = toggle_target(&kind, &json);
+                let on = toggle_target(&kind, &json)?;
                 kasa_set_power(&r.ip, &kind, on).await?;
                 on
             }
@@ -227,19 +213,22 @@ pub async fn handle_group(
     }
 
     if dry_run {
-        println!(
+        crate::output::record(
+            serde_json::json!({"dry_run":true,"action":action.as_verb(),"targets":matches.iter().map(|(alias,entry)| serde_json::json!({"alias":alias,"ip":entry.ip,"protocol":entry.protocol})).collect::<Vec<_>>()}),
+        );
+        crate::output::println!(
             "Would turn {} {} alias(es) matching \"{}\":",
             action.as_verb(),
             matches.len(),
             pattern
         );
         for (alias, entry) in matches {
-            println!("  {} [{}; {}]", alias.bold(), entry.ip, entry.protocol);
+            crate::output::println!("  {} [{}; {}]", alias.bold(), entry.ip, entry.protocol);
         }
         return Ok(());
     }
 
-    println!(
+    crate::output::println!(
         "Turning {} {} alias(es) matching \"{}\" (up to {} at once):",
         action.as_verb(),
         matches.len(),
@@ -249,10 +238,18 @@ pub async fn handle_group(
 
     let results = execute_group(matches, action, concurrency, &LiveDeviceTransport).await;
     let total = results.len();
+    let records: Vec<_> = results.iter().map(|r| match &r.result {
+        Ok(on) => serde_json::json!({"alias":r.alias,"status":"ok","power_on":on,"error":null}),
+        Err(error) => serde_json::json!({"alias":r.alias,"status":"error","power_on":null,"error":crate::output::failure(error)})
+    }).collect();
+    let failed = records.iter().filter(|r| r["status"] == "error").count();
+    crate::output::record(
+        serde_json::json!({"dry_run":false,"action":action.as_verb(),"results":records,"succeeded":total-failed,"failed":failed}),
+    );
     let mut failures = Vec::new();
     for outcome in results {
         match outcome.result {
-            Ok(on) => println!(
+            Ok(on) => crate::output::println!(
                 "  {} {} -> {}",
                 "OK".green().bold(),
                 outcome.alias,
@@ -266,7 +263,7 @@ pub async fn handle_group(
     }
 
     let succeeded = total - failures.len();
-    println!(
+    crate::output::println!(
         "Completed: {} succeeded, {} failed.",
         succeeded.to_string().green(),
         failures.len().to_string().red()
@@ -274,11 +271,14 @@ pub async fn handle_group(
     if failures.is_empty() {
         Ok(())
     } else {
-        anyhow::bail!(
-            "Group action failed for {} alias(es): {}",
-            failures.len(),
-            failures.join(", ")
-        )
+        Err(crate::error::error(
+            "partial_failure",
+            format!(
+                "Group action failed for {} alias(es): {}",
+                failures.len(),
+                failures.join(", ")
+            ),
+        ))
     }
 }
 
@@ -318,6 +318,7 @@ mod tests {
             hosts::HostEntry {
                 ip: ip.to_string(),
                 protocol,
+                device_id: None,
             },
         )
     }
@@ -325,37 +326,37 @@ mod tests {
     #[test]
     fn toggle_target_bulb_on_returns_false() {
         let json = serde_json::json!({"system": {"get_sysinfo": {"light_state": {"on_off": 1}}}});
-        assert!(!toggle_target(&DeviceKind::Bulb, &json));
+        assert!(!toggle_target(&DeviceKind::Bulb, &json).unwrap());
     }
 
     #[test]
     fn toggle_target_bulb_off_returns_true() {
         let json = serde_json::json!({"system": {"get_sysinfo": {"light_state": {"on_off": 0}}}});
-        assert!(toggle_target(&DeviceKind::Bulb, &json));
+        assert!(toggle_target(&DeviceKind::Bulb, &json).unwrap());
     }
 
     #[test]
     fn toggle_target_plug_on_returns_false() {
         let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 1}}});
-        assert!(!toggle_target(&DeviceKind::Plug, &json));
+        assert!(!toggle_target(&DeviceKind::Plug, &json).unwrap());
     }
 
     #[test]
     fn toggle_target_plug_off_returns_true() {
         let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 0}}});
-        assert!(toggle_target(&DeviceKind::Plug, &json));
+        assert!(toggle_target(&DeviceKind::Plug, &json).unwrap());
     }
 
     #[test]
     fn toggle_target_dimmer_on_returns_false() {
         let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 1}}});
-        assert!(!toggle_target(&DeviceKind::Dimmer, &json));
+        assert!(!toggle_target(&DeviceKind::Dimmer, &json).unwrap());
     }
 
     #[test]
     fn toggle_target_dimmer_off_returns_true() {
         let json = serde_json::json!({"system": {"get_sysinfo": {"relay_state": 0}}});
-        assert!(toggle_target(&DeviceKind::Dimmer, &json));
+        assert!(toggle_target(&DeviceKind::Dimmer, &json).unwrap());
     }
 
     #[test]
@@ -369,7 +370,7 @@ mod tests {
                 test_support::strip_child("A2", 0, "Outlet 2", 0),
             ],
         );
-        assert!(!toggle_target(&DeviceKind::Strip, &json));
+        assert!(!toggle_target(&DeviceKind::Strip, &json).unwrap());
     }
 
     #[test]
@@ -383,7 +384,7 @@ mod tests {
                 test_support::strip_child("A2", 0, "Outlet 2", 0),
             ],
         );
-        assert!(toggle_target(&DeviceKind::Strip, &json));
+        assert!(toggle_target(&DeviceKind::Strip, &json).unwrap());
     }
 
     #[tokio::test]

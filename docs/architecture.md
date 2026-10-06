@@ -14,7 +14,11 @@
 | `src/cipher.rs` | XOR autokey cipher: `encode` (TCP, length-prefixed) / `encode_raw` (UDP) |
 | `src/transport.rs` | Kasa TCP `send()` and UDP `broadcast_each()` |
 | `src/klap.rs` | KLAP handshake + AES-128-CBC session for Tapo devices |
-| `src/hosts.rs` | Alias registry — maps friendly names to IP + protocol, stored as JSON |
+| `src/hosts.rs` | Alias registry — maps friendly names to IP, protocol, and optional stable identity |
+| `src/error.rs` | Typed error categories for library and automation |
+| `src/output.rs` | Task-local CLI result collection and versioned JSON envelope |
+| `src/energy.rs` | Measurement normalization and validated history |
+| `src/commands/watch.rs` | Bounded streaming energy polling with CSV/JSONL output |
 | `src/creds.rs` | Tapo credentials from env vars or `denki login` |
 | `src/fmt.rs` | Formatting helpers — `duration`, `on_time`, `parse_year_month`, `current_year_month` |
 | `src/bulb.rs` | Bulb and light-strip sysinfo parsing |
@@ -106,7 +110,7 @@ AES-128-CBC over plain HTTP. Uses raw `TcpStream` — some Tapo firmware returns
 
 ## hosts.rs Public API
 
-The scan command loads hosts.json once before discovery and stops if the registry cannot be loaded. It updates the map in memory as devices respond, preserving existing aliases when normalized names collide, then writes once at the end only if new aliases were added (1 read + 0 or 1 write).
+The scan command loads hosts.json once before discovery and stops if the registry cannot be loaded. It updates the map in memory as devices respond, preserving existing aliases when normalized names collide, then writes once at the end only if aliases or observed identities/addresses changed (1 read + 0 or 1 write).
 
 | Function | Purpose |
 |----------|---------|
@@ -117,3 +121,21 @@ The scan command loads hosts.json once before discovery and stops if the registr
 | `lookup(name)` | Exact-then-substring match; errors on ambiguity |
 | `normalize(s)` | Lowercase + collapse non-alphanumeric to spaces for fuzzy matching |
 
+
+## Automation and identity checks
+
+Kasa read and write operations share response-envelope validation; each requested
+namespace/method must report an integer zero `err_code`. Tapo operations require
+integer zero `error_code`. Device info validates explicit state before toggle or
+control. Sysinfo/Tapo info checks stored identities at the destination address.
+Discovery uses validated observations to reconcile identities before normal command
+checks, permitting DHCP moves without rebinding an alias to a different device.
+Legacy aliases learn identity only at their saved address during scan.
+
+CLI handlers record structured results in a task-local output context. Human
+rendering routes to stderr under `--json`; dispatch emits the schema-v2 envelope
+once, including failures. Group results are collected before returning partial
+failure. Info uses its normal data fetch and rendering path in both modes.
+Energy text, JSON, and streaming share normalized `Measurement` values; watch
+retains an `EnergyReader` between samples to reuse KLAP sessions. Streaming has
+its own schema-v1 records and never accumulates the complete sample history.

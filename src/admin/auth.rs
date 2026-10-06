@@ -9,7 +9,10 @@ pub fn handle_login(email: &str, password: Option<String>) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to read password: {e}"))?,
     };
     creds::save(email, &password)?;
-    println!("Tapo credentials saved to {}", creds::path_display());
-    println!("(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)");
+    crate::output::record(serde_json::json!({"credentials_saved":true}));
+    crate::output::println!("Tapo credentials saved to {}", creds::path_display());
+    crate::output::println!(
+        "(File is readable only by you. Use TAPO_USER/TAPO_PASS env vars to override.)"
+    );
     Ok(())
 }

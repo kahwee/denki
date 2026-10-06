@@ -10,45 +10,63 @@ pub fn can_control_power(kind: &DeviceKind) -> Result<()> {
         | DeviceKind::Plug
         | DeviceKind::Dimmer
         | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!("{other} does not support power control"),
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!("{other} does not support power control"),
+        )),
     }
 }
 
 pub fn can_dim(kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb | DeviceKind::LightStrip | DeviceKind::Dimmer => Ok(()),
-        other => anyhow::bail!("`dim` is only supported on bulbs and HS220 dimmers, not {other}"),
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!("`dim` is only supported on bulbs and HS220 dimmers, not {other}"),
+        )),
     }
 }
 
 fn require_bulb(kind: &DeviceKind, cmd: &str, models: &str) -> Result<()> {
     match kind {
         DeviceKind::Bulb => Ok(()),
-        other => anyhow::bail!("`{cmd}` is only supported on {models}, not {other}"),
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!("`{cmd}` is only supported on {models}, not {other}"),
+        )),
     }
 }
 
 fn require_relay_device(kind: &DeviceKind, cmd: &str) -> Result<()> {
     match kind {
         DeviceKind::Plug | DeviceKind::Dimmer | DeviceKind::Strip => Ok(()),
-        other => anyhow::bail!(
-            "`{cmd}` is only supported on plugs, dimmers, and strips \
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!(
+                "`{cmd}` is only supported on plugs, dimmers, and strips \
              (e.g. KP115, HS220, HS300), not {other}"
-        ),
+            ),
+        )),
     }
 }
 
 pub fn can_set_color_temp(kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
-        other => anyhow::bail!("`color-temp` is only supported on color lights, not {other}"),
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!("`color-temp` is only supported on color lights, not {other}"),
+        )),
     }
 }
 
 pub fn can_set_color(kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::Bulb | DeviceKind::LightStrip => Ok(()),
-        other => anyhow::bail!("`color` is only supported on color lights, not {other}"),
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!("`color` is only supported on color lights, not {other}"),
+        )),
     }
 }
 
@@ -63,7 +81,10 @@ pub fn can_get_presets(kind: &DeviceKind) -> Result<()> {
 pub fn can_get_effects(kind: &DeviceKind) -> Result<()> {
     match kind {
         DeviceKind::LightStrip => Ok(()),
-        other => anyhow::bail!("`effects` is only supported on light strips, not {other}"),
+        other => Err(crate::error::error(
+            "unsupported_operation",
+            format!("`effects` is only supported on light strips, not {other}"),
+        )),
     }
 }
 

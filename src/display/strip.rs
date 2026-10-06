@@ -12,7 +12,7 @@ use std::net::IpAddr;
 
 // Light strips share the Bulb struct but use the smartlife.iot.lightStrip namespace.
 pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
-    println!(
+    crate::output::println!(
         "{} {} {} {} {}",
         header(&bulb.alias),
         "[light strip]".dimmed(),
@@ -20,49 +20,49 @@ pub fn print_lightstrip_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
         on_state(bulb.light_state.is_on()),
         signal_summary(bulb.rssi),
     );
-    println!(
+    crate::output::println!(
         "   {} HW:{}  FW:{}",
         bulb.model,
         bulb.hw_ver,
         short_fw(&bulb.sw_ver)
     );
     print_light_color(&bulb.light_state, "   ");
-    println!(
+    crate::output::println!(
         "   {}",
         format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed()
     );
-    println!();
+    crate::output::println!();
 }
 
 pub fn print_lightstrip_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
-    println!("{} {}", header(&bulb.alias), "[light strip]".dimmed());
-    println!("  Host:       {ip}");
-    println!(
+    crate::output::println!("{} {}", header(&bulb.alias), "[light strip]".dimmed());
+    crate::output::println!("  Host:       {ip}");
+    crate::output::println!(
         "  State:      {}",
         on_state_detail(bulb.light_state.is_on())
     );
-    println!("  Model:      {}", bulb.model);
-    println!("  Hardware:   {}", bulb.hw_ver);
-    println!("  Firmware:   {}", bulb.sw_ver);
-    println!(
+    crate::output::println!("  Model:      {}", bulb.model);
+    crate::output::println!("  Hardware:   {}", bulb.hw_ver);
+    crate::output::println!("  Firmware:   {}", bulb.sw_ver);
+    crate::output::println!(
         "  Signal:     {} dBm  {}",
         bulb.rssi,
         signal_label(bulb.rssi)
     );
     print_light_state_detail(&bulb.light_state);
     print_light_effect_detail(bulb.lighting_effect_state.as_ref());
-    println!(
+    crate::output::println!(
         "  {}",
         format!("→ {}", lightstrip_hints(bulb, hint_alias).join("  ·  ")).dimmed()
     );
-    println!(
+    crate::output::println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()
     );
 }
 
 pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer, hint_alias: &str) {
-    println!(
+    crate::output::println!(
         "{} {} {} {} {}",
         header(&d.alias),
         "[dimmer]".dimmed(),
@@ -70,34 +70,34 @@ pub fn print_dimmer_summary(ip: IpAddr, d: &Dimmer, hint_alias: &str) {
         on_state(d.is_on()),
         signal_summary(d.rssi),
     );
-    println!(
+    crate::output::println!(
         "   {} HW:{}  FW:{}  {}%",
         d.model,
         d.hw_ver,
         short_fw(&d.sw_ver),
         d.brightness
     );
-    println!(
+    crate::output::println!(
         "   {}",
         format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed()
     );
-    println!();
+    crate::output::println!();
 }
 
 pub fn print_dimmer_detail(ip: &str, d: &Dimmer, hint_alias: &str) {
-    println!("{} {}", header(&d.alias), "[dimmer]".dimmed());
-    println!("  Host:       {ip}");
-    println!("  State:      {}", on_state_detail(d.is_on()));
-    println!("  Model:      {}", d.model);
-    println!("  Hardware:   {}", d.hw_ver);
-    println!("  Firmware:   {}", d.sw_ver);
-    println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
-    println!("  Brightness: {}%", d.brightness);
-    println!(
+    crate::output::println!("{} {}", header(&d.alias), "[dimmer]".dimmed());
+    crate::output::println!("  Host:       {ip}");
+    crate::output::println!("  State:      {}", on_state_detail(d.is_on()));
+    crate::output::println!("  Model:      {}", d.model);
+    crate::output::println!("  Hardware:   {}", d.hw_ver);
+    crate::output::println!("  Firmware:   {}", d.sw_ver);
+    crate::output::println!("  Signal:     {} dBm  {}", d.rssi, signal_label(d.rssi));
+    crate::output::println!("  Brightness: {}%", d.brightness);
+    crate::output::println!(
         "  {}",
         format!("→ {}", dimmer_hints(d, hint_alias).join("  ·  ")).dimmed()
     );
-    println!(
+    crate::output::println!(
         "  {}",
         "NOTE: unverified — not tested on live hardware".yellow()
     );
@@ -109,7 +109,7 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug, hint_alias: &str) {
     } else {
         "".normal()
     };
-    println!(
+    crate::output::println!(
         "{} {} {} {}{}",
         header(&plug.alias),
         format!("[{ip}]").dimmed(),
@@ -117,38 +117,38 @@ pub fn print_plug_summary(ip: IpAddr, plug: &Plug, hint_alias: &str) {
         signal_summary(plug.rssi),
         energy_tag,
     );
-    println!(
+    crate::output::println!(
         "   {} HW:{}  FW:{}",
         plug.model,
         plug.hw_ver,
         short_fw(&plug.sw_ver)
     );
     if plug.is_on() {
-        println!("   On for: {}", plug.on_time_fmt());
+        crate::output::println!("   On for: {}", plug.on_time_fmt());
     }
-    println!(
+    crate::output::println!(
         "   {}",
         format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed()
     );
-    println!();
+    crate::output::println!();
 }
 
 pub fn print_plug_detail(ip: &str, plug: &Plug, hint_alias: &str) {
-    println!("{}", header(&plug.alias));
-    println!("  Host:     {ip}");
-    println!("  State:    {}", on_state_detail(plug.is_on()));
-    println!("  Model:    {}", plug.model);
-    println!("  Hardware: {}", plug.hw_ver);
-    println!("  Firmware: {}", plug.sw_ver);
-    println!("  Signal:   {} dBm  {}", plug.rssi, signal_label(plug.rssi));
-    println!(
+    crate::output::println!("{}", header(&plug.alias));
+    crate::output::println!("  Host:     {ip}");
+    crate::output::println!("  State:    {}", on_state_detail(plug.is_on()));
+    crate::output::println!("  Model:    {}", plug.model);
+    crate::output::println!("  Hardware: {}", plug.hw_ver);
+    crate::output::println!("  Firmware: {}", plug.sw_ver);
+    crate::output::println!("  Signal:   {} dBm  {}", plug.rssi, signal_label(plug.rssi));
+    crate::output::println!(
         "  LED:      {}",
         if plug.led_off == 1 { "off" } else { "on" }
     );
     if plug.is_on() {
-        println!("  On for:   {}", plug.on_time_fmt());
+        crate::output::println!("  On for:   {}", plug.on_time_fmt());
     }
-    println!(
+    crate::output::println!(
         "  {}",
         format!("→ {}", plug_hints(plug, hint_alias).join("  ·  ")).dimmed()
     );
@@ -167,7 +167,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
     } else {
         "".normal()
     };
-    println!(
+    crate::output::println!(
         "{} {} {} {} {}{}",
         header(&s.alias),
         "[strip]".dimmed(),
@@ -176,7 +176,7 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
         signal_summary(s.rssi),
         energy_tag,
     );
-    println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
+    crate::output::println!("   {} HW:{}  FW:{}", s.model, s.hw_ver, short_fw(&s.sw_ver));
     let outlet_line = s
         .children
         .iter()
@@ -191,31 +191,31 @@ pub fn print_strip_summary(ip: IpAddr, s: &Strip, hint_alias: &str) {
         })
         .collect::<Vec<_>>()
         .join("  ");
-    println!("   {outlet_line}");
-    println!(
+    crate::output::println!("   {outlet_line}");
+    crate::output::println!(
         "   {}",
         format!("→ {}", strip_hints(s, hint_alias).join("  ·  ")).dimmed()
     );
-    println!();
+    crate::output::println!();
 }
 
 pub fn print_strip_detail(ip: &str, s: &Strip, hint_alias: &str) {
     let on_count = s.children.iter().filter(|c| c.is_on()).count();
-    println!("{} {}", header(&s.alias), "[strip]".dimmed());
-    println!("  Host:     {ip}");
-    println!("  Model:    {}", s.model);
-    println!("  Hardware: {}", s.hw_ver);
-    println!("  Firmware: {}", s.sw_ver);
-    println!("  Signal:   {} dBm  {}", s.rssi, signal_label(s.rssi));
-    println!("  Outlets:  {}/{} on", on_count, s.children.len());
+    crate::output::println!("{} {}", header(&s.alias), "[strip]".dimmed());
+    crate::output::println!("  Host:     {ip}");
+    crate::output::println!("  Model:    {}", s.model);
+    crate::output::println!("  Hardware: {}", s.hw_ver);
+    crate::output::println!("  Firmware: {}", s.sw_ver);
+    crate::output::println!("  Signal:   {} dBm  {}", s.rssi, signal_label(s.rssi));
+    crate::output::println!("  Outlets:  {}/{} on", on_count, s.children.len());
     print_strip_outlets(s);
-    println!(
+    crate::output::println!(
         "  {}",
         format!("→ {}", strip_hints(s, hint_alias).join("  ·  ")).dimmed()
     );
     let verified = crate::devices::lookup(&s.model).is_some_and(|e| e.verified);
     if !verified {
-        println!(
+        crate::output::println!(
             "  {}",
             "NOTE: unverified — not tested on live hardware".yellow()
         );
@@ -232,7 +232,7 @@ pub fn print_strip_outlets(s: &Strip) {
         } else {
             String::new()
         };
-        println!(
+        crate::output::println!(
             "  Outlet {n}: {}  {}{}",
             on_state(child.is_on()),
             child.alias,
