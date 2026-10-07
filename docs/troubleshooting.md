@@ -34,7 +34,10 @@ access. Run `denki scan` for Kasa. For a moved Tapo device, use its current IP:
 denki scan --tapo-target 192.0.2.50
 ```
 
-Replace the placeholder IP. A failed old-address probe may still make scan exit
+Replace the placeholder IP. New targets negotiate TPAP/KLAP; saved targets use
+their configured protocol. For explicit KLAP mode, save a `--klap` alias first.
+Auto-mode identity reconciliation requires an existing `--tapo` alias.
+A failed old-address probe may still make scan exit
 nonzero even when a new-address probe succeeds. Inspect the individual results.
 
 ## Tapo authentication failed

@@ -53,7 +53,7 @@ address on their next successful scan. Until then, a DHCP move cannot be identif
 safely by name alone.
 
 Kasa UDP discovery can locate moved Kasa devices. Tapo discovery still requires
-known IPs: for the original KLAP path, use `denki scan --tapo-target 192.0.2.51` to probe a moved Tapo device
+known IPs: use `denki scan --tapo-target 192.0.2.51` to probe a Tapo device
 and recover its existing alias by identity. The option can be repeated. An old,
 unreachable Tapo address is reported as a failed probe even if another probe
 finds the device at its new address. Saved identity mismatches stop commands before
@@ -245,8 +245,14 @@ unverified. `devices.toml` tracks auto-mode evidence separately from original KL
 
 Re-save the same alias with `--tapo` to migrate it. At the same address, a known
 identity survives KLAP ↔ auto migration; other aliases are preserved. Use the alias
-for commands: raw IPs still select Kasa. Auto-mode discovery probes saved addresses;
-`scan --tapo-target` remains KLAP-only, so it cannot discover a moved TPAP plug.
+or its IP for commands: saved addresses reuse their configured protocol. Auto-mode discovery probes saved addresses;
+`scan --tapo-target IP` uses an unambiguous saved protocol at that address; a new
+address uses automatic TPAP/KLAP negotiation. Repeated targets and aliases at the
+same address produce one Tapo probe. Conflicting saved protocols are rejected
+before discovery; a target saved as Kasa must be corrected explicitly first.
+Moved auto-mode devices can be reconciled by their authenticated identity.
+Existing explicit KLAP aliases retain KLAP; migrate those aliases explicitly
+before relying on auto-mode identity reconciliation.
 
 Credentials use the saved login or `TAPO_USER`/`TAPO_PASS`. Stop on
 `TPAP_CREDENTIALS` or `TPAP_AUTH_ATTEMPTS_LIMIT`; repeated login attempts can lock
@@ -311,7 +317,10 @@ Set both `TAPO_USER` and `TAPO_PASS` to override the saved file.
 
 - Device names can come from `scan` output, a saved alias, or a raw IP address.
 - Exact normalized alias matches win first, then unambiguous normalized substring matches.
-- Raw IP addresses are treated as Kasa devices.
+- Raw IP addresses reuse the saved protocol when all aliases at that IP agree.
+  Conflicting protocols are an error; unknown IPs retain the Kasa default.
+  For a new Tapo IP, save an alias with `--tapo` (or `--klap`) first.
+  An unreadable registry stops IP commands rather than guessing a protocol.
 - Tapo devices require a saved `--klap` or `--tapo` alias.
 - The alias registry parser accepts object entries with optional device identities, older object entries without identities, or legacy plain-string entries.
 - If `hosts.json` is malformed, the CLI prints parser details for both formats to make

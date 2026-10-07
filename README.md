@@ -39,7 +39,11 @@ address on the next scan. An unreadable or malformed
 alias registry stops the scan without overwriting it. Add Tapo
 P125 plugs with `denki alias "tapo plug" 192.0.2.50 --tapo`, then run
 `denki login <email>`. `--tapo` (also spelled `--tpap`) negotiates TPAP/KLAP through
-upstream `tapo` 0.11.1. Existing `--klap` aliases retain the original client. `group --dry-run` lists matches without contacting devices.
+upstream `tapo` 0.11.1. Existing `--klap` aliases retain the original client.
+Direct IP commands reuse the saved protocol when aliases agree; unknown IPs retain the Kasa default.
+`scan --tapo-target IP` uses the saved protocol, or auto TPAP/KLAP for a new IP.
+Conflicting protocols at one address are rejected before scanning.
+`group --dry-run` lists matches without contacting devices.
 
 P125 info and on/off readbacks have hardware evidence with the new adapter; toggle
 remains unverified on hardware. Advanced operations, including energy, are not

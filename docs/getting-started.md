@@ -57,7 +57,7 @@ denki login "you@example.com"
 denki info "tapo plug"
 ```
 
-Use the saved alias for Tapo commands: a raw IP is treated as Kasa. Scan probes
+Use the saved alias or its IP for Tapo commands. Unknown IPs default to Kasa. Scan probes
 saved Tapo aliases; it does not automatically discover unknown Tapo IPs. See the
 [command guide](commands.md#discover-devices) for finding a moved Tapo device.
 
