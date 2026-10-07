@@ -120,3 +120,7 @@ His [TPAP article](https://mihai.dinculescu.dev/posts/tapo-speaks-tpap/) explain
 the protocol and compatibility setting.
 
 Denki is [MIT licensed](LICENSE). Dependencies retain their respective licenses.
+
+## CI maintenance
+
+[GitHub Actions maintenance](.github/ACTIONS.md) covers workflows, parallel checks, action versions, and weekly updates.
