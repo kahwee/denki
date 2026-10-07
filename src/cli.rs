@@ -22,7 +22,7 @@ pub enum Command {
     Scan {
         #[arg(short, long, default_value = "5")]
         timeout: u64,
-        /// Probe an additional Tapo address and reconcile its saved identity
+        /// Probe a Tapo IP using its saved protocol, or auto TPAP/KLAP for a new IP
         #[arg(long, value_name = "IP")]
         tapo_target: Vec<std::net::IpAddr>,
     },

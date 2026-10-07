@@ -5,9 +5,39 @@ use futures_util::{StreamExt, stream};
 use serde_json::json;
 use std::net::IpAddr;
 
+fn probe_targets(
+    map: &std::collections::BTreeMap<String, hosts::HostEntry>,
+    additional: Vec<IpAddr>,
+) -> Result<Vec<(String, hosts::Protocol)>> {
+    let mut addresses = std::collections::BTreeSet::new();
+    for entry in map
+        .values()
+        .filter(|entry| entry.protocol != hosts::Protocol::Kasa)
+    {
+        addresses.insert(entry.ip.parse::<IpAddr>()?);
+    }
+    addresses.extend(additional);
+    addresses
+        .into_iter()
+        .map(|address| {
+            let ip = address.to_string();
+            let protocol = hosts::protocol_by_ip_in(&ip, map)?.unwrap_or(hosts::Protocol::Tapo);
+            if protocol == hosts::Protocol::Kasa {
+                return Err(crate::error::error(
+                    "invalid_arguments",
+                    "A --tapo-target address is saved as Kasa; update its alias protocol first",
+                ));
+            }
+            Ok((ip, protocol))
+        })
+        .collect()
+}
+
 pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Result<()> {
     let mut map = hosts::load()?;
     let previous = map.clone();
+    // Resolve conflicts before any discovery traffic or registry changes.
+    let targets = probe_targets(&map, tapo_targets)?;
     crate::output::println!("Scanning network for {timeout}s...");
     let mut found = Vec::new();
     transport::broadcast_each(timeout, |ip, response| found.push((ip, response))).await?;
@@ -49,21 +79,6 @@ pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Resu
             }
         }
     }
-    let mut targets: Vec<(String, hosts::Protocol)> = map
-        .values()
-        .filter(|e| e.protocol != hosts::Protocol::Kasa)
-        .map(|e| (e.ip.clone(), e.protocol.clone()))
-        .collect();
-    targets.extend(
-        tapo_targets
-            .into_iter()
-            .map(|ip| (ip.to_string(), hosts::Protocol::Klap)),
-    );
-    targets.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| a.1.to_string().cmp(&b.1.to_string()))
-    });
-    targets.dedup();
     let probes = stream::iter(targets.into_iter().map(|(ip, protocol)| async move {
         let result = async {
             if protocol == hosts::Protocol::Tapo {
@@ -121,4 +136,61 @@ pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Resu
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn entry(ip: &str, protocol: hosts::Protocol) -> hosts::HostEntry {
+        hosts::HostEntry {
+            ip: ip.into(),
+            protocol,
+            device_id: None,
+        }
+    }
+
+    #[test]
+    fn targets_preserve_saved_protocol_and_negotiate_new_addresses_once() {
+        let map = BTreeMap::from([
+            ("legacy".into(), entry("192.0.2.1", hosts::Protocol::Klap)),
+            ("auto".into(), entry("192.0.2.2", hosts::Protocol::Tapo)),
+            (
+                "duplicate".into(),
+                entry("192.0.2.2", hosts::Protocol::Tapo),
+            ),
+        ]);
+        let additional = ["192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.3"]
+            .map(|ip| ip.parse().unwrap())
+            .to_vec();
+        assert_eq!(
+            probe_targets(&map, additional).unwrap(),
+            vec![
+                ("192.0.2.1".into(), hosts::Protocol::Klap),
+                ("192.0.2.2".into(), hosts::Protocol::Tapo),
+                ("192.0.2.3".into(), hosts::Protocol::Tapo),
+            ]
+        );
+    }
+
+    #[test]
+    fn conflicting_aliases_and_kasa_targets_are_rejected() {
+        let mut map = BTreeMap::from([
+            ("legacy".into(), entry("192.0.2.1", hosts::Protocol::Klap)),
+            ("auto".into(), entry("192.0.2.1", hosts::Protocol::Tapo)),
+        ]);
+        assert_eq!(
+            crate::error::code(&probe_targets(&map, vec![]).unwrap_err()),
+            "ambiguous_protocol"
+        );
+        map.clear();
+        map.insert("kasa".into(), entry("192.0.2.1", hosts::Protocol::Kasa));
+        assert_eq!(
+            crate::error::code(
+                &probe_targets(&map, vec!["192.0.2.1".parse().unwrap()]).unwrap_err()
+            ),
+            "invalid_arguments"
+        );
+    }
 }

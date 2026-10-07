@@ -45,7 +45,8 @@ pub fn resolve_quiet(input: &str) -> Result<Resolved> {
     if input.parse::<IpAddr>().is_ok() {
         return Ok(Resolved {
             ip: input.to_string(),
-            protocol: hosts::Protocol::Kasa,
+            protocol: hosts::protocol_by_ip_in(input, &hosts::load()?)?
+                .unwrap_or(hosts::Protocol::Kasa),
             saved_name: None,
         });
     }

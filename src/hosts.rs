@@ -356,7 +356,7 @@ pub fn reconcile_in(
     }
     for entry in map
         .values()
-        .filter(|e| e.ip == ip && e.protocol == protocol)
+        .filter(|e| same_ip(&e.ip, ip) && e.protocol == protocol)
     {
         if let Some(expected) = entry.device_id.as_deref()
             && id != Some(expected)
@@ -371,7 +371,7 @@ pub fn reconcile_in(
     let mut same_address = false;
     for entry in map
         .values_mut()
-        .filter(|e| e.ip == ip && e.protocol == protocol)
+        .filter(|e| same_ip(&e.ip, ip) && e.protocol == protocol)
     {
         same_address = true;
         if entry.device_id.is_none()
@@ -404,7 +404,7 @@ pub fn verify_identity(ip: &str, protocol: Protocol, actual: Option<&str>) -> Re
     let map = load()?;
     for entry in map
         .values()
-        .filter(|e| e.ip == ip && e.protocol == protocol)
+        .filter(|e| same_ip(&e.ip, ip) && e.protocol == protocol)
     {
         if let Some(expected) = &entry.device_id
             && actual != Some(expected.as_str())
@@ -416,6 +416,38 @@ pub fn verify_identity(ip: &str, protocol: Protocol, actual: Option<&str>) -> Re
         }
     }
     Ok(())
+}
+
+fn same_ip(left: &str, right: &str) -> bool {
+    match (left.parse::<IpAddr>(), right.parse::<IpAddr>()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+/// Select a saved protocol by address, rejecting conflicting alias configurations.
+pub(crate) fn protocol_by_ip_in(
+    ip: &str,
+    map: &BTreeMap<String, HostEntry>,
+) -> Result<Option<Protocol>> {
+    let address: IpAddr = ip.parse()?;
+    let mut selected = None;
+    for entry in map
+        .values()
+        .filter(|entry| entry.ip.parse::<IpAddr>().ok() == Some(address))
+    {
+        if selected
+            .as_ref()
+            .is_some_and(|protocol| protocol != &entry.protocol)
+        {
+            return Err(crate::error::error(
+                "ambiguous_protocol",
+                "Saved aliases for this address use different protocols; make their protocols consistent before using the IP or scanning",
+            ));
+        }
+        selected = Some(entry.protocol.clone());
+    }
+    Ok(selected)
 }
 
 /// Return the alias name for a given IP, if one exists in `map`.
@@ -702,6 +734,32 @@ mod identity_tests {
             device_id: id.map(str::to_owned),
         }
     }
+    #[test]
+    fn equivalent_ipv6_addresses_share_protocol_and_identity_checks() {
+        let mut map = BTreeMap::from([(
+            "plug".into(),
+            HostEntry {
+                ip: "2001:0db8:0:0:0:0:0:1".into(),
+                protocol: Protocol::Tapo,
+                device_id: Some("expected".into()),
+            },
+        )]);
+        assert_eq!(
+            protocol_by_ip_in("2001:db8::1", &map).unwrap(),
+            Some(Protocol::Tapo)
+        );
+        let error = reconcile_in(
+            "other",
+            "2001:db8::1",
+            Protocol::Tapo,
+            Some("different"),
+            &mut map,
+        )
+        .unwrap_err();
+        assert_eq!(crate::error::code(&error), "identity_mismatch");
+        assert_eq!(map.len(), 1);
+    }
+
     #[test]
     fn identity_reconciles_changed_and_swapped_addresses_preserving_names() {
         let mut map = BTreeMap::from([
