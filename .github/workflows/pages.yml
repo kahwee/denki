@@ -21,10 +21,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: python3 -m pip install -r docs/site/requirements.txt
-      - run: python3 scripts/update-device-docs.py --check
-      - run: python3 scripts/build-docs.py
-      - run: python3 scripts/check-docs.py
-      - run: python3 -m playwright install --with-deps chromium
+      - parallel:
+          - name: Check generated device documentation
+            run: python3 scripts/update-device-docs.py --check
+          - name: Build documentation and check links
+            run: |
+              python3 scripts/build-docs.py
+              python3 scripts/check-docs.py
+          - name: Install browser
+            run: python3 -m playwright install --with-deps chromium
+      # The parallel group must succeed before browser tests or artifact upload.
       - run: python3 scripts/test-docs.py
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:

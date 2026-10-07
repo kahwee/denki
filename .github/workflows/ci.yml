@@ -31,11 +31,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: ./.github/actions/setup-rust
-      - name: Check generated device documentation
-        run: python3 scripts/update-device-docs.py --check
-      - run: cargo test --locked
+      # Only tests compile here; formatting and registry checks share no build outputs.
+      - parallel:
+          - name: Test
+            run: cargo test --locked
+          - name: Check formatting
+            run: cargo fmt --check
+          - name: Check generated device documentation
+            run: python3 scripts/update-device-docs.py --check
+      # Keep Cargo compilation steps sequential to reuse the same target directory.
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - run: cargo fmt --check
       - run: cargo doc --locked --no-deps --document-private-items
 
   audit:

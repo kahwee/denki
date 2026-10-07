@@ -1,16 +1,16 @@
 # denki (電気)
 
-Control TP-Link Kasa and Tapo devices on your local network. Inspect energy
-usage, operate lights and plugs, and combine commands in shell scripts.
+Control TP-Link Kasa and Tapo devices from your terminal over the local network.
+Switch plugs, adjust supported lights, read energy usage, and record measurements
+for shell scripts or spreadsheets. 電気 means “electricity” in Japanese.
 
-[**Documentation & interactive demo →**](https://kahwee.github.io/denki/)
-
-Try sample energy output and copy commands, or follow the
-[getting-started guide](docs/getting-started.md).
+[Documentation & interactive demo](https://kahwee.github.io/denki/) ·
+[Supported devices](docs/commands.md#supported-devices) ·
+[Troubleshooting](docs/troubleshooting.md)
 
 ## Install
 
-Requires Rust 1.99 or newer:
+Requires [Rust](https://rustup.rs/) 1.99 or newer. The checkout selects Rust 1.99.0.
 
 ```sh
 git clone https://github.com/kahwee/denki.git
@@ -19,45 +19,104 @@ cargo install --path . --locked
 denki --help
 ```
 
-Cargo installs the binary in `~/.cargo/bin`.
+Cargo installs `denki` into `~/.cargo/bin`. Run it from a computer that can reach
+your devices on the local network.
 
-## Use
+## Connect your first device
+
+### Kasa
+
+Discover devices and use an alias from the results:
 
 ```sh
 denki scan
+denki aliases
 denki info "desk plug"
-denki energy "desk plug" --json
-denki energy watch "desk plug" --interval 5 --format jsonl > energy.jsonl
-denki group off "office" --dry-run
-denki on "desk lamp"
+denki on "desk plug"
+denki off "desk plug"
 ```
 
-Save a Tapo P125 alias with `denki alias "tapo plug" 192.0.2.50 --tapo`, then
-run `denki login <email>`. Automatic mode negotiates TPAP/KLAP; existing `--klap`
-aliases retain the original client. Direct-IP commands reuse a saved protocol;
-unknown IPs default to Kasa.
+Replace `desk plug` with your device's alias. Scan saves discovered Kasa devices
+and their identities, preserving your names when a later scan finds a changed IP.
 
-`scan` preserves aliases and reconciles known device identities after address
-changes. Use `scan --tapo-target IP` to probe an additional Tapo address.
-`group --dry-run` previews targets without contacting devices. Use `--json` for
-structured command results or energy watch's JSONL/CSV output for streaming.
+### Tapo P125
 
-Support depends on the model and connection mode. P125 automatic-mode info and
-on/off readbacks have hardware evidence; toggle remains unverified and energy
-is unsupported. See the [command and support guide](docs/commands.md) for exact
-capabilities and [devices.toml](devices.toml) for verification status.
+Add the plug's IP and save the TP-Link account credentials associated with it.
+The example IP is a placeholder; `login` prompts for your password.
 
-## Documentation
+```sh
+denki alias "tapo plug" 192.0.2.50 --tapo
+denki login "you@example.com"
+denki info "tapo plug"
+denki on "tapo plug"
+denki off "tapo plug"
+```
 
-- [Getting started with Kasa or Tapo](docs/getting-started.md)
-- [Energy readings, units, and recording](docs/energy.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Commands, aliases, credentials, and limitations](docs/commands.md)
-- [Rust library usage](docs/library.md)
+`--tapo` (also spelled `--tpap`) automatically negotiates TPAP or KLAP. It does
+not force TPAP or change the app's Third-Party Compatibility setting. Existing
+`--klap` aliases keep Denki's original KLAP client; use that mode for other
+registered Tapo models. See [Tapo setup and limitations](docs/commands.md#aliases-and-tapo-setup).
+
+Tapo scan probes saved addresses. Use `denki scan --tapo-target 192.0.2.50` to
+probe an additional address. Commands accept aliases or IPs: a saved IP uses its
+registered protocol, while an unknown IP defaults to Kasa.
+
+## Energy and automation
+
+On an energy-capable device, inspect a reading or record 12 samples as CSV:
+
+```sh
+denki energy "desk plug"
+denki energy "desk plug" --json
+denki energy watch "desk plug" --interval 5 --count 12 --format csv > energy.csv
+```
+
+Use `--format jsonl` for streaming JSON, or omit `--count` to record until Ctrl-C.
+All commands accept `--json` for structured results. The [energy guide](docs/energy.md)
+explains units, supported readings, and failed samples. P125 does not support energy
+monitoring in Denki.
+
+Preview a group before switching its matching devices:
+
+```sh
+denki group off "office" --dry-run
+denki group off "office"
+```
+
+The dry run lists targets without contacting devices.
+
+## Supported today
+
+Support depends on the model, firmware, and connection mode.
+
+| Connection | Available in Denki | Hardware evidence |
+| --- | --- | --- |
+| Kasa | Power, lighting, energy, outlets, and device settings, depending on model | Selected models; see the support table |
+| Tapo `--klap` | Power; energy on registered energy-capable models | P125 power verified; other registered models unverified |
+| Tapo `--tapo` / `--tpap` | P125 info, doctor, on/off/toggle, and group power | P125 info and on/off readbacks verified; toggle and this adapter's KLAP path unverified |
+
+Automatic-mode P125 tests used hardware 1.0 and firmware
+`1.4.0 Build 260803 Rel.232153`. That adapter does not expose energy, schedules,
+timers, lighting, cameras, or hubs. Broader upstream support does not imply Denki
+support. Exact capabilities and verification status live in
+[devices.toml](devices.toml) and the [support guide](docs/commands.md#supported-devices).
+
+## Documentation and development
+
+- [Getting started](docs/getting-started.md)
+- [Command reference, aliases, and credentials](docs/commands.md)
+- [Rust library examples](docs/library.md)
 - [Architecture and protocols](docs/architecture.md)
-- [Development checks and live smoke tests](CONTRIBUTING.md)
-- [Agent guidance](AGENTS.md)
+- [Contributing and opt-in hardware tests](CONTRIBUTING.md)
 
-## License
+The normal test suite runs offline. Live power tests require explicit targets and
+verify restoration of the starting state.
 
-MIT
+## Credits and license
+
+Automatic TPAP/KLAP communication uses [Mihai Dinculescu's `tapo` library](https://github.com/mihai-dinculescu/tapo).
+Denki adds CLI commands, aliases, capability checks, and integration tests.
+His [TPAP article](https://mihai.dinculescu.dev/posts/tapo-speaks-tpap/) explains
+the protocol and compatibility setting.
+
+Denki is [MIT licensed](LICENSE). Dependencies retain their respective licenses.

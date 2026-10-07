@@ -26,6 +26,14 @@ cargo doc --locked --no-deps --document-private-items
 3. Add or update tests for parser or CLI behavior.
 4. Run the checks above before opening a PR.
 
+## CI concurrency
+
+Workflows use GitHub Actions `parallel` groups for independent steps. Rust tests
+run alongside formatting and generated-doc checks; Clippy and rustdoc follow
+sequentially to reuse Cargo build outputs. Documentation builds and link checks
+run alongside browser installation and the support-table check. Each group must
+succeed before dependent steps run, including browser tests and artifact upload.
+
 ## Releases
 
 Use the [Denki release skill](.agents/skills/denki-release/SKILL.md) to prepare
