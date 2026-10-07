@@ -127,6 +127,13 @@ first write, and test stale scan snapshots. Linux CLI subprocess tests race alia
 adds/removals while reading JSON, check credentials under umask 000, and kill a lock
 holder to verify automatic OS lock release. No live devices are used.
 
+## CI
+
+[CI](.github/workflows/ci.yml) runs on GitHub-hosted runners: tests, Clippy,
+formatting, rustdoc, and dependency audit on Linux, plus Linux/macOS release
+builds. Pushes to `main`, pull requests, and manual runs execute these checks.
+To trigger a manual run, use `gh workflow run ci.yml --ref main`.
+
 ## Dependency maintenance
 
 Dependabot checks Cargo dependencies every Monday at 09:00 America/Los_Angeles.

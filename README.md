@@ -32,35 +32,20 @@ denki group off "office" --dry-run
 denki on "desk lamp"
 ```
 
-`scan` saves device identities with aliases, updates known devices after DHCP
-address changes, and probes saved Tapo aliases. Existing names are preserved;
-identity mismatches block control. Legacy aliases learn identity at their current
-address on the next scan. An unreadable or malformed
-alias registry stops the scan without overwriting it. Add Tapo
-P125 plugs with `denki alias "tapo plug" 192.0.2.50 --tapo`, then run
-`denki login <email>`. `--tapo` (also spelled `--tpap`) negotiates TPAP/KLAP through
-upstream `tapo` 0.11.1. Existing `--klap` aliases retain the original client.
-Direct IP commands reuse the saved protocol when aliases agree; unknown IPs retain the Kasa default.
-`scan --tapo-target IP` uses the saved protocol, or auto TPAP/KLAP for a new IP.
-Conflicting protocols at one address are rejected before scanning.
-`group --dry-run` lists matches without contacting devices.
+Save a Tapo P125 alias with `denki alias "tapo plug" 192.0.2.50 --tapo`, then
+run `denki login <email>`. Automatic mode negotiates TPAP/KLAP; existing `--klap`
+aliases retain the original client. Direct-IP commands reuse a saved protocol;
+unknown IPs default to Kasa.
 
-P125 info and on/off readbacks have hardware evidence with the new adapter; toggle
-remains unverified on hardware. Advanced operations, including energy, are not
-implemented in auto mode. Original-client and auto-adapter verification are
-tracked separately in [devices.toml](devices.toml).
-Kasa control commands report device rejection codes instead of claiming success.
-All commands accept `--json` with a versioned result and stable error categories.
-Energy watch streams timestamped JSONL or CSV, reuses Tapo sessions, and records
-failed samples explicitly instead of treating them as zero consumption.
-Network exchanges have time limits. The original Kasa/KLAP clients reject response
-bodies larger than 1 MiB; the upstream Tapo adapter uses upstream response handling
-with a 30-second overall operation deadline.
-KLAP replies are authenticated before decryption. Configuration writes are atomic;
-alias edits are locked, and scans reject concurrent changes instead of overwriting
-them. Credential files are created with private permissions on Unix.
-Commands depend on each device's capabilities; Tapo daily/monthly history differs
-from Kasa. See the [command and support guide](docs/commands.md).
+`scan` preserves aliases and reconciles known device identities after address
+changes. Use `scan --tapo-target IP` to probe an additional Tapo address.
+`group --dry-run` previews targets without contacting devices. Use `--json` for
+structured command results or energy watch's JSONL/CSV output for streaming.
+
+Support depends on the model and connection mode. P125 automatic-mode info and
+on/off readbacks have hardware evidence; toggle remains unverified and energy
+is unsupported. See the [command and support guide](docs/commands.md) for exact
+capabilities and [devices.toml](devices.toml) for verification status.
 
 ## Documentation
 

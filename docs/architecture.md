@@ -42,28 +42,6 @@
 - update the README and inline docs so behavior and help text stay aligned
 - add a regression test for the parser or capability guard (`src/app/tests/` for CLI/capability coverage)
 
-## Protocol notes
-
-### Kasa (legacy)
-
-Classic Kasa devices use TCP port `9999` with an XOR autokey cipher:
-
-- the key starts at `171`
-- each output byte is `input XOR previous_output_byte`
-- TCP adds a 4-byte big-endian length prefix before the ciphertext
-- UDP discovery uses the same cipher without the length prefix
-
-### KLAP (Tapo)
-
-The original KLAP client uses a two-step handshake over plain HTTP on port `80`:
-
-1. `POST /app/handshake1` with 16 random bytes
-2. `POST /app/handshake2` with the client proof
-3. `POST /app/request?seq=N` for encrypted requests
-
-The original KLAP client uses raw `tokio::net::TcpStream` because some Tapo firmware rejects standard HTTP clients. Automatic mode uses the upstream client described below.
-
-
 ## Protocol details
 
 ### Kasa — port 9999
@@ -95,7 +73,7 @@ AES-128-CBC over plain HTTP. Uses raw `TcpStream` — some Tapo firmware returns
 - `seq     = i32::from_be_bytes(iv_full[28..32])`
 - `sig     = SHA256("ldk" || local_seed || remote_seed || auth_hash)[..28]`
 
-**Per request:** `seq += 1; iv = iv_base || seq.to_be_bytes(); body = SHA256(sig || seq || cipher) || cipher`
+**Per request:** `POST /app/request?seq=N`; `seq += 1; iv = iv_base || seq.to_be_bytes(); body = SHA256(sig || seq || cipher) || cipher`
 
 **Response:** require a 32-byte tag followed by nonempty, block-aligned ciphertext.
 Verify `SHA256(sig || current_sequence || ciphertext)` in constant time before
