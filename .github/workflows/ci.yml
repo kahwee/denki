@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Test release metadata guard
-        run: python3 scripts/test_check_release.py
+        run: python3 scripts/test_check_release.py -v
 
       - uses: ./.github/actions/setup-rust
       # Only tests compile here; formatting and registry checks share no build outputs.
