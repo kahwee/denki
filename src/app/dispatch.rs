@@ -35,6 +35,10 @@ async fn dispatch_command(command: Command) -> Result<()> {
             saturation,
             value,
         } => commands::handle_color(&host, hue, saturation, value).await,
+        Command::Rainbow {
+            host,
+            step_delay_ms,
+        } => commands::handle_rainbow(&host, step_delay_ms).await,
         Command::Energy {
             host,
             outlet,

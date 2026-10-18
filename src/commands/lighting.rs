@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::time::Duration;
 
 use crate::bulb;
 use crate::devices::{self, DeviceKind};
@@ -74,4 +75,45 @@ pub async fn handle_color(host: &str, hue: u16, saturation: u8, value: u8) -> Re
     );
     crate::output::println!("Color -> hue:{hue} sat:{saturation} val:{value}");
     Ok(())
+}
+
+pub async fn handle_rainbow(host: &str, step_delay_ms: u64) -> Result<()> {
+    let ctx = KasaContext::load(host, "rainbow").await?;
+    devices::can_set_color(ctx.kind())?;
+    let state = bulb::parse(ctx.json())
+        .ok_or_else(|| anyhow::anyhow!("Could not read current light state"))?;
+    let mut hue = state.light_state.hue() % 360;
+    let saturation = state.light_state.saturation();
+    let brightness = state.light_state.brightness();
+
+    match ctx.kind() {
+        DeviceKind::Bulb => ensure_light_on(&ctx).await?,
+        DeviceKind::LightStrip => {}
+        other => anyhow::bail!("`rainbow` is only supported on color lights, not {other}"),
+    }
+
+    crate::output::println!("Cycling rainbow colors; press Ctrl-C to stop.");
+    let stop = tokio::signal::ctrl_c();
+    tokio::pin!(stop);
+    loop {
+        tokio::select! {
+            result = &mut stop => {
+                result?;
+                crate::output::println!("Rainbow stopped at {hue}° hue.");
+                return Ok(());
+            }
+            _ = tokio::time::sleep(Duration::from_millis(step_delay_ms)) => {}
+        }
+
+        hue = (hue + 10) % 360;
+        match ctx.kind() {
+            DeviceKind::Bulb => {
+                ops::bulb_set_color(ctx.ip(), hue, saturation, brightness).await?;
+            }
+            DeviceKind::LightStrip => {
+                ops::lightstrip_set_color(ctx.ip(), hue, saturation, brightness).await?;
+            }
+            _ => unreachable!("capability guard accepted a non-color light"),
+        }
+    }
 }

@@ -34,6 +34,7 @@ denki aliases
 denki info "desk plug"
 denki on "desk plug"
 denki off "desk plug"
+denki rainbow "desk lamp"
 ```
 
 Replace `desk plug` with your device's alias. Scan saves discovered Kasa devices

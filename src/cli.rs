@@ -120,6 +120,16 @@ pub enum Command {
         value: u8,
     },
 
+    /// Cycle a color light through the rainbow until interrupted with Ctrl-C
+    Rainbow {
+        /// Device name from scan output, a saved alias, or an IP address
+        #[arg(value_name = "DEVICE")]
+        host: String,
+        /// Delay between hue steps, in milliseconds
+        #[arg(long, default_value_t = 1_000, value_parser = clap::value_parser!(u64).range(20..=60_000))]
+        step_delay_ms: u64,
+    },
+
     /// Show real-time energy usage (bulbs, light strips, and ENE-capable plugs/strips)
     #[command(
         subcommand_precedence_over_arg = true,
@@ -378,6 +388,7 @@ impl Command {
             Self::Dim { .. } => "dim",
             Self::ColorTemp { .. } => "color-temp",
             Self::Color { .. } => "color",
+            Self::Rainbow { .. } => "rainbow",
             Self::Energy { .. } => "energy",
             Self::EnergyDaily { .. } => "energy-daily",
             Self::EnergyMonthly { .. } => "energy-monthly",

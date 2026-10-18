@@ -87,7 +87,13 @@ without contacting devices, or `--concurrency N` to tune the limit.
 denki dim "desk lamp" 50
 denki color-temp "desk lamp" 2700
 denki color "desk lamp" -H 275 -s 50 -v 80
+denki rainbow "desk lamp"
 ```
+
+`rainbow` cycles a color bulb or light strip through hue steps while preserving its
+current saturation and brightness. The default delay is 1 second per step; use
+`--step-delay-ms` to change it (20–60000 ms). Press Ctrl-C to stop; the light stays
+at its current color.
 
 ### Light strip effects
 

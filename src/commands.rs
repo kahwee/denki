@@ -8,6 +8,6 @@ mod power;
 mod shared;
 
 pub use energy::{handle_energy, handle_energy_daily, handle_energy_monthly};
-pub use lighting::{handle_color, handle_color_temp, handle_dim};
+pub use lighting::{handle_color, handle_color_temp, handle_dim, handle_rainbow};
 pub use power::{GroupAction, handle_group, handle_off, handle_on, handle_toggle};
 pub(crate) use shared::KasaContext;
