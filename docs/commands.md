@@ -100,15 +100,19 @@ To pulse a bulb's brightness while keeping it green, run a `dim` loop:
 ```bash
 denki color "desk lamp" -H 120 -s 100 -v 100
 while true; do
-  for level in 0 10 20 30 40 50 60 70 80 90 100 90 80 70 60 50 40 30 20 10; do
+  for ((level = 0; level <= 100; level += 2)); do
     denki dim "desk lamp" "$level"
-    sleep 1
+    sleep 0.2
+  done
+  for ((level = 98; level >= 0; level -= 2)); do
+    denki dim "desk lamp" "$level"
+    sleep 0.2
   done
 done
 ```
 
-Change the alias, step values, or sleep time to adjust the bulbs and pace. Press
-Ctrl-C to stop the loop.
+This uses smaller 2% steps with a short hold at each level for a smoother pulse.
+Change the alias or sleep time to adjust the bulbs and pace. Press Ctrl-C to stop.
 
 ### Light strip effects
 
