@@ -95,6 +95,21 @@ current saturation and brightness. The default delay is 1 second per step; use
 `--step-delay-ms` to change it (20–60000 ms). Press Ctrl-C to stop; the light stays
 at its current color.
 
+To pulse a bulb's brightness while keeping it green, run a `dim` loop:
+
+```bash
+denki color "desk lamp" -H 120 -s 100 -v 100
+while true; do
+  for level in 0 10 20 30 40 50 60 70 80 90 100 90 80 70 60 50 40 30 20 10; do
+    denki dim "desk lamp" "$level"
+    sleep 1
+  done
+done
+```
+
+Change the alias, step values, or sleep time to adjust the bulbs and pace. Press
+Ctrl-C to stop the loop.
+
 ### Light strip effects
 
 ```bash
