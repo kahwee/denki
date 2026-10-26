@@ -23,12 +23,20 @@ pub fn on_time(secs: u64) -> String {
 
 /// Parse "YYYY-MM" and validate month is 1–12.
 pub fn parse_year_month(s: &str) -> anyhow::Result<(u16, u8)> {
-    let parts: Vec<&str> = s.split('-').collect();
-    if parts.len() != 2 {
+    let Some((year, month)) = s.split_once('-') else {
+        anyhow::bail!("Month must be in YYYY-MM format");
+    };
+    if year.len() != 4
+        || month.len() != 2
+        || !year
+            .bytes()
+            .chain(month.bytes())
+            .all(|b| b.is_ascii_digit())
+    {
         anyhow::bail!("Month must be in YYYY-MM format");
     }
-    let year: u16 = parts[0].parse()?;
-    let mo: u8 = parts[1].parse()?;
+    let year: u16 = year.parse()?;
+    let mo: u8 = month.parse()?;
     if !(1..=12).contains(&mo) {
         anyhow::bail!("Month must be 01–12, got {mo:02}");
     }
@@ -114,6 +122,10 @@ mod tests {
     #[case("abcd-01")]
     #[case("20xx-06")]
     #[case("2025-ab")]
+    #[case("2025-3")]
+    #[case("025-03")]
+    #[case("+025-03")]
+    #[case("2025-+3")]
     fn parse_year_month_invalid(#[case] input: &str) {
         assert!(parse_year_month(input).is_err(), "should reject: {input}");
     }
