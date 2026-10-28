@@ -244,7 +244,7 @@ denki off "P125 A"
 denki toggle "P125 A"
 ```
 
-`--tpap` is a synonym for `--tapo`. Both use upstream `tapo` 0.11.1 to
+`--tpap` is a synonym for `--tapo`. Both use upstream `tapo` 0.12.0 to
 negotiate TPAP or KLAP; neither forces TPAP. `--klap` keeps Denki's original
 KLAP client. The options are mutually exclusive. Saved `protocol: "tapo"`
 identifies the connection policy, not the negotiated wire protocol.

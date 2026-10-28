@@ -158,7 +158,7 @@ scheduled jobs; the cron time is the requested start, not a delivery guarantee.
 
 The pinned Tapo dependency brings `rsa`, whose timing advisory
 [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) has no
-patched release. `.cargo/audit.toml` records the scoped exception: Tapo 0.11.1
+patched release. `.cargo/audit.toml` records the scoped exception: Tapo 0.12.0
 only generates a discovery key and exports the public key, with no RSA decryption
 or signing. Reassess the call sites whenever Tapo/RSA changes or another RSA
 consumer is introduced. All other advisories remain checked.
