@@ -1,0 +1,4 @@
+# Native bun lint is currently canary-only; existing docs checks remain authoritative.
+[lint]
+typeAware = true
+typeCheck = true
