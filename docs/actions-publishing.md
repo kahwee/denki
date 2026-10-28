@@ -43,6 +43,13 @@ and granting its job `contents: write` and `actions: read`. It creates a GitHub
 source release for a matching existing tag after exact-source CI. It never moves
 a tag; an existing release makes creation fail safely and requires read-back.
 
-Crate publication is triggered directly by human-pushed `v*` tags; no `release: published` cascade from `GITHUB_TOKEN` is assumed. It runs independently of GitHub source/binary publication. Existing immutable historical tags without these new guard files need a separately reviewed recovery procedure; this proposal does not move or republish them.
+If activated, the crate publisher proposal would be triggered directly by human-pushed `v*` tags; no `release: published` cascade from `GITHUB_TOKEN` is assumed. It would run independently of GitHub source/binary publication. Existing immutable historical tags without these new guard files need a separately reviewed recovery procedure; this proposal does not move or republish them.
 
-CI runs the actual metadata CLI against the checked-out manifest/lock and rejects a mismatched tag. The publisher proposal remains unexecuted: packaging dry-run, registry exchange and publication are not proven by guard tests.
+CI runs the actual metadata CLI against the checked-out manifest/lock and rejects
+a mismatched tag. Linux CI also validates the actual Cargo package inventory and
+runs `cargo publish --locked --dry-run` to compile the packaged source. These
+checks do not prove registry authentication or publication. The publisher proposal
+remains inactive; its registry exchange and upload have not been exercised.
+
+See [GitHub Actions maintenance](../.github/ACTIONS.md) for the verified action
+versions, including the pins in the inactive proposals.
