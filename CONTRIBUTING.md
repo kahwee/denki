@@ -169,7 +169,8 @@ GitHub Pages serves the guides at https://kahwee.github.io/denki/. Edit the Mark
 files in `docs/`; the website and repository share the same guide content. The
 landing page, styles, and interactive sample demo live in `docs/site/`.
 
-Build and preview with Python 3.11+:
+CI uses Python 3.15.2 for scripts and browser checks. Build and preview locally
+with Python 3.11+:
 
 ```sh
 python3 -m venv .venv

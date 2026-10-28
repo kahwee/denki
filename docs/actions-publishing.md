@@ -33,7 +33,8 @@ request a short-lived OIDC credential for one locked publish.
 The job has `contents: read`, `actions: read`, `id-token: write`, and no GitHub
 environment or long-lived Cargo secret. The separate registry binding must match
 owner `kahwee`, repository `denki`, workflow `publish-crate.yml`, blank environment.
-Activation does not establish or verify that external binding.
+The matching binding was configured and read back on 2026-10-28. No tag-triggered
+OIDC upload has been exercised; the initial 0.1.1 upload used existing Cargo authentication.
 
 ## Recovery and GitHub releases
 

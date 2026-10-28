@@ -4,6 +4,7 @@ import sys
 
 REQUIRED = {
     'Cargo.lock',
+    'CHANGELOG.md',
     'Cargo.toml',
     'Cargo.toml.orig',
     'LICENSE',

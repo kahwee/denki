@@ -15,7 +15,7 @@ categories = ["command-line-utilities", "network-programming"]
 include = [
     "/src/**", "/tests/**", "/devices.toml", "/docs/library.md",
     "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE",
-    "/CONTRIBUTING.md", "/rust-toolchain.toml", "/rustfmt.toml",
+    "/CHANGELOG.md", "/CONTRIBUTING.md", "/rust-toolchain.toml", "/rustfmt.toml",
 ]
 
 [lib]
