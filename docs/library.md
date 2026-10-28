@@ -4,7 +4,7 @@ Requires Rust 1.99 or newer. Add these dependencies to your project:
 
 ```toml
 [dependencies]
-denki = { git = "https://github.com/kahwee/denki" }
+denki = "0.1.1"
 anyhow = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

@@ -5,23 +5,26 @@ Switch plugs, adjust supported lights, read energy usage, and record measurement
 for shell scripts or spreadsheets. 電気 means “electricity” in Japanese.
 
 [Documentation & interactive demo](https://kahwee.github.io/denki/) ·
+[Rust API](https://docs.rs/denki/) ·
 [Supported devices](docs/commands.md#supported-devices) ·
 [Troubleshooting](docs/troubleshooting.md)
 
 ## Install
 
-Install the current tagged release with [Rust](https://rustup.rs/) 1.99 or newer:
+Install from [crates.io](https://crates.io/crates/denki) with [Rust](https://rustup.rs/)
+1.99 or newer:
 
 ```sh
-cargo install --git https://github.com/kahwee/denki --tag v0.1.1 --locked
+cargo install denki --locked --version 0.1.1
 denki --version
 denki --help
 ```
 
 GitHub releases currently provide source archives, not prebuilt executables.
-Denki is not published on crates.io. Cargo installs into `~/.cargo/bin`;
-ensure that directory is on `PATH`. To update, repeat the command with the new
-tag. For development, clone the repository and run `cargo install --path . --locked`.
+Cargo installs into `~/.cargo/bin`; ensure that directory is on `PATH`. Repeat
+`cargo install denki --locked` to update. For an exact source tag, use
+`cargo install --git https://github.com/kahwee/denki --tag v0.1.1 --locked`.
+For development, clone the repository and run `cargo install --path . --locked`.
 
 Your computer must be able to reach the device on the local network. Guest
 Wi-Fi and client isolation can block discovery and control. Start with `info`

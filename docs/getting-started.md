@@ -10,9 +10,12 @@ Install [Rust with rustup](https://rustup.rs/) first. Denki requires Rust 1.99 o
 newer; the repository selects 1.99.1 automatically.
 
 ```sh
-cargo install --git https://github.com/kahwee/denki --tag v0.1.1 --locked
+cargo install denki --locked --version 0.1.1
 denki --help
 ```
+
+For the exact GitHub source tag, use
+`cargo install --git https://github.com/kahwee/denki --tag v0.1.1 --locked`.
 
 Cargo installs `denki` into `~/.cargo/bin` by default. If your shell cannot find
 it, restart the shell after installing Rust or add that directory to `PATH`.

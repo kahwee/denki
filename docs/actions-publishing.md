@@ -4,6 +4,10 @@ GitHub releases, crates.io and docs.rs are separate destinations. Confirm each
 version before reporting it as available. Follow the [release skill](../.agents/skills/denki-release/SKILL.md)
 for source preparation and exact-source CI; never move or reuse an existing tag.
 
+Denki 0.1.1 is published on [crates.io](https://crates.io/crates/denki/0.1.1), with
+[Rust API documentation](https://docs.rs/denki/0.1.1/denki/). Automatic registry
+publishing remains inactive; the completed upload did not activate the proposals.
+
 ## Checks before a release
 
 - `python3 scripts/check-release.py v<version>` requires the stable tag, manifest
