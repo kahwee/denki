@@ -11,6 +11,13 @@ readme = "README.md"
 keywords = ["tplink", "kasa", "tapo", "smarthome", "cli"]
 categories = ["command-line-utilities", "network-programming"]
 
+# Registry source distribution: keep compile-time docs, registry and offline fixtures.
+include = [
+    "/src/**", "/tests/**", "/devices.toml", "/docs/library.md",
+    "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE",
+    "/CONTRIBUTING.md", "/rust-toolchain.toml", "/rustfmt.toml",
+]
+
 [lib]
 name = "denki"
 path = "src/lib.rs"

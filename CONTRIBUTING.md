@@ -224,3 +224,19 @@ selected Kasa, KLAP, or auto-mode aliases. New hardware tests should implement t
 small interface instead of duplicating switching or cleanup logic. Authentication
 and identity failures use structured error codes to stop further writes/login
 attempts. Live tests stay ignored in CI; never add a real address as a default.
+
+### Cargo release preflight
+
+Linux CI validates the actual `cargo package --locked --list` inventory with
+`python3 scripts/check-package.py`, then runs `cargo publish --locked --dry-run`.
+The source package includes the device registry, compile-time library documentation,
+and offline test fixtures; site infrastructure and local output are excluded.
+Run these checks locally before release preparation. A dry run compiles the
+packaged source and does not authenticate or upload to crates.io.
+
+Before creating a tag, keep `v<version>`, `Cargo.toml` and the root `Cargo.lock`
+entry aligned, and require successful CI (including Linux/macOS builds and audit)
+on the exact source commit. Registry authentication is separate from GitHub access.
+The publisher proposal at `.github/release-proposals/publish-crate.yml` is inactive;
+pushing a tag currently does not publish a crate. Activating it requires separate
+approval for workflow permissions and crates.io trusted publisher configuration.

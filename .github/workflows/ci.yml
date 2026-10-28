@@ -48,6 +48,11 @@ jobs:
       # Keep Cargo compilation steps sequential to reuse the same target directory.
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo doc --locked --no-deps --document-private-items
+      - name: Cargo registry preflight
+        run: |
+          python3 scripts/test_check_package.py -v
+          python3 scripts/check-package.py
+          cargo publish --locked --dry-run
 
   audit:
     name: Dependency Audit
