@@ -6,10 +6,11 @@ use clap_complete::Shell;
 #[command(
     name = "denki",
     about = "Control TP-Link Kasa and Tapo devices from the terminal",
-    version
+    version,
+    after_help = "Start here:\n  denki scan\n  denki aliases\n  denki info \"desk plug\"\n  denki doctor \"desk plug\"\n\nTapo P125: add an alias with --tapo, then run denki login EMAIL.\nUse --json for one result; energy watch streams JSONL with --json.\nUse energy watch --format csv for spreadsheets; do not combine it with --json.\nOnly commands supported by the selected device are available.\nGuide: https://kahwee.github.io/denki/"
 )]
 pub struct Cli {
-    /// Emit one versioned JSON result; progress goes to stderr
+    /// Emit versioned JSON (energy watch streams JSONL); progress goes to stderr
     #[arg(long, global = true)]
     pub json: bool,
     #[command(subcommand)]
@@ -258,7 +259,7 @@ pub enum Command {
         name: String,
     },
 
-    /// Save a friendly name for a device IP (e.g. `denki alias "floor lamp" 192.168.7.254`)
+    /// Save a friendly name for a device IP (e.g. `denki alias "floor lamp" 192.0.2.42`)
     Alias {
         /// Friendly name to save
         name: String,

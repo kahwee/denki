@@ -10,17 +10,22 @@ for shell scripts or spreadsheets. 電気 means “electricity” in Japanese.
 
 ## Install
 
-Requires [Rust](https://rustup.rs/) 1.99 or newer. The checkout selects Rust 1.99.0.
+Install the current tagged release with [Rust](https://rustup.rs/) 1.99 or newer:
 
 ```sh
-git clone https://github.com/kahwee/denki.git
-cd denki
-cargo install --path . --locked
+cargo install --git https://github.com/kahwee/denki --tag v0.1.1 --locked
+denki --version
 denki --help
 ```
 
-Cargo installs `denki` into `~/.cargo/bin`. Run it from a computer that can reach
-your devices on the local network.
+GitHub releases currently provide source archives, not prebuilt executables.
+Denki is not published on crates.io. Cargo installs into `~/.cargo/bin`;
+ensure that directory is on `PATH`. To update, repeat the command with the new
+tag. For development, clone the repository and run `cargo install --path . --locked`.
+
+Your computer must be able to reach the device on the local network. Guest
+Wi-Fi and client isolation can block discovery and control. Start with `info`
+and `doctor` before issuing commands that change a device's state.
 
 ## Connect your first device
 
@@ -32,9 +37,9 @@ Discover devices and use an alias from the results:
 denki scan
 denki aliases
 denki info "desk plug"
+denki doctor "desk plug"
 denki on "desk plug"
 denki off "desk plug"
-denki rainbow "desk lamp"
 ```
 
 Replace `desk plug` with your device's alias. Scan saves discovered Kasa devices
@@ -73,7 +78,8 @@ denki energy watch "desk plug" --interval 5 --count 12 --format csv > energy.csv
 ```
 
 Use `--format jsonl` for streaming JSON, or omit `--count` to record until Ctrl-C.
-All commands accept `--json` for structured results. The [energy guide](docs/energy.md)
+Use `--json` for a versioned JSON result; with `energy watch`, it selects
+one JSONL record per sample. Do not combine `--json` with `--format csv`. The [energy guide](docs/energy.md)
 explains units, supported readings, and failed samples. P125 does not support energy
 monitoring in Denki.
 
@@ -101,6 +107,23 @@ Automatic-mode P125 tests used hardware 1.0 and firmware
 timers, lighting, cameras, or hubs. Broader upstream support does not imply Denki
 support. Exact capabilities and verification status live in
 [devices.toml](devices.toml) and the [support guide](docs/commands.md#supported-devices).
+
+## Common tasks
+
+| Goal | Command |
+| --- | --- |
+| Check a device and its capabilities | `denki doctor "desk plug"` |
+| Set brightness on a supported light | `denki dim "desk lamp" 50` |
+| List a power strip's outlet numbers | `denki outlets "desk strip"` |
+| Control outlet 2 on a power strip | `denki on "desk strip" 2` |
+| Save a Kasa IP when discovery is blocked | `denki alias "desk plug" 192.0.2.42` |
+| Find a command's options | `denki <command> --help` |
+
+Replace the example names and `192.0.2.x` addresses with your own devices.
+An unknown IP defaults to Kasa; use a saved `--tapo` or `--klap` alias for Tapo.
+Credentials can be saved with `denki login EMAIL`; omit the password so it is
+prompted rather than recorded in shell history. See the
+[credential guide](docs/commands.md#aliases-and-tapo-setup) for details.
 
 ## Documentation and development
 

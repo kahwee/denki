@@ -10,9 +10,7 @@ Install [Rust with rustup](https://rustup.rs/) first. Denki requires Rust 1.99 o
 newer; the repository selects 1.99.0 automatically.
 
 ```sh
-git clone https://github.com/kahwee/denki.git
-cd denki
-cargo install --path . --locked
+cargo install --git https://github.com/kahwee/denki --tag v0.1.1 --locked
 denki --help
 ```
 
