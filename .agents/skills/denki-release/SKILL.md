@@ -56,10 +56,10 @@ Write release notes to a temporary file outside the repository. Describe support
 behavior, meaningful changes, installation, and any actual validation limits. Do
 not include credentials, real device addresses, or diagnostic captures.
 
-Inspect the current release automation rather than assuming it exists. The original
-CI workflow only checks main and pull requests, so a tag alone does not publish a
-release or attach binaries. If no release workflow exists, a GitHub source release
-is the default. Do not promise binaries unless they have been built and uploaded.
+Inspect the current release automation. New stable version tags start the active
+crates.io publisher, but the GitHub source-release creator remains an inactive
+proposal. A GitHub source release is a separate step; no prebuilt binaries are
+promised. See docs/actions-publishing.md for the current workflow and recovery rules.
 
 If the user asks for binary distribution or release automation, implement or use
 a workflow that builds the exact tagged SHA, verifies the tag against Cargo.toml,
@@ -70,6 +70,8 @@ platform support from evidence, not from runner names alone.
 
 ## Tag and publish
 
+Before tagging, confirm the external crates.io trusted-publisher binding matches
+owner `kahwee`, repository `denki`, workflow `publish-crate.yml`, blank environment.
 For a release request, create an annotated `v<version>` tag at the verified full SHA
 and push that tag. Use task-specific shell variables and proper shell quoting.
 Use the installed `gh` authentication normally; never print tokens or inspect secret
@@ -90,11 +92,13 @@ with `--verify-tag`, `--title`, and `--notes-file`. Respect an explicit draft or
 prerelease request; otherwise publish the requested release. If a release already
 exists, inspect it and complete only missing requested work.
 
-Publishing to crates.io is a separate distribution choice. Run `cargo publish
---locked` only when the user requests it and the intended registry account has the
-necessary access. A successful dry run verifies packaging and compilation, not
-crate-name ownership or publication authorization. Never publish credentials or
-start an interactive login just to discover access.
+A new stable tag also starts `.github/workflows/publish-crate.yml`. It validates
+metadata, exact-source complete main CI, package inventory/dry run and a fresh
+audit before requesting a short-lived OIDC credential. Monitor that tag's run,
+then verify the registry version and docs.rs build. Do not duplicate its upload
+with a manual publish. Activation does not backfill existing tags or prove the
+external trust binding. Never publish credentials or start an interactive login
+to discover access; report registry publication as pending when trust is unavailable.
 
 ## Verify and report
 

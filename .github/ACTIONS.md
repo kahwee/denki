@@ -7,6 +7,7 @@ This guide describes the checked-in workflows. Follow each linked YAML file for 
 | Workflow | Events | Jobs |
 | --- | --- | --- |
 | [ci.yml](workflows/ci.yml) | `workflow_dispatch`, `schedule`, `push`, `pull_request` | `test`, `audit`, `build` |
+| [publish-crate.yml](workflows/publish-crate.yml) | `push` to `v*` tags from user accounts | `publish` |
 | [pages.yml](workflows/pages.yml) | `push`, `pull_request`, `workflow_dispatch` | `build`, `deploy` |
 
 ## Parallel steps
@@ -36,17 +37,19 @@ action is pinned to a commit in upstream `master` history, as required by its
 | [actions/setup-python](https://github.com/actions/setup-python) | [v7.1.0](https://github.com/actions/setup-python/releases/tag/v7.1.0) | `6d4fd22b20465ccc0f7354476588e8df7c9ca0e0` |
 | [actions/upload-pages-artifact](https://github.com/actions/upload-pages-artifact) | [v5.0.0](https://github.com/actions/upload-pages-artifact/releases/tag/v5.0.0) | `fc324d3547104276b827a68afc52ff2a11cc49c9` |
 | [dtolnay/rust-toolchain](https://github.com/dtolnay/rust-toolchain) | [master](https://github.com/dtolnay/rust-toolchain/commit/683b588c487a69d01f6c6ddf40f036ff682cc2c8) | `683b588c487a69d01f6c6ddf40f036ff682cc2c8` |
-
-### Inactive release proposals
-
-The YAML files in `release-proposals/` are outside `.github/workflows` and do not
-run. Their shared action references match the table above. The additional action is:
-
-| Action | Version | Commit |
-| --- | --- | --- |
 | [rust-lang/crates-io-auth-action](https://github.com/rust-lang/crates-io-auth-action) | [v1.0.6](https://github.com/rust-lang/crates-io-auth-action/releases/tag/v1.0.6) | `3268eb413133e2960fa4ae0e963ca76380c54cd9` |
 
-Updating these pins does not activate a proposal or configure registry trust.
+### Registry authentication and remaining proposal
+
+`publish-crate.yml` runs only on new `v*` tag pushes from user accounts. Its job
+has `contents: read`, `actions: read`, `id-token: write`, and no GitHub environment.
+Metadata, exact-source complete main CI, package verification and a fresh audit
+must pass before OIDC authentication. Registry trust is configured separately
+for owner `kahwee`, repository `denki`, workflow `publish-crate.yml`, blank environment.
+
+`release-proposals/release-source.yml` remains inactive outside `.github/workflows`.
+Its checkout and Python setup pins match the active table above.
+
 The active JavaScript actions use Node.js 24; keep runners compatible with each
 upstream action's runner requirements. The checked-in jobs use GitHub-hosted
 runners.
@@ -66,4 +69,5 @@ Use workflow concurrency to cancel superseded check runs where appropriate. Depl
 Linux CI also checks the Cargo package inventory and runs a locked publish dry run.
 This catches missing bundled files and packaged-source compilation failures before
 release tagging. It uses the existing read-only permissions, without registry
-credentials. The crate publisher remains an inactive proposal outside workflows.
+credentials. Registry publishing runs separately in the tag-only workflow after
+its pre-authentication checks; ordinary CI never invokes it.

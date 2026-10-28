@@ -29,7 +29,9 @@ comments aligned with [.github/ACTIONS.md](.github/ACTIONS.md). For docs, run
 `python3 scripts/update-device-docs.py --check`, build/check the site, and keep
 README, getting-started and site installation examples consistent.
 
-GitHub releases, crates.io and docs.rs have separate verification. The registry
-publisher is an inactive proposal; ordinary pushes do not upload a crate.
+GitHub releases, crates.io and docs.rs have separate verification. New user-pushed
+`v*` tags start the registry publisher after metadata, exact-source CI, package
+and audit checks. Its OIDC trust binding is external; ordinary main pushes do
+not publish. See [publishing](docs/actions-publishing.md) before tagging.
 Never move existing tags or duplicate an in-progress release/upload. Do not
 claim registry availability until the version is visible in the official index.

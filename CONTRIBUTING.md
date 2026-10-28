@@ -237,6 +237,9 @@ packaged source and does not authenticate or upload to crates.io.
 Before creating a tag, keep `v<version>`, `Cargo.toml` and the root `Cargo.lock`
 entry aligned, and require successful CI (including Linux/macOS builds and audit)
 on the exact source commit. Registry authentication is separate from GitHub access.
-The publisher proposal at `.github/release-proposals/publish-crate.yml` is inactive;
-pushing a tag currently does not publish a crate. Activating it requires separate
-approval for workflow permissions and crates.io trusted publisher configuration.
+The active [crate publisher](.github/workflows/publish-crate.yml) runs only on
+new user-pushed `v*` tags, after metadata, exact-source CI, package and audit checks.
+Its short-lived OIDC authentication requires the separate matching crates.io
+trusted-publisher binding. It has no branch, PR or manual publishing trigger.
+Follow [release and registry publishing](docs/actions-publishing.md); old tags
+and published versions remain immutable.

@@ -1,44 +1,48 @@
 # Releases and registry publishing
 
-GitHub releases, crates.io and docs.rs are separate destinations. Confirm each
-version before reporting it as available. Follow the [release skill](../.agents/skills/denki-release/SKILL.md)
-for source preparation and exact-source CI; never move or reuse an existing tag.
+GitHub releases, crates.io and docs.rs are separate destinations. Verify each
+before reporting it as available. Denki 0.1.1 is published on
+[crates.io](https://crates.io/crates/denki/0.1.1), and
+[docs.rs build 5044276](https://docs.rs/crate/denki/0.1.1/builds/5044276) succeeded.
+That initial upload used immutable `v0.1.1` at commit
+`2c93521152da2a15fd4d2a8f27e33e916f096ba9`; workflow activation does not republish it.
 
-Denki 0.1.1 is published on [crates.io](https://crates.io/crates/denki/0.1.1), with
-[Rust API documentation](https://docs.rs/denki/0.1.1/denki/). Automatic registry
-publishing remains inactive; the completed upload did not activate the proposals.
+## Future releases
 
-## Checks before a release
+1. Follow the [release skill](../.agents/skills/denki-release/SKILL.md). Update the
+   manifest/root-lock versions and relevant documentation together.
+2. Run the local checks and package preflight, then push main. Require successful
+   CI on that exact source, including tests, Linux/macOS builds and audit.
+3. Confirm the external crates.io trusted-publisher binding, then push one new
+   stable `v<version>` tag matching the manifest and root lockfile. Never reuse
+   or move an existing tag.
+4. Monitor the tag's Publish crate run. Verify the registry version and docs.rs
+   build separately. Create a GitHub source release separately when authorized;
+   the source-release proposal remains inactive and no prebuilt binaries are promised.
 
-- `python3 scripts/check-release.py v<version>` requires the stable tag, manifest
-  and root lockfile versions to agree.
-- Linux CI checks Cargo's actual package inventory and runs
-  `cargo publish --locked --dry-run` to compile the packaged source.
-- Require successful CI on the exact commit, including Linux/macOS builds and
-  the dependency audit. A dry run does not authenticate or upload a crate.
+## Tag-only publisher
 
-## Inactive automation proposals
+[Publish crate](../.github/workflows/publish-crate.yml) is active for future `v*`
+tag pushes from user accounts. Branch pushes, pull requests and manual dispatches
+do not invoke it. It checks stable tag/manifest/root-lock agreement, confirms the
+tagged SHA is on main with successful complete push CI, validates Cargo's actual
+package inventory, runs a locked publish dry run and audits locked dependencies.
+Only then does the [official authentication action](https://github.com/rust-lang/crates-io-auth-action)
+request a short-lived OIDC credential for one locked publish.
 
-Both [publish-crate.yml](../.github/release-proposals/publish-crate.yml) and
-[release-source.yml](../.github/release-proposals/release-source.yml) remain outside
-`.github/workflows`; neither can run. Ordinary main pushes do not publish a crate
-or create a GitHub release. Current uploads use separately authorized release steps.
+The job has `contents: read`, `actions: read`, `id-token: write`, and no GitHub
+environment or long-lived Cargo secret. The separate registry binding must match
+owner `kahwee`, repository `denki`, workflow `publish-crate.yml`, blank environment.
+Activation does not establish or verify that external binding.
 
-Activating the crate proposal requires approval for job permissions
-`contents: read`, `actions: read`, `id-token: write` and a crates.io trusted-publisher
-binding for owner `kahwee`, repository `denki`, workflow `publish-crate.yml`, blank
-environment. It would validate a user-pushed `v*` tag and exact-source main CI,
-verify the package, then request a short-lived credential from the
-[official authentication action](https://github.com/rust-lang/crates-io-auth-action).
-No long-lived Cargo secret is proposed. First publication/name ownership and
-registry trust are separate operations.
+## Recovery and GitHub releases
 
-Activating the source-release proposal requires approval for `contents: write`
-and `actions: read`. It would create a source-only GitHub release for a matching
-existing tag after exact-source CI. Binary distribution requires a separately
-supported build matrix and checksums.
+Published versions and tags are immutable. Read back registry state and checksums
+before retrying an uncertain upload; never duplicate an in-progress publication.
+Tags created before activation do not acquire publisher runs retroactively and
+need separately reviewed recovery. Do not repush them to trigger an upload.
 
-Existing versions cannot be overwritten. Read back registry state and checksums
-before retrying an uncertain upload; do not duplicate an in-progress release.
-Historical tags without these workflows need a separately reviewed recovery path.
+The [source-release proposal](../.github/release-proposals/release-source.yml)
+remains inactive. Activation needs separate approval for `contents: write` and
+`actions: read`. Binary distribution needs a supported build matrix and checksums.
 See [Actions maintenance](../.github/ACTIONS.md) for reviewed pins and workflow behavior.
