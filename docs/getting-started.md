@@ -7,7 +7,7 @@ network that allows them to reach each other; guest Wi-Fi often blocks this.
 ## 1. Install Denki
 
 Install [Rust with rustup](https://rustup.rs/) first. Denki requires Rust 1.99 or
-newer; the repository selects 1.99.0 automatically.
+newer; the repository selects 1.99.1 automatically.
 
 ```sh
 cargo install --git https://github.com/kahwee/denki --tag v0.1.1 --locked

@@ -4,7 +4,7 @@ Thanks for improving `denki`.
 
 ## Local setup
 
-Development and CI use Rust 1.99.0, selected by `rust-toolchain.toml` when using
+Development and CI use Rust 1.99.1, selected by `rust-toolchain.toml` when using
 rustup. The minimum supported Rust version is 1.99. Rust 1.99 is the sole
 tested toolchain; language and standard-library features stabilized through
 1.99 may be used.
@@ -148,7 +148,7 @@ Dependabot checks Cargo dependencies every Monday at 09:00 America/Los_Angeles.
 Minor and patch updates are grouped in one PR; major updates remain individual
 PRs, with at most five Cargo update PRs open at once. GitHub Actions dependencies
 continue to receive weekly grouped updates. Dependency PRs run the normal Rust
-1.99.0 checks and require review; these settings do not enable automatic merging.
+1.99.1 checks and require review; these settings do not enable automatic merging.
 
 CI also runs the dependency audit every Monday at 17:23 UTC so new advisories are
 checked even when no code changes. Scheduled runs skip tests and release builds;

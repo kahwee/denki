@@ -22,8 +22,9 @@ Steps after a group wait for it to finish. Keep prerequisites before the group a
 
 Verified against upstream stable releases on 2026-10-28. Every external action is
 pinned to the resolved commit SHA; comments name the release. The Rust toolchain
-action has no numbered releases, so its pin follows the upstream `stable` branch
-as of that date. Its explicit `toolchain` input still selects Rust 1.99.0.
+action is pinned to a commit in upstream `master` history, as required by its
+[pinning guidance](https://github.com/dtolnay/rust-toolchain#choice-of-full-length-commit-sha). The explicit
+`toolchain` input selects Rust 1.99.1.
 
 ### Active workflows and composite actions
 
@@ -34,7 +35,7 @@ as of that date. Its explicit `toolchain` input still selects Rust 1.99.0.
 | [actions/deploy-pages](https://github.com/actions/deploy-pages) | [v5.0.1](https://github.com/actions/deploy-pages/releases/tag/v5.0.1) | `368f82528645a54fb793d4d04e342629a3f51346` |
 | [actions/setup-python](https://github.com/actions/setup-python) | [v7.1.0](https://github.com/actions/setup-python/releases/tag/v7.1.0) | `6d4fd22b20465ccc0f7354476588e8df7c9ca0e0` |
 | [actions/upload-pages-artifact](https://github.com/actions/upload-pages-artifact) | [v5.0.0](https://github.com/actions/upload-pages-artifact/releases/tag/v5.0.0) | `fc324d3547104276b827a68afc52ff2a11cc49c9` |
-| [dtolnay/rust-toolchain](https://github.com/dtolnay/rust-toolchain) | [stable](https://github.com/dtolnay/rust-toolchain/commit/b725eda525362e7cf34af9a7243cac1e3f01a7ec) | `b725eda525362e7cf34af9a7243cac1e3f01a7ec` |
+| [dtolnay/rust-toolchain](https://github.com/dtolnay/rust-toolchain) | [master](https://github.com/dtolnay/rust-toolchain/commit/683b588c487a69d01f6c6ddf40f036ff682cc2c8) | `683b588c487a69d01f6c6ddf40f036ff682cc2c8` |
 
 ### Inactive release proposals
 

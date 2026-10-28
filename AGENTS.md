@@ -13,7 +13,7 @@ Never put real device addresses, credentials, or diagnostic captures in Git.
   Prefer offline parser, capability, and fixture tests; use live hardware only
   for an explicit device question.
 - For Rust changes or dependency updates run `cargo fmt --check`,
-  `cargo clippy --all-targets --all-features -- -D warnings`, and
+  `cargo clippy --locked --all-targets --all-features -- -D warnings`, and
   `cargo test --locked`. Use `cargo update --dry-run` to inspect compatible
   lockfile updates; keep `rust-version` and the lockfile compatible.
 - Do not run power-changing commands against real devices as routine tests.
@@ -22,5 +22,14 @@ Never put real device addresses, credentials, or diagnostic captures in Git.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local workflow and
 [README.md](README.md) for user commands and support status.
 
-For release preparation, version tags, and GitHub publication, follow
-[the Denki release skill](.agents/skills/denki-release/SKILL.md).
+For release preparation, follow [the release skill](.agents/skills/denki-release/SKILL.md).
+Keep manifest, root lockfile and tag versions aligned; require exact-source CI,
+including Linux/macOS builds, audit and package preflight. Keep action pins and
+comments aligned with [.github/ACTIONS.md](.github/ACTIONS.md). For docs, run
+`python3 scripts/update-device-docs.py --check`, build/check the site, and keep
+README, getting-started and site installation examples consistent.
+
+GitHub releases, crates.io and docs.rs have separate verification. The registry
+publisher is an inactive proposal; ordinary pushes do not upload a crate.
+Never move existing tags or duplicate an in-progress release/upload. Do not
+claim registry availability until the version is visible in the official index.
