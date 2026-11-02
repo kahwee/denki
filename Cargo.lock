@@ -2925,9 +2925,9 @@ dependencies = [
 
 [[package]]
 name = "tapo"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97994cfba988c1cb40568258b56dea46cae882bb1ade1af7a29cd6aff55046be"
+checksum = "0b354b6839b3a4bb9d3c2f7535022966962b0d878c8f9cc1261d12fef7c3d7fd"
 dependencies = [
  "aes",
  "anyhow",
