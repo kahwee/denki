@@ -7,6 +7,8 @@ are on `main` and are not part of the published tags below.
 
 ### Changed
 
+- Refresh compatible locked crypto, TLS and TOML dependencies, including AES
+  0.9.4 and TOML 1.2.0. Retain the reviewed RSA prerelease and advisory policy.
 - Enable future tag-only crates.io publishing with metadata, exact-source CI,
   package and audit checks before short-lived OIDC authentication. Activating the
   workflow does not republish existing tags or prove registry availability.
