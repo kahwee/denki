@@ -324,8 +324,6 @@ impl KlapSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport;
-    use std::io::ErrorKind;
 
     #[rstest::rstest]
     #[case("HTTP/1.1 200 OK\r\n\r\n", Some(0))]
@@ -339,36 +337,32 @@ mod tests {
     }
 
     #[test]
-    fn klap_timeout_is_positive() {
-        assert!(KLAP_TIMEOUT.as_secs() > 0);
-    }
-
-    #[test]
-    fn auth_hash_is_32_bytes() {
-        let h = auth_hash("user@example.com", "secret");
-        assert_eq!(h.len(), 32);
-    }
-
-    #[test]
-    fn auth_hash_differs_by_credential() {
-        let h1 = auth_hash("user@example.com", "pass1");
-        let h2 = auth_hash("user@example.com", "pass2");
-        assert_ne!(h1, h2);
-    }
-
-    #[test]
-    fn auth_hash_is_deterministic() {
-        let h1 = auth_hash("u@x.com", "pw");
-        let h2 = auth_hash("u@x.com", "pw");
-        assert_eq!(h1, h2);
-    }
-
-    #[test]
-    fn klap_connect_error_reuses_transport_hint() {
-        let err = std::io::Error::new(ErrorKind::NetworkUnreachable, "Network is unreachable");
-        let msg = transport::connect_error("192.168.4.27:80", &err).to_string();
-        assert!(msg.contains("192.168.4.27:80"), "{msg}");
-        assert!(msg.contains("unreachable"), "{msg}");
+    fn auth_hash_matches_independent_sha_vectors() {
+        // Python hashlib: SHA256(SHA1(username UTF-8) || SHA1(password UTF-8)).
+        // Fixed outputs catch a wrong algorithm/order or omission of either input.
+        for (user, password, expected) in [
+            (
+                "user@example.invalid",
+                "synthetic-password",
+                "5123a56a58917587635ffa87cd660d6cd8de9d652190d24b9f3b88b72a358b3e",
+            ),
+            (
+                "other@example.invalid",
+                "synthetic-password",
+                "761bd8277f7d32365c7e6350048eea3ca29bb1a0e1d1453ac24f5e981c73fa08",
+            ),
+            (
+                "user@example.invalid",
+                "different-password",
+                "00bf4a5950f7082c48c6834716dd90ddb05f221518a574f579a7fd3e8b574176",
+            ),
+        ] {
+            assert_eq!(
+                base16ct::lower::encode_string(&auth_hash(user, password)),
+                expected,
+                "username: {user}"
+            );
+        }
     }
 }
 

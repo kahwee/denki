@@ -5,18 +5,24 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::{Command, Output};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, MutexGuard,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
 
+static PEER_PORT: Mutex<()> = Mutex::new(());
+
 struct Peer {
+    _port: MutexGuard<'static, ()>,
     stop: Arc<AtomicBool>,
     requests: Arc<Mutex<Vec<Value>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Peer {
     fn start(reply: impl Fn(&Value, usize) -> Value + Send + 'static) -> Self {
+        let port = PEER_PORT
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let listener = TcpListener::bind("127.0.0.1:9999").unwrap();
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
@@ -33,7 +39,9 @@ impl Peer {
                         if socket.read_exact(&mut size).is_err() {
                             continue;
                         }
-                        let mut body = vec![0; u32::from_be_bytes(size) as usize];
+                        let length = u32::from_be_bytes(size) as usize;
+                        assert!(length <= 1024 * 1024, "oversized request to simulator");
+                        let mut body = vec![0; length];
                         socket.read_exact(&mut body).unwrap();
                         let request: Value =
                             serde_json::from_slice(&denki::cipher::decode(&body)).unwrap();
@@ -55,6 +63,7 @@ impl Peer {
             }
         });
         Self {
+            _port: port,
             stop,
             requests,
             thread: Some(thread),
@@ -65,14 +74,17 @@ impl Peer {
             .lock()
             .unwrap()
             .iter()
-            .filter(|r| r.pointer("/system/set_relay_state").is_some())
+            .filter(|r| !is_read_request(r))
             .count()
     }
 }
 impl Drop for Peer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        self.thread.take().unwrap().join().unwrap();
+        let result = self.thread.take().unwrap().join();
+        if !std::thread::panicking() {
+            result.expect("simulated device failed");
+        }
     }
 }
 fn info() -> Value {
@@ -81,6 +93,20 @@ fn info() -> Value {
         "alias":"Factory Name","deviceId":"synthetic-device-a","mac":"synthetic-mac",
         "hw_ver":"1.0","sw_ver":"1.0","rssi":-42,"relay_state":0,"feature":"TIM:ENE","on_time":0
     }}})
+}
+fn is_read_request(request: &Value) -> bool {
+    [
+        json!({"system":{"get_sysinfo":{}}}),
+        json!({"emeter":{"get_realtime":{}}}),
+    ]
+    .contains(request)
+        || request.as_object().is_some_and(|root| {
+            root.len() == 1
+                && root
+                    .get("emeter")
+                    .and_then(Value::as_object)
+                    .is_some_and(|emeter| emeter.len() == 1 && emeter.contains_key("get_daystat"))
+        })
 }
 fn reply(request: &Value) -> Value {
     if request.pointer("/system/get_sysinfo").is_some() {
@@ -92,6 +118,10 @@ fn reply(request: &Value) -> Value {
     if request.pointer("/emeter/get_daystat").is_some() {
         return json!({"emeter":{"get_daystat":{"err_code":0,"day_list":[{"day":2,"energy":0.012},{"day":1,"energy_wh":5}]}}});
     }
+    assert!(
+        request.pointer("/system/set_relay_state").is_some(),
+        "unexpected simulator command: {request}"
+    );
     json!({"system":{"set_relay_state":{"err_code":0}}})
 }
 fn new_config() -> tempfile::TempDir {
@@ -128,7 +158,7 @@ fn document(output: &Output) -> Value {
 }
 
 #[test]
-fn cli_real_tcp_success_failure_identity_groups_and_streams() {
+fn normalized_output_and_read_only_streams() {
     let config = new_config();
     aliases(
         &config,
@@ -169,7 +199,7 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
                 "--format",
                 "jsonl",
                 "--count",
-                "2",
+                "1",
                 "--interval",
                 "1",
             ],
@@ -184,11 +214,7 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
             .lines()
             .map(|s| serde_json::from_str(s).unwrap())
             .collect();
-        assert_eq!(rows.len(), 2);
-        assert!(
-            rows[1]["timestamp_unix_ms"].as_u64().unwrap()
-                >= rows[0]["timestamp_unix_ms"].as_u64().unwrap() + 1000
-        );
+        assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["measurement"]["power_w"], 1.234);
         let csv = run(
             &config,
@@ -200,6 +226,15 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         assert!(csv.contains(",desk,,ok,1.234,"));
         assert_eq!(peer.mutations(), 1, "energy reads must never mutate");
     }
+}
+
+#[test]
+fn diagnostics_reject_malformed_state_without_writes() {
+    let config = new_config();
+    aliases(
+        &config,
+        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
+    );
     // Weak signal is actionable, but does not turn a successful read into a failure.
     {
         let peer = Peer::start(|_, _| {
@@ -244,6 +279,15 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         }
         assert_eq!(peer.mutations(), 0);
     }
+}
+
+#[test]
+fn device_rejections_and_identity_rebinds() {
+    let config = new_config();
+    aliases(
+        &config,
+        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
+    );
     // Device rejection and invalid success envelopes are errors in BOTH output modes.
     for response in [
         json!({"emeter":{"get_realtime":{"err_code":-2001}}}),
@@ -318,6 +362,15 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
             "ok"
         );
     }
+}
+
+#[test]
+fn group_dry_run_and_partial_failure() {
+    let config = new_config();
+    aliases(
+        &config,
+        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
+    );
     // Partial failure retains every result and returns nonzero.
     {
         let peer = Peer::start(|r, _| reply(r));
@@ -337,6 +390,15 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         assert_eq!(value["data"]["failed"], 1);
         assert_eq!(value["data"]["results"].as_array().unwrap().len(), 2);
     }
+}
+
+#[test]
+fn poll_recovers_without_inventing_measurements() {
+    let config = new_config();
+    aliases(
+        &config,
+        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
+    );
     // Failed poll is a missing sample, never zero; reconnect and recover next time.
     {
         let reads = Arc::new(AtomicBool::new(false));
@@ -370,7 +432,20 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         assert_eq!(rows[0]["status"], "error");
         assert!(rows[0]["measurement"].is_null());
         assert_eq!(rows[1]["status"], "ok");
+        assert!(
+            rows[1]["timestamp_unix_ms"].as_u64().unwrap()
+                >= rows[0]["timestamp_unix_ms"].as_u64().unwrap() + 1000
+        );
     }
+}
+
+#[test]
+fn watch_interrupt_and_cli_contracts() {
+    let config = new_config();
+    aliases(
+        &config,
+        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
+    );
     // Ctrl-C stops an unbounded watch cleanly after a completed sample.
     {
         let _peer = Peer::start(|r, _| reply(r));
@@ -435,7 +510,16 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         "invalid_arguments"
     );
     let alias_output = document(&run(&config, &["aliases", "--json"]));
-    assert_eq!(alias_output["data"]["aliases"].as_array().unwrap().len(), 2);
+    assert_eq!(alias_output["data"]["aliases"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn fleet_deduplication_identification_and_deadline() {
+    let config = new_config();
+    aliases(
+        &config,
+        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
+    );
     // Fleet checks retain partial failures, deduplicate logins, and never write power.
     {
         let fleet_config = new_config();
@@ -524,14 +608,18 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
             &fleet_config,
             json!({"slow":{"ip":"127.0.0.1","protocol":"kasa"}}),
         );
-        let peer = Peer::start(|request, _| {
-            std::thread::sleep(Duration::from_millis(1500));
+        let (release, blocked) = std::sync::mpsc::channel();
+        let peer = Peer::start(move |request, _| {
+            blocked
+                .recv_timeout(Duration::from_secs(5))
+                .expect("test must release stalled peer");
             reply(request)
         });
         let value = document(&run(
             &fleet_config,
             &["doctor", "--all", "--timeout", "1", "--json"],
         ));
+        release.send(()).unwrap();
         assert_eq!(
             value["data"]["devices"][0]["diagnostics"]["error_code"],
             "timeout"

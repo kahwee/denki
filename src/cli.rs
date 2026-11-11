@@ -51,7 +51,7 @@ pub enum Command {
         #[arg(long)]
         all: bool,
         /// Maximum simultaneous fleet checks
-        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=8), requires = "all")]
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=8), requires = "all", conflicts_with = "host")]
         concurrency: u8,
         /// Deadline in seconds for each device
         #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u16).range(1..=120))]
@@ -392,15 +392,34 @@ mod tests {
     }
 
     #[test]
-    fn doctor_json_option_parses() {
-        let cli = Cli::try_parse_from(["denki", "doctor", "office", "--json"]).unwrap();
-        assert!(cli.json);
-    }
-
-    #[test]
-    fn info_json_option_parses() {
-        let cli = Cli::try_parse_from(["denki", "info", "office", "--json"]).unwrap();
-        assert!(cli.json);
+    fn diagnostics_and_identification_reject_ambiguous_or_unbounded_requests() {
+        for args in [
+            vec!["doctor"],
+            vec!["doctor", "desk", "--all"],
+            vec!["doctor", "--all", "--concurrency", "0"],
+            vec!["doctor", "--all", "--concurrency", "9"],
+            vec!["doctor", "desk", "--concurrency", "2"],
+            vec!["doctor", "desk", "--timeout", "0"],
+            vec!["doctor", "desk", "--timeout", "121"],
+            vec!["identify", "desk"],
+            vec!["identify", "desk", "--confirm", "--clear"],
+        ] {
+            assert!(
+                Cli::try_parse_from(std::iter::once("denki").chain(args.iter().copied())).is_err(),
+                "{args:?}"
+            );
+        }
+        for args in [
+            vec!["doctor", "desk", "--json"],
+            vec!["doctor", "--all", "--concurrency", "8", "--timeout", "120"],
+            vec!["identify", "desk", "--confirm"],
+            vec!["identify", "desk", "--clear"],
+        ] {
+            assert!(
+                Cli::try_parse_from(std::iter::once("denki").chain(args.iter().copied())).is_ok(),
+                "{args:?}"
+            );
+        }
     }
 }
 

@@ -120,11 +120,4 @@ mod tests {
         assert!(msg.contains("denki login <email>"));
         assert!(msg.contains("/tmp/denki/credentials.json"));
     }
-
-    #[test]
-    fn malformed_creds_message_mentions_reset_flow() {
-        assert!(malformed_creds_context().contains("malformed"));
-        assert!(malformed_creds_context().contains("remove it"));
-        assert!(malformed_creds_context().contains("denki login <email>"));
-    }
 }

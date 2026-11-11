@@ -185,7 +185,7 @@ fn killed_writer_releases_lock_without_deleting_sidecar() {
     File::create(&path).unwrap();
     let ready = dir.path().join("ready");
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "lock_holder_helper"])
+        .args(["--exact", "storage_cli::lock_holder_helper"])
         .env("DENKI_TEST_LOCK", &path)
         .env("DENKI_TEST_READY", &ready)
         .stdout(Stdio::null())

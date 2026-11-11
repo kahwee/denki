@@ -5,6 +5,13 @@ are on `main` and are not part of the published tags below.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject fleet-only concurrency arguments for single-device diagnostics.
+- Replace redundant tests with independent crypto vectors and argument-boundary
+  checks; consolidate CLI executables and remove duplicate wall-clock waits.
+
+
 ### Security
 
 - Validate Unix configuration files, lock sidecars, and ancestor directories before

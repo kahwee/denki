@@ -115,12 +115,16 @@ See [architecture and protocols](docs/architecture.md) for module ownership and
 ## Offline automation regression coverage
 
 `cargo test --locked` includes real CLI subprocesses against a local Kasa TCP
-simulator (`tests/automation_cli.rs`, Linux). Scenarios cover normalized energy,
+simulator (`tests/cli/automation_cli.rs`, Linux). Scenarios cover normalized energy,
 JSON purity, malformed/rejected replies, no mutation after invalid state or identity,
 Kasa rebind rejection and explicit alias updates, dry runs and partial group
 failures, JSONL/CSV, failed-sample recovery, and Ctrl-C. The simulator binds only
 `127.0.0.1:9999` and never contacts
-physical devices. Keep these scenarios in one test to avoid fixed-port races.
+physical devices. A simulator-lifetime mutex prevents fixed-port races while
+independent scenarios report failures separately. CLI suites share one linked
+`tests/cli.rs` executable; use `cargo test --test cli automation_cli::` to select
+simulated-device scenarios. Preserve one real polling interval and one real deadline
+check; do not repeat wall-clock waits just to test a different output format.
 
 `src/klap_tests.rs` uses an ephemeral loopback HTTP peer to exercise KLAP handshakes,
 request signatures, AES framing, advancing sequence numbers, strict response codes,
@@ -244,3 +248,12 @@ Its short-lived OIDC authentication requires the separate matching crates.io
 trusted-publisher binding. It has no branch, PR or manual publishing trigger.
 Follow [release and registry publishing](docs/actions-publishing.md); old tags
 and published versions remain immutable.
+
+### Test quality
+
+Prefer independent expected results, exact error codes, and assertions that failed
+operations leave state unchanged. Do not add tests that merely restate a constant,
+check a return type's length, or compare a helper with itself. Keep protocol
+fixtures and security boundary tests even when they are inexpensive to run.
+Combine small CLI suites to avoid redundant linking, but give independent failure
+scenarios separate test names. Test count is not a coverage or quality target.
