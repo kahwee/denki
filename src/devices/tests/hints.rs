@@ -37,8 +37,8 @@ fn kasa_devices_have_no_protocol_field() {
 #[test]
 fn hints_power_first_reflect_state() {
     let entry = lookup("KP115").unwrap();
-    assert_eq!(hints(entry, "plug", true)[0], "denki off \"plug\"");
-    assert_eq!(hints(entry, "plug", false)[0], "denki on \"plug\"");
+    assert_eq!(hints(entry, "plug", true)[0], "denki off 'plug'");
+    assert_eq!(hints(entry, "plug", false)[0], "denki on 'plug'");
 }
 
 #[test]

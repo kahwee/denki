@@ -20,13 +20,13 @@ fn plug_hints_no_ene_excludes_energy() {
 #[test]
 fn plug_hints_on_plug_starts_with_off() {
     let p = make_plug_for_hints("KP115", true, true);
-    assert_eq!(plug_hints(&p, "p")[0], "denki off \"p\"");
+    assert_eq!(plug_hints(&p, "p")[0], "denki off 'p'");
 }
 
 #[test]
 fn plug_hints_off_plug_starts_with_on() {
     let p = make_plug_for_hints("KP115", false, true);
-    assert_eq!(plug_hints(&p, "p")[0], "denki on \"p\"");
+    assert_eq!(plug_hints(&p, "p")[0], "denki on 'p'");
 }
 
 #[test]
@@ -69,20 +69,32 @@ fn lightstrip_hints_for_kl420l5_include_energy_and_monthly_commands() {
     let b = make_lightstrip_for_hints("KL420L5", false);
     let h = lightstrip_hints(&b, "lights");
     assert!(
-        h.iter().any(|s| s.contains("energy \"lights\"")),
+        h.iter().any(|s| s.contains("energy 'lights'")),
         "hints: {h:?}"
     );
     assert!(
-        h.iter().any(|s| s.contains("energy-daily \"lights\"")),
+        h.iter().any(|s| s.contains("energy-daily 'lights'")),
         "hints: {h:?}"
     );
     assert!(
-        h.iter().any(|s| s.contains("energy-monthly \"lights\"")),
+        h.iter().any(|s| s.contains("energy-monthly 'lights'")),
         "hints: {h:?}"
     );
     assert!(
-        !h.iter().any(|s| s == "denki on \"lights\""),
+        !h.iter().any(|s| s == "denki on 'lights'"),
         "light strip should not advertise power control: {h:?}"
+    );
+}
+
+#[test]
+fn hints_posix_quote_untrusted_aliases() {
+    let p = make_plug_for_hints("KP115", false, true);
+    let alias = "lamp'; touch /tmp/pwned; echo '$HOME`id`$(id)\nnext";
+    let hints = plug_hints(&p, alias);
+
+    assert_eq!(
+        hints[0],
+        "denki on 'lamp'\"'\"'; touch /tmp/pwned; echo '\"'\"'$HOME`id`$(id)\nnext'"
     );
 }
 

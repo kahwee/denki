@@ -81,26 +81,32 @@ pub fn lookup(model: &str) -> Option<&'static DeviceEntry> {
     all().iter().find(|d| d.model.eq_ignore_ascii_case(base))
 }
 
+/// Quotes an untrusted value as one POSIX shell word for copy-pasteable hints.
+pub fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 pub fn hint_for(feature: &str, alias: &str) -> Option<String> {
+    let alias = shell_quote(alias);
     match feature {
-        "dim" => Some(format!("denki dim \"{alias}\" 80")),
-        "color_temp" => Some(format!("denki color-temp \"{alias}\" 2700")),
-        "color" => Some(format!("denki color \"{alias}\" -H 120 -s 80 -v 100")),
-        "energy" => Some(format!("denki energy \"{alias}\"")),
-        "effects" => Some(format!("denki effects \"{alias}\"")),
-        "schedules" => Some(format!("denki schedules \"{alias}\"")),
-        "led" => Some(format!("denki led \"{alias}\" on")),
-        "clock" => Some(format!("denki clock \"{alias}\"")),
-        "outlets" => Some(format!("denki outlets \"{alias}\"")),
-        "specs" => Some(format!("denki specs \"{alias}\"")),
-        "presets" => Some(format!("denki presets \"{alias}\"")),
+        "dim" => Some(format!("denki dim {alias} 80")),
+        "color_temp" => Some(format!("denki color-temp {alias} 2700")),
+        "color" => Some(format!("denki color {alias} -H 120 -s 80 -v 100")),
+        "energy" => Some(format!("denki energy {alias}")),
+        "effects" => Some(format!("denki effects {alias}")),
+        "schedules" => Some(format!("denki schedules {alias}")),
+        "led" => Some(format!("denki led {alias} on")),
+        "clock" => Some(format!("denki clock {alias}")),
+        "outlets" => Some(format!("denki outlets {alias}")),
+        "specs" => Some(format!("denki specs {alias}")),
+        "presets" => Some(format!("denki presets {alias}")),
         _ => None,
     }
 }
 
 pub fn hints(entry: &DeviceEntry, alias: &str, is_on: bool) -> Vec<String> {
     let action = if is_on { "off" } else { "on" };
-    let mut out = vec![format!("denki {action} \"{alias}\"")];
+    let mut out = vec![format!("denki {action} {}", shell_quote(alias))];
     for feature in &entry.supports {
         if let Some(h) = hint_for(feature, alias) {
             out.push(h);

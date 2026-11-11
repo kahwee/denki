@@ -22,7 +22,7 @@ pub(crate) fn model_hints(model: &str, alias: &str, is_on: bool) -> Vec<String> 
     devices::lookup(model).map_or_else(
         || {
             let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} \"{alias}\"")]
+            vec![format!("denki {action} {}", devices::shell_quote(alias))]
         },
         |e| devices::hints(e, alias, is_on),
     )
@@ -52,8 +52,9 @@ pub(crate) fn lightstrip_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
                 h.remove(0);
             }
             if e.supports.iter().any(|f| f == "energy") {
-                h.push(format!("denki energy-daily \"{alias}\""));
-                h.push(format!("denki energy-monthly \"{alias}\""));
+                let alias = devices::shell_quote(alias);
+                h.push(format!("denki energy-daily {alias}"));
+                h.push(format!("denki energy-monthly {alias}"));
             }
             h
         })
@@ -74,11 +75,12 @@ pub(crate) fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
             h
         })
         .unwrap_or_default();
-    hints.push(format!("denki on \"{alias}\" 1"));
-    hints.push(format!("denki off \"{alias}\" 1"));
-    hints.push(format!("denki outlet-rename \"{alias}\" 1 \"Name\""));
+    let alias = devices::shell_quote(alias);
+    hints.push(format!("denki on {alias} 1"));
+    hints.push(format!("denki off {alias} 1"));
+    hints.push(format!("denki outlet-rename {alias} 1 \"Name\""));
     if s.has_energy_monitoring() {
-        hints.push(format!("denki energy \"{alias}\" 1"));
+        hints.push(format!("denki energy {alias} 1"));
     }
     hints
 }
