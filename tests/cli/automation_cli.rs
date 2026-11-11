@@ -19,7 +19,7 @@ struct Peer {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Peer {
-    fn start(reply: impl Fn(&Value, usize) -> Value + Send + 'static) -> Self {
+    fn start(mut reply: impl FnMut(&Value, usize) -> Value + Send + 'static) -> Self {
         let port = PEER_PORT
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -69,6 +69,10 @@ impl Peer {
             thread: Some(thread),
         }
     }
+    fn device() -> Self {
+        let mut power_on = false;
+        Self::start(move |request, _| reply(request, &mut power_on))
+    }
     fn mutations(&self) -> usize {
         self.requests
             .lock()
@@ -108,9 +112,11 @@ fn is_read_request(request: &Value) -> bool {
                     .is_some_and(|emeter| emeter.len() == 1 && emeter.contains_key("get_daystat"))
         })
 }
-fn reply(request: &Value) -> Value {
+fn reply(request: &Value, power_on: &mut bool) -> Value {
     if request.pointer("/system/get_sysinfo").is_some() {
-        return info();
+        let mut value = info();
+        value["system"]["get_sysinfo"]["relay_state"] = json!(u8::from(*power_on));
+        return value;
     }
     if request.pointer("/emeter/get_realtime").is_some() {
         return json!({"emeter":{"get_realtime":{"err_code":0,"power_mw":1234,"voltage_mv":230000,"current_ma":20,"total_wh":56}}});
@@ -118,10 +124,17 @@ fn reply(request: &Value) -> Value {
     if request.pointer("/emeter/get_daystat").is_some() {
         return json!({"emeter":{"get_daystat":{"err_code":0,"day_list":[{"day":2,"energy":0.012},{"day":1,"energy_wh":5}]}}});
     }
-    assert!(
-        request.pointer("/system/set_relay_state").is_some(),
-        "unexpected simulator command: {request}"
+    let state = request
+        .pointer("/system/set_relay_state/state")
+        .and_then(Value::as_u64)
+        .filter(|state| *state <= 1)
+        .expect("relay state must be 0 or 1");
+    assert_eq!(
+        *request,
+        json!({"system":{"set_relay_state":{"state":state}}}),
+        "unexpected simulator command"
     );
+    *power_on = state == 1;
     json!({"system":{"set_relay_state":{"err_code":0}}})
 }
 fn new_config() -> tempfile::TempDir {
@@ -142,7 +155,7 @@ fn command(config: &tempfile::TempDir, args: &[&str]) -> Command {
     command
 }
 fn run(config: &tempfile::TempDir, args: &[&str]) -> Output {
-    command(config, args).output().unwrap()
+    super::process::Process::spawn(&mut command(config, args)).finish(Duration::from_secs(10))
 }
 fn document(output: &Output) -> Value {
     let value: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
@@ -165,7 +178,7 @@ fn normalized_output_and_read_only_streams() {
         json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
     );
     {
-        let peer = Peer::start(|request, _| reply(request));
+        let peer = Peer::device();
         let value = document(&run(&config, &["info", "desk", "--json"]));
         assert_eq!(value["data"]["device"]["model"], "KP115(US)");
         assert!(!value.to_string().contains("synthetic-device-a"));
@@ -185,11 +198,31 @@ fn normalized_output_and_read_only_streams() {
             json!({"day":1,"energy_wh":5.0})
         );
         assert_eq!(history["data"]["entries"][1]["energy_wh"], 12.0);
+        for expected in [true, false] {
+            assert_eq!(
+                document(&run(&config, &["toggle", "desk", "--json"]))["data"]["power_on"],
+                expected
+            );
+            assert_eq!(
+                document(&run(&config, &["doctor", "desk", "--json"]))["data"]["power_on"],
+                expected
+            );
+        }
+        let writes: Vec<_> = peer
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|request| !is_read_request(request))
+            .cloned()
+            .collect();
         assert_eq!(
-            document(&run(&config, &["toggle", "desk", "--json"]))["data"]["power_on"],
-            true
+            writes,
+            [
+                json!({"system":{"set_relay_state":{"state":1}}}),
+                json!({"system":{"set_relay_state":{"state":0}}}),
+            ]
         );
-        assert_eq!(peer.mutations(), 1);
         let watched = run(
             &config,
             &[
@@ -224,7 +257,7 @@ fn normalized_output_and_read_only_streams() {
         assert_eq!(csv.lines().count(), 2, "{csv}");
         assert!(csv.starts_with("timestamp_unix_ms,device,"));
         assert!(csv.contains(",desk,,ok,1.234,"));
-        assert_eq!(peer.mutations(), 1, "energy reads must never mutate");
+        assert_eq!(peer.mutations(), 2, "energy reads must never mutate");
     }
 }
 
@@ -321,7 +354,7 @@ fn device_rejections_and_identity_rebinds() {
     // An unauthenticated copied ID cannot redirect a trusted alias to the peer.
     // Only an explicit alias update may accept a verified Kasa address change.
     {
-        let peer = Peer::start(|r, _| reply(r));
+        let peer = Peer::device();
         let mut map = std::collections::BTreeMap::new();
         map.insert(
             "custom desk".into(),
@@ -373,7 +406,7 @@ fn group_dry_run_and_partial_failure() {
     );
     // Partial failure retains every result and returns nonzero.
     {
-        let peer = Peer::start(|r, _| reply(r));
+        let peer = Peer::device();
         aliases(
             &config,
             json!({"office one":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true},"office two":{"ip":"127.0.0.2","protocol":"kasa","group_approved":true}}),
@@ -402,11 +435,12 @@ fn poll_recovers_without_inventing_measurements() {
     // Failed poll is a missing sample, never zero; reconnect and recover next time.
     {
         let reads = Arc::new(AtomicBool::new(false));
+        let mut power_on = false;
         let _peer = Peer::start(move |r, _| {
             if r.pointer("/emeter/get_realtime").is_some() && !reads.swap(true, Ordering::Relaxed) {
                 json!({"emeter":{"get_realtime":{"err_code":-2001}}})
             } else {
-                reply(r)
+                reply(r, &mut power_on)
             }
         });
         let output = run(
@@ -448,8 +482,8 @@ fn watch_interrupt_and_cli_contracts() {
     );
     // Ctrl-C stops an unbounded watch cleanly after a completed sample.
     {
-        let _peer = Peer::start(|r, _| reply(r));
-        let mut child = command(
+        let _peer = Peer::device();
+        let child = super::process::Process::spawn(&mut command(
             &config,
             &[
                 "energy",
@@ -460,37 +494,18 @@ fn watch_interrupt_and_cli_contracts() {
                 "--interval",
                 "60",
             ],
-        )
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-        let mut reader = std::io::BufReader::new(child.stdout.take().unwrap());
-        let mut first = String::new();
-        std::io::BufRead::read_line(&mut reader, &mut first).unwrap();
+        ));
+        let first = child.first_line(Duration::from_secs(3));
         assert_eq!(
-            serde_json::from_str::<Value>(&first).unwrap()["status"],
+            serde_json::from_slice::<Value>(&first).unwrap()["status"],
             "ok"
         );
-        assert!(
-            Command::new("kill")
-                .args(["-INT", &child.id().to_string()])
-                .status()
-                .unwrap()
-                .success()
-        );
-        let started = std::time::Instant::now();
-        loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                assert!(status.success());
-                break;
-            }
-            if started.elapsed() > Duration::from_secs(3) {
-                child.kill().unwrap();
-                panic!("watch ignored Ctrl-C");
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let signal = super::process::Process::spawn(
+            Command::new("kill").args(["-INT", &child.id().to_string()]),
+        )
+        .finish(Duration::from_secs(3));
+        assert!(signal.status.success());
+        assert!(child.finish(Duration::from_secs(3)).status.success());
     }
     assert_eq!(
         document(&run(
@@ -531,7 +546,7 @@ fn fleet_deduplication_identification_and_deadline() {
                 "offline":{"ip":"127.0.0.2","protocol":"kasa"}
             }),
         );
-        let peer = Peer::start(|request, _| reply(request));
+        let peer = Peer::device();
         let identified = document(&run(
             &fleet_config,
             &["identify", "first", "--confirm", "--json"],
@@ -609,11 +624,12 @@ fn fleet_deduplication_identification_and_deadline() {
             json!({"slow":{"ip":"127.0.0.1","protocol":"kasa"}}),
         );
         let (release, blocked) = std::sync::mpsc::channel();
+        let mut power_on = false;
         let peer = Peer::start(move |request, _| {
             blocked
                 .recv_timeout(Duration::from_secs(5))
                 .expect("test must release stalled peer");
-            reply(request)
+            reply(request, &mut power_on)
         });
         let value = document(&run(
             &fleet_config,

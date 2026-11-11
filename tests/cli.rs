@@ -3,6 +3,8 @@
 
 #[path = "cli/automation_cli.rs"]
 mod automation_cli;
+#[path = "cli/process.rs"]
+mod process;
 #[path = "cli/protocol_resolution.rs"]
 mod protocol_resolution;
 #[path = "cli/scan_registry.rs"]
