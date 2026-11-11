@@ -1,10 +1,14 @@
 //! Fleet output only: no configuration reads, scheduling, or device I/O.
 use super::FleetReport;
-use anyhow::Result;
 
-pub(super) fn emit(report: &FleetReport) -> Result<()> {
-    crate::output::record(serde_json::to_value(report)?);
-    for device in &report.devices {
+pub(super) fn emit(report: &FleetReport, failed_only: bool) {
+    let devices: Vec<_> = report
+        .devices
+        .iter()
+        .filter(|device| !failed_only || device.diagnostics.status != "ok")
+        .collect();
+    crate::output::record(serde_json::json!({"devices": devices, "summary": report.summary}));
+    for device in devices {
         super::super::print_text(&device.diagnostics);
         if device.aliases.len() > 1 {
             crate::output::println!(
@@ -21,5 +25,4 @@ pub(super) fn emit(report: &FleetReport) -> Result<()> {
         summary.failed,
         summary.with_warnings
     );
-    Ok(())
 }

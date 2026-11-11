@@ -131,6 +131,7 @@ where
         let mut report = if aliases.iter().any(|(_, other)| other.protocol != entry.protocol || other.device_id != entry.device_id) {
             let mut report = DoctorReport::pending(Some(name.clone()), ip.clone(), &entry.protocol);
             report.record_failure(&crate::error::error("alias_conflict", "Aliases at this address disagree on protocol or identity; resolve them before checking the device"));
+            report.add_guidance();
             report
         } else {
             probe(Resolved { ip, protocol: entry.protocol.clone(), saved_name: Some(name.clone()) }, timeout).await
@@ -144,9 +145,9 @@ where
     FleetReport::new(devices)
 }
 
-pub(super) async fn run(concurrency: u8, timeout: u16) -> Result<()> {
+pub(super) async fn run(concurrency: u8, timeout: u16, failed_only: bool) -> Result<()> {
     let report = inspect(hosts::list()?, concurrency, timeout, bounded_inspect).await;
-    render::emit(&report)?;
+    render::emit(&report, failed_only);
     report.outcome()
 }
 

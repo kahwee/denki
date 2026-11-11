@@ -170,11 +170,12 @@ fn print_text(report: &DoctorReport) {
 pub(super) async fn handle_doctor(
     host: Option<String>,
     all: bool,
+    failed_only: bool,
     concurrency: u8,
     timeout: u16,
 ) -> Result<()> {
     if all {
-        return fleet::run(concurrency, timeout).await;
+        return fleet::run(concurrency, timeout, failed_only).await;
     }
     let host =
         host.ok_or_else(|| crate::error::error("invalid_arguments", "Provide DEVICE or --all"))?;

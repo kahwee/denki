@@ -115,6 +115,7 @@ denki identify "desk plug" --confirm
 denki identify "desk plug" --clear
 denki doctor --all
 denki doctor --all --concurrency 2 --timeout 20 --json
+denki doctor --all --failed-only --json
 ```
 
 `identify` requires the exact saved alias and records your own physical observation;

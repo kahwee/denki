@@ -20,9 +20,10 @@ async fn dispatch_command(command: Command) -> Result<()> {
         Command::Doctor {
             host,
             all,
+            failed_only,
             concurrency,
             timeout,
-        } => handle_doctor(host, all, concurrency, timeout).await,
+        } => handle_doctor(host, all, failed_only, concurrency, timeout).await,
         Command::Identify { name, confirm, .. } => admin::handle_identify(&name, confirm),
         Command::On { host, outlet } => commands::handle_on(&host, outlet).await,
         Command::Off { host, outlet } => commands::handle_off(&host, outlet).await,

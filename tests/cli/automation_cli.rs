@@ -568,6 +568,43 @@ fn fleet_deduplication_identification_and_deadline() {
             2
         );
         assert_eq!(peer.requests.lock().unwrap().len(), 1);
+        let filtered = document(&run(
+            &fleet_config,
+            &[
+                "doctor",
+                "--all",
+                "--failed-only",
+                "--timeout",
+                "1",
+                "--json",
+            ],
+        ));
+        assert_eq!(filtered["error"]["code"], "fleet_diagnostics_failed");
+        assert_eq!(filtered["data"]["summary"], value["data"]["summary"]);
+        assert_eq!(
+            filtered["data"]["devices"],
+            json!([value["data"]["devices"][1]])
+        );
+        assert!(
+            filtered["data"]["devices"][0]["diagnostics"]["next_steps"][0]
+                .as_str()
+                .unwrap()
+                .contains("current IP")
+        );
+        let text = run(
+            &fleet_config,
+            &["doctor", "--all", "--failed-only", "--timeout", "1"],
+        );
+        assert!(!text.status.success());
+        let text = String::from_utf8(text.stdout).unwrap();
+        assert!(text.contains("127.0.0.2"));
+        assert!(!text.contains("127.0.0.1"));
+        assert!(text.contains("Fleet: 2 addresses, 1 OK, 1 failed"));
+        assert_eq!(
+            peer.requests.lock().unwrap().len(),
+            3,
+            "filter must still check healthy addresses"
+        );
         assert_eq!(peer.mutations(), 0);
         assert_eq!(
             document(&run(
@@ -615,7 +652,26 @@ fn fleet_deduplication_identification_and_deadline() {
             conflict["data"]["devices"][0]["diagnostics"]["error_code"],
             "alias_conflict"
         );
-        assert_eq!(peer.requests.lock().unwrap().len(), 1);
+        assert!(
+            conflict["data"]["devices"][0]["diagnostics"]["next_steps"][0]
+                .as_str()
+                .unwrap()
+                .contains("denki aliases --json")
+        );
+        assert_eq!(peer.requests.lock().unwrap().len(), 3);
+        aliases(
+            &fleet_config,
+            json!({"healthy":{"ip":"127.0.0.1","protocol":"kasa"}}),
+        );
+        let healthy = document(&run(
+            &fleet_config,
+            &["doctor", "--all", "--failed-only", "--json"],
+        ));
+        assert_eq!(healthy["status"], "ok");
+        assert_eq!(healthy["data"]["devices"], json!([]));
+        assert_eq!(healthy["data"]["summary"]["total"], 1);
+        assert_eq!(healthy["data"]["summary"]["ok"], 1);
+        assert_eq!(peer.mutations(), 0);
     }
     {
         let fleet_config = new_config();

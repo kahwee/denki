@@ -50,6 +50,9 @@ pub enum Command {
         /// Check every saved address once without changing power or retrying failed checks
         #[arg(long)]
         all: bool,
+        /// Show only failed addresses; summary and exit status still cover the whole fleet
+        #[arg(long, requires = "all", conflicts_with = "host")]
+        failed_only: bool,
         /// Maximum simultaneous fleet checks
         #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=8), requires = "all", conflicts_with = "host")]
         concurrency: u8,
@@ -396,6 +399,8 @@ mod tests {
         for args in [
             vec!["doctor"],
             vec!["doctor", "desk", "--all"],
+            vec!["doctor", "desk", "--failed-only"],
+            vec!["doctor", "--failed-only"],
             vec!["doctor", "--all", "--concurrency", "0"],
             vec!["doctor", "--all", "--concurrency", "9"],
             vec!["doctor", "desk", "--concurrency", "2"],
@@ -411,6 +416,7 @@ mod tests {
         }
         for args in [
             vec!["doctor", "desk", "--json"],
+            vec!["doctor", "--all", "--failed-only", "--json"],
             vec!["doctor", "--all", "--concurrency", "8", "--timeout", "120"],
             vec!["identify", "desk", "--confirm"],
             vec!["identify", "desk", "--clear"],

@@ -99,7 +99,8 @@ authentication, and protocol failures. `--json` includes a `next_steps` array;
 weak signal is a warning, not a failed connectivity check. Doctor never switches power.
 
 Use `denki identify "desk plug" --confirm` to record physical identification,
-and `denki doctor --all` for read-only fleet health checks. See the
+and `denki doctor --all` for read-only fleet health checks. Add `--failed-only`
+to focus on failures while keeping the full fleet summary. See the
 [command guide](docs/commands.md#physical-identification-and-fleet-health).
 
 Denki checks Unix configuration ownership and permissions before use. Unsafe

@@ -523,6 +523,7 @@ denki identify "desk plug" --confirm
 denki identify "desk plug" --clear
 denki doctor --all
 denki doctor --all --concurrency 2 --timeout 20 --json
+denki doctor --all --failed-only --json
 ```
 
 `identify` requires the exact saved alias and records your own physical observation;
@@ -537,6 +538,11 @@ most two concurrent probes by default (maximum eight), and have a 20-second dead
 per address. Failed checks are not retried by the fleet runner. The JSON `devices`
 list contains `aliases` and `diagnostics`; `summary` counts unique addresses, OK,
 failed, and warning results. Any failed address produces a nonzero exit status
-while retaining all results. An empty registry returns an empty successful summary.
+while retaining all results. Add `--failed-only` to show only failed addresses in
+text or JSON. This filters the displayed devices, not the checks: the summary
+and exit status still describe the whole fleet, and a healthy fleet shows no
+device rows. Failures include suggested next steps for unreachable devices,
+authentication problems, and conflicting aliases. An empty registry returns an
+empty successful summary.
 Confirmation shown by diagnostics is a historical user declaration, not proof
 that an offline or replaced device still matches its label.

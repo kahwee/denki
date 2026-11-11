@@ -121,6 +121,9 @@ impl DoctorReport {
             Some("authentication_policy") => Some(
                 "This device cannot use the required authentication protocol. Review DENKI_REQUIRE_TPAP and the device's protocol before changing your policy.",
             ),
+            Some("alias_conflict") => Some(
+                "Use `denki aliases --json` to review aliases sharing this address. Verify the physical device, then correct its address or protocol with `denki alias NAME IP` (and --tapo or --klap when appropriate), or remove a stale alias with `denki unalias NAME`. Rerun `denki doctor --all` after resolving the conflict.",
+            ),
             Some("identity_mismatch") => Some(
                 "Verify the physical device and its current address before updating the saved alias. Do not send power commands to a mismatched device.",
             ),
@@ -163,6 +166,8 @@ mod tests {
             ("tpap_auth_attempts_limit", "Stop login retries"),
             ("identity_mismatch", "Verify the physical device"),
             ("connection_failed", "saved alias alone"),
+            ("timeout", "current IP"),
+            ("alias_conflict", "denki aliases --json"),
         ] {
             let mut report =
                 DoctorReport::pending(None, "192.0.2.1".into(), &hosts::Protocol::Tapo);
