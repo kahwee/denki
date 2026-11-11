@@ -11,4 +11,4 @@ pub use host::{
     handle_clock, handle_led, handle_outlet_rename, handle_outlets, handle_presets, handle_rename,
     handle_restart, handle_schedules, handle_specs,
 };
-pub use registry::{handle_alias, handle_aliases, handle_unalias};
+pub use registry::{handle_alias, handle_aliases, handle_identify, handle_unalias};

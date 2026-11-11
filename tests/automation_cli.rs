@@ -94,7 +94,7 @@ fn reply(request: &Value) -> Value {
     }
     json!({"system":{"set_relay_state":{"err_code":0}}})
 }
-fn config() -> tempfile::TempDir {
+fn new_config() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("denki")).unwrap();
     dir
@@ -129,7 +129,7 @@ fn document(output: &Output) -> Value {
 
 #[test]
 fn cli_real_tcp_success_failure_identity_groups_and_streams() {
-    let config = config();
+    let config = new_config();
     aliases(
         &config,
         json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
@@ -200,6 +200,28 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         assert!(csv.contains(",desk,,ok,1.234,"));
         assert_eq!(peer.mutations(), 1, "energy reads must never mutate");
     }
+    // Weak signal is actionable, but does not turn a successful read into a failure.
+    {
+        let peer = Peer::start(|_, _| {
+            let mut value = info();
+            value["system"]["get_sysinfo"]["rssi"] = json!(-78);
+            value
+        });
+        let text = run(&config, &["doctor", "desk"]);
+        assert!(text.status.success());
+        let text = String::from_utf8(text.stdout).unwrap();
+        assert!(text.contains("Wi-Fi RSSI:   -78 dBm"));
+        assert!(text.contains("Next step:"));
+        let value = document(&run(&config, &["doctor", "desk", "--json"]));
+        assert_eq!(value["data"]["signal_dbm"], -78);
+        assert!(
+            value["data"]["next_steps"][0]
+                .as_str()
+                .unwrap()
+                .contains("coverage")
+        );
+        assert_eq!(peer.mutations(), 0, "doctor must remain read-only");
+    }
     // Missing/wrong state must not cause a toggle, including group toggle.
     for state in [Value::Null, json!("0"), json!(2)] {
         let peer = Peer::start(move |_, _| {
@@ -264,6 +286,7 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
                 protocol: denki::hosts::Protocol::Kasa,
                 device_id: Some("synthetic-device-a".into()),
                 group_approved: false,
+                physically_confirmed: false,
             },
         );
         let original = map.clone();
@@ -411,8 +434,111 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         document(&run(&config, &["dim", "desk", "999", "--json"]))["error"]["code"],
         "invalid_arguments"
     );
-    let aliases = document(&run(&config, &["aliases", "--json"]));
-    assert_eq!(aliases["data"]["aliases"].as_array().unwrap().len(), 2);
+    let alias_output = document(&run(&config, &["aliases", "--json"]));
+    assert_eq!(alias_output["data"]["aliases"].as_array().unwrap().len(), 2);
+    // Fleet checks retain partial failures, deduplicate logins, and never write power.
+    {
+        let fleet_config = new_config();
+        aliases(
+            &fleet_config,
+            json!({
+                "first":{"ip":"127.0.0.1","protocol":"kasa"},
+                "second":{"ip":"127.0.0.1","protocol":"kasa"},
+                "offline":{"ip":"127.0.0.2","protocol":"kasa"}
+            }),
+        );
+        let peer = Peer::start(|request, _| reply(request));
+        let identified = document(&run(
+            &fleet_config,
+            &["identify", "first", "--confirm", "--json"],
+        ));
+        assert_eq!(identified["data"]["physically_confirmed"], true);
+        assert!(peer.requests.lock().unwrap().is_empty());
+        let value = document(&run(
+            &fleet_config,
+            &["doctor", "--all", "--timeout", "1", "--json"],
+        ));
+        assert_eq!(value["error"]["code"], "fleet_diagnostics_failed");
+        assert_eq!(value["data"]["summary"]["total"], 2);
+        assert_eq!(value["data"]["summary"]["ok"], 1);
+        assert_eq!(
+            value["data"]["devices"][0]["aliases"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(peer.requests.lock().unwrap().len(), 1);
+        assert_eq!(peer.mutations(), 0);
+        assert_eq!(
+            document(&run(
+                &fleet_config,
+                &["identify", "fir", "--confirm", "--json"]
+            ))["error"]["code"],
+            "not_found"
+        );
+        assert!(
+            run(&fleet_config, &["alias", "first", "127.0.0.1"])
+                .status
+                .success()
+        );
+        let saved: Value = serde_json::from_str(
+            &std::fs::read_to_string(fleet_config.path().join("denki/hosts.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["first"]["physically_confirmed"], true);
+        assert!(
+            run(&fleet_config, &["alias", "first", "127.0.0.3"])
+                .status
+                .success()
+        );
+        let saved: Value = serde_json::from_str(
+            &std::fs::read_to_string(fleet_config.path().join("denki/hosts.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["first"]["physically_confirmed"], false);
+        assert!(
+            run(&fleet_config, &["identify", "second", "--confirm"])
+                .status
+                .success()
+        );
+        assert!(
+            run(&fleet_config, &["identify", "second", "--clear"])
+                .status
+                .success()
+        );
+        aliases(
+            &fleet_config,
+            json!({"a":{"ip":"127.0.0.1","protocol":"kasa"},"b":{"ip":"127.0.0.1","protocol":"tapo"}}),
+        );
+        let conflict = document(&run(&fleet_config, &["doctor", "--all", "--json"]));
+        assert_eq!(
+            conflict["data"]["devices"][0]["diagnostics"]["error_code"],
+            "alias_conflict"
+        );
+        assert_eq!(peer.requests.lock().unwrap().len(), 1);
+    }
+    {
+        let fleet_config = new_config();
+        aliases(
+            &fleet_config,
+            json!({"slow":{"ip":"127.0.0.1","protocol":"kasa"}}),
+        );
+        let peer = Peer::start(|request, _| {
+            std::thread::sleep(Duration::from_millis(1500));
+            reply(request)
+        });
+        let value = document(&run(
+            &fleet_config,
+            &["doctor", "--all", "--timeout", "1", "--json"],
+        ));
+        assert_eq!(
+            value["data"]["devices"][0]["diagnostics"]["error_code"],
+            "timeout"
+        );
+        assert_eq!(peer.requests.lock().unwrap().len(), 1);
+        assert_eq!(peer.mutations(), 0);
+    }
     let completions = document(&run(&config, &["completions", "bash", "--json"]));
     assert!(
         completions["data"]["script"]

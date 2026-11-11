@@ -5,6 +5,7 @@
 | File / module | Purpose |
 |---------------|---------|
 | `src/main.rs` | Async runtime entry point (`denki::app::run()`) |
+| `src/app/doctor/report.rs` | Pure diagnostic report and next-step guidance, independent of device I/O and rendering |
 | `src/app/` | CLI dispatch, scan/info flows, shared helpers, integration tests |
 | `src/cli.rs` | Clap argument definitions for all subcommands |
 | `src/commands/` | Power, lighting, and energy command handlers |

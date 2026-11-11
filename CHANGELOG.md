@@ -5,6 +5,25 @@ are on `main` and are not part of the published tags below.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
+### Added
+
+- Read-only `doctor --all` fleet diagnostics with bounded concurrency, per-device
+  deadlines, address deduplication, partial failure results, and JSON summaries.
+- `identify NAME --confirm` / `--clear` records explicit physical identification
+  separately from saved aliases, authentication, and model hardware verification.
+  Changing an alias address or protocol clears its physical confirmation.
+- Wi-Fi signal diagnostics and actionable suggestions for connectivity,
+  authentication, lockout, protocol, and identity failures.
+
+### Changed
+
+- Add physical confirmation to alias output and the public `HostEntry` structure.
+  Existing registry files default to unconfirmed; discovery never grants it.
+- Keep established connectivity evidence when later diagnostic operations fail.
+
+
 ## [0.1.2] - 2026-11-11
 
 ### Fixed

@@ -10,12 +10,12 @@ Install [Rust with rustup](https://rustup.rs/) first. Denki requires Rust 1.99 o
 newer; the repository selects 1.99.1 automatically.
 
 ```sh
-cargo install denki --locked --version 0.1.2
+cargo install denki --locked --version 0.2.0
 denki --help
 ```
 
 For the exact GitHub source tag, use
-`cargo install --git https://github.com/kahwee/denki --tag v0.1.2 --locked`.
+`cargo install --git https://github.com/kahwee/denki --tag v0.2.0 --locked`.
 
 Cargo installs `denki` into `~/.cargo/bin` by default. If your shell cannot find
 it, restart the shell after installing Rust or add that directory to `PATH`.
@@ -107,3 +107,28 @@ denki group off "office"
 ```
 
 If anything fails, start with the [troubleshooting guide](troubleshooting.md).
+
+### Physical identification and fleet health
+
+```sh
+denki identify "desk plug" --confirm
+denki identify "desk plug" --clear
+denki doctor --all
+denki doctor --all --concurrency 2 --timeout 20 --json
+```
+
+`identify` requires the exact saved alias and records your own physical observation;
+it does not contact or switch the device. A saved alias, authentication, and model
+hardware verification are separate facts. Existing aliases start unconfirmed.
+Explicit address or protocol changes clear confirmation; authenticated discovery
+of the same identity preserves it. `aliases` shows the saved declaration.
+
+Fleet diagnostics check each saved address once, preserve every alias in JSON,
+and skip conflicting protocol/identity assignments. Checks are read-only, use at
+most two concurrent probes by default (maximum eight), and have a 20-second deadline
+per address. Failed checks are not retried by the fleet runner. The JSON `devices`
+list contains `aliases` and `diagnostics`; `summary` counts unique addresses, OK,
+failed, and warning results. Any failed address produces a nonzero exit status
+while retaining all results. An empty registry returns an empty successful summary.
+Confirmation shown by diagnostics is a historical user declaration, not proof
+that an offline or replaced device still matches its label.

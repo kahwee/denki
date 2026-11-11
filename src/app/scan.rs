@@ -155,6 +155,7 @@ mod protocol_tests {
             protocol,
             device_id: None,
             group_approved: false,
+            physically_confirmed: false,
         }
     }
 

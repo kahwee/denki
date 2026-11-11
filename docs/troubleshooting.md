@@ -8,7 +8,10 @@ denki doctor "desk plug"
 ```
 
 `aliases` shows saved names and the configuration path. `doctor` checks resolution,
-connectivity, device information, and supported capabilities. Its JSON output is
+connectivity, device information, and supported capabilities. It also displays
+Wi-Fi RSSI and specific next steps for connectivity, authentication, and protocol
+failures. Weak signal is a warning; it does not fail an otherwise successful check.
+Its JSON output includes `next_steps` alongside `warnings` and `error_code`, and is
 useful for reporting a bug:
 
 ```sh

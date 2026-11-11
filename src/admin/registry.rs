@@ -26,12 +26,17 @@ fn format_alias_rows(list: &[(String, hosts::HostEntry)]) -> String {
             terminal_text(name),
             terminal_text(&entry.ip),
             format_args!(
-                "{}{}",
+                "{}{}{}",
                 entry.protocol,
                 if entry.protocol == hosts::Protocol::Kasa && !entry.group_approved {
                     " (group approval required)"
                 } else {
                     ""
+                },
+                if entry.physically_confirmed {
+                    " (physically confirmed by user)"
+                } else {
+                    " (not physically confirmed)"
                 }
             )
         ));
@@ -86,9 +91,25 @@ pub fn handle_unalias(name: &str) -> Result<()> {
 pub fn handle_aliases() -> Result<()> {
     let list = hosts::list()?;
     crate::output::record(
-        serde_json::json!({"aliases":list.iter().map(|(alias,e)| serde_json::json!({"alias":alias,"ip":e.ip,"protocol":e.protocol,"identity_known":e.device_id.is_some(),"group_approved":e.protocol != hosts::Protocol::Kasa || e.group_approved})).collect::<Vec<_>>()}),
+        serde_json::json!({"aliases":list.iter().map(|(alias,e)| serde_json::json!({"alias":alias,"ip":e.ip,"protocol":e.protocol,"identity_known":e.device_id.is_some(),"physically_confirmed":e.physically_confirmed,"group_approved":e.protocol != hosts::Protocol::Kasa || e.group_approved})).collect::<Vec<_>>()}),
     );
     crate::output::println!("{}", format_alias_rows(&list));
+    Ok(())
+}
+
+/// Save an explicit user declaration; do not imply protocol/model verification.
+pub fn handle_identify(name: &str, confirmed: bool) -> Result<()> {
+    hosts::identify(name, confirmed)?;
+    crate::output::record(serde_json::json!({"alias":name,"physically_confirmed":confirmed}));
+    crate::output::println!(
+        "{}: {}",
+        terminal_text(name),
+        if confirmed {
+            "physical identification recorded from your confirmation"
+        } else {
+            "physical identification cleared"
+        }
+    );
     Ok(())
 }
 
@@ -102,6 +123,7 @@ mod tests {
             protocol,
             device_id: None,
             group_approved: false,
+            physically_confirmed: false,
         }
     }
 

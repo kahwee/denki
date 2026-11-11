@@ -1,7 +1,6 @@
 use crate::output::terminal_text;
 use anyhow::Result;
 use colored::Colorize;
-use serde::Serialize;
 
 use crate::devices;
 use crate::hosts;
@@ -11,77 +10,9 @@ use crate::tapo;
 
 use super::shared::tapo_session;
 
-#[derive(Debug, Serialize)]
-struct DoctorReport {
-    schema_version: u8,
-    status: &'static str,
-    alias: Option<String>,
-    ip: String,
-    protocol: String,
-    reachable: bool,
-    model: Option<String>,
-    kind: Option<String>,
-    hardware_version: Option<String>,
-    firmware_version: Option<String>,
-    signal_dbm: Option<i64>,
-    power_on: Option<bool>,
-    capabilities: Vec<String>,
-    verified_model: Option<bool>,
-    warnings: Vec<String>,
-    error: Option<String>,
-    error_code: Option<&'static str>,
-}
-
-impl DoctorReport {
-    fn pending(alias: Option<String>, ip: String, protocol: &hosts::Protocol) -> Self {
-        Self {
-            schema_version: 1,
-            status: "error",
-            alias,
-            ip,
-            protocol: protocol.to_string(),
-            reachable: false,
-            model: None,
-            kind: None,
-            hardware_version: None,
-            firmware_version: None,
-            signal_dbm: None,
-            power_on: None,
-            capabilities: Vec::new(),
-            verified_model: None,
-            warnings: Vec::new(),
-            error: None,
-            error_code: None,
-        }
-    }
-
-    fn apply_registry(&mut self) {
-        let Some(model) = self.model.as_deref() else {
-            return;
-        };
-        if let Some(entry) = devices::lookup(model) {
-            if self.protocol == "tapo" {
-                self.capabilities = entry.tapo_auto_supports.clone();
-                self.verified_model = Some(entry.tapo_auto_verified);
-                self.warnings.push("Tapo auto mode negotiates TPAP/KLAP; upstream does not expose the selected wire protocol.".into());
-                if !entry.tapo_auto_verified {
-                    self.warnings.push("Full auto-adapter support is not hardware-verified; see the support guide for tested operations.".into());
-                }
-                return;
-            }
-            self.capabilities = entry.supports.clone();
-            self.verified_model = Some(entry.verified);
-            if !entry.verified {
-                self.warnings
-                    .push("This model is supported but not verified on physical hardware.".into());
-            }
-        } else {
-            self.warnings.push(format!(
-                "Model {model} is not present in the denki capability registry."
-            ));
-        }
-    }
-}
+mod report;
+use report::DoctorReport;
+mod fleet;
 
 fn kasa_report(mut report: DoctorReport, json: &serde_json::Value) -> DoctorReport {
     report.reachable = true;
@@ -145,8 +76,7 @@ fn tapo_report(mut report: DoctorReport, device: &tapo::TapoDevice) -> DoctorRep
     report
 }
 
-async fn inspect(host: &str) -> Result<DoctorReport> {
-    let resolved = resolve_quiet(host)?;
+async fn inspect_resolved(resolved: crate::resolve::Resolved) -> Result<DoctorReport> {
     let mut report = DoctorReport::pending(
         resolved.saved_name.clone(),
         resolved.ip.clone(),
@@ -156,32 +86,11 @@ async fn inspect(host: &str) -> Result<DoctorReport> {
     match resolved.protocol {
         hosts::Protocol::Tapo => match crate::tapo_client::info(&resolved.ip).await {
             Ok(device) => report = tapo_report(report, &device),
-            Err(error) => {
-                let code = crate::error::code(&error);
-                report.reachable = matches!(
-                    code,
-                    "malformed_response"
-                        | "device_rejected"
-                        | "identity_mismatch"
-                        | "authentication_failed"
-                        | "tpap_credentials"
-                        | "tpap_auth_attempts_limit"
-                );
-                report.error_code = Some(code);
-                report.error = Some(format!("{error:#}"));
-            }
+            Err(error) => report.record_failure(&error),
         },
         hosts::Protocol::Kasa => match ops::sysinfo(&resolved.ip).await {
             Ok(json) => report = kasa_report(report, &json),
-            Err(error) => {
-                let code = crate::error::code(&error);
-                report.reachable = matches!(
-                    code,
-                    "malformed_response" | "device_rejected" | "identity_mismatch"
-                );
-                report.error_code = Some(code);
-                report.error = Some(format!("{error:#}"));
-            }
+            Err(error) => report.record_failure(&error),
         },
         hosts::Protocol::Klap => match tapo_session(&resolved.ip).await {
             Ok(mut session) => match ops::tapo_device_info(&mut session).await {
@@ -195,16 +104,13 @@ async fn inspect(host: &str) -> Result<DoctorReport> {
                 },
                 Err(error) => {
                     report.reachable = true; // The KLAP handshake already established connectivity.
-                    report.error_code = Some(crate::error::code(&error));
-                    report.error = Some(format!("{error:#}"));
+                    report.record_failure(&error);
                 }
             },
-            Err(error) => {
-                report.error_code = Some(crate::error::code(&error));
-                report.error = Some(format!("{error:#}"));
-            }
+            Err(error) => report.record_failure(&error),
         },
     }
+    report.add_guidance();
     Ok(report)
 }
 
@@ -221,6 +127,14 @@ fn print_text(report: &DoctorReport) {
             "no".red().bold()
         }
     );
+    crate::output::println!(
+        "  Identification: {}",
+        if report.physically_confirmed {
+            "physically confirmed by user (saved declaration)"
+        } else {
+            "not physically confirmed"
+        }
+    );
     if let Some(model) = &report.model {
         crate::output::println!("  Model:        {}", terminal_text(model));
     }
@@ -229,6 +143,9 @@ fn print_text(report: &DoctorReport) {
     }
     if let Some(firmware) = &report.firmware_version {
         crate::output::println!("  Firmware:     {}", terminal_text(firmware));
+    }
+    if let Some(signal) = report.signal_dbm {
+        crate::output::println!("  Wi-Fi RSSI:   {signal} dBm");
     }
     if let Some(on) = report.power_on {
         crate::output::println!("  Power:        {}", if on { "on" } else { "off" });
@@ -242,13 +159,29 @@ fn print_text(report: &DoctorReport) {
     for warning in &report.warnings {
         crate::output::println!("  {} {}", "Warning:".yellow(), terminal_text(warning));
     }
+    for step in &report.next_steps {
+        crate::output::println!("  Next step:    {}", terminal_text(step));
+    }
     if let Some(error) = &report.error {
         crate::output::println!("  {} {}", "Error:".red().bold(), terminal_text(error));
     }
 }
 
-pub(super) async fn handle_doctor(host: String) -> Result<()> {
-    let report = inspect(&host).await?;
+pub(super) async fn handle_doctor(
+    host: Option<String>,
+    all: bool,
+    concurrency: u8,
+    timeout: u16,
+) -> Result<()> {
+    if all {
+        return fleet::run(concurrency, timeout).await;
+    }
+    let host =
+        host.ok_or_else(|| crate::error::error("invalid_arguments", "Provide DEVICE or --all"))?;
+    let resolved = resolve_quiet(&host)?;
+    let entry = hosts::lookup(&host)?;
+    let mut report = fleet::bounded_inspect(resolved, timeout).await;
+    report.physically_confirmed = entry.is_some_and(|e| e.physically_confirmed);
     let failed = report.status != "ok";
     crate::output::record(serde_json::to_value(&report)?);
     print_text(&report);

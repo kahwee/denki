@@ -211,7 +211,7 @@ denki doctor "desk plug" --json
 denki info "desk plug" --json
 ```
 
-`doctor` checks alias resolution, protocol connectivity, device-info parsing, model support,
+`doctor` shows Wi-Fi RSSI and actionable next steps, and checks alias resolution, protocol connectivity, device-info parsing, model support,
 firmware metadata, and advertised capabilities. Its versioned JSON report is suitable for bug
 reports and automation. It intentionally excludes raw device IDs, MAC addresses, Wi-Fi names,
 and credentials.
@@ -511,3 +511,32 @@ The empty `.lock` sidecar files are intentionally retained. Do not remove them t
 unlock a process: locks are released automatically when the holding process exits.
 KLAP responses that fail authentication return `integrity_failed` before decryption
 or any state-dependent follow-up command.
+
+Doctor JSON reports include `next_steps` alongside `warnings` and `error_code`.
+Weak Wi-Fi (RSSI below -70 dBm) adds advice without failing an otherwise successful check.
+An unreachable saved alias is not proof that a device still exists at its recorded IP.
+
+### Physical identification and fleet health
+
+```sh
+denki identify "desk plug" --confirm
+denki identify "desk plug" --clear
+denki doctor --all
+denki doctor --all --concurrency 2 --timeout 20 --json
+```
+
+`identify` requires the exact saved alias and records your own physical observation;
+it does not contact or switch the device. A saved alias, authentication, and model
+hardware verification are separate facts. Existing aliases start unconfirmed.
+Explicit address or protocol changes clear confirmation; authenticated discovery
+of the same identity preserves it. `aliases` shows the saved declaration.
+
+Fleet diagnostics check each saved address once, preserve every alias in JSON,
+and skip conflicting protocol/identity assignments. Checks are read-only, use at
+most two concurrent probes by default (maximum eight), and have a 20-second deadline
+per address. Failed checks are not retried by the fleet runner. The JSON `devices`
+list contains `aliases` and `diagnostics`; `summary` counts unique addresses, OK,
+failed, and warning results. Any failed address produces a nonzero exit status
+while retaining all results. An empty registry returns an empty successful summary.
+Confirmation shown by diagnostics is a historical user declaration, not proof
+that an offline or replaced device still matches its label.

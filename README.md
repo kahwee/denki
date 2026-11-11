@@ -12,7 +12,7 @@ plugs and lights, inspect energy usage and record measurements for scripts.
 With [Rust](https://rustup.rs/) 1.99 or newer:
 
 ```sh
-cargo install denki --locked --version 0.1.2
+cargo install denki --locked --version 0.2.0
 denki --version
 denki --help
 ```
@@ -93,3 +93,11 @@ hints. JSON escapes terminal-active Unicode reversibly and preserves values for 
 TPAP/KLAP auto-negotiation uses a [bundled, hardened copy](src/tapo_vendor/README.md)
 of [Mihai Dinculescu's tapo library](https://github.com/mihai-dinculescu/tapo).
 Denki is [MIT licensed](LICENSE); dependencies retain their own licenses.
+
+`denki doctor "device"` shows Wi-Fi signal and suggests next steps for connection,
+authentication, and protocol failures. `--json` includes a `next_steps` array;
+weak signal is a warning, not a failed connectivity check. Doctor never switches power.
+
+Use `denki identify "desk plug" --confirm` to record physical identification,
+and `denki doctor --all` for read-only fleet health checks. See the
+[command guide](docs/commands.md#physical-identification-and-fleet-health).

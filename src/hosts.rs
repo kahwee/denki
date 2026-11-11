@@ -37,6 +37,9 @@ pub struct HostEntry {
     /// Explicit local enrollment for Kasa group commands; old registries default to false.
     #[serde(default)]
     pub group_approved: bool,
+    /// User-declared physical identification, never inferred from discovery.
+    #[serde(default)]
+    pub physically_confirmed: bool,
 }
 
 fn hosts_path() -> PathBuf {
@@ -65,6 +68,7 @@ fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
                             protocol: Protocol::Kasa,
                             device_id: None,
                             group_approved: false,
+                            physically_confirmed: false,
                         },
                     )
                 })
@@ -236,6 +240,9 @@ pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
                         ))
             })
             .and_then(|entry| entry.device_id.clone());
+        let physically_confirmed = map.get(&name).is_some_and(|entry| {
+            same_ip(&entry.ip, ip) && entry.protocol == protocol && entry.physically_confirmed
+        });
         map.insert(
             name.to_string(),
             HostEntry {
@@ -243,8 +250,23 @@ pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
                 protocol,
                 device_id,
                 group_approved: true,
+                physically_confirmed,
             },
         );
+        Ok(())
+    })
+}
+
+/// Record a user's physical identification for an exact saved alias, without device I/O.
+pub fn identify(name: &str, confirmed: bool) -> Result<()> {
+    update_map(&hosts_path(), |map| {
+        let entry = map.get_mut(name).ok_or_else(|| {
+            crate::error::error(
+                "not_found",
+                "Identification requires an exact saved alias; run denki aliases.",
+            )
+        })?;
+        entry.physically_confirmed = confirmed;
         Ok(())
     })
 }
@@ -419,6 +441,7 @@ pub fn reconcile_in(
             protocol,
             device_id: id.map(str::to_owned),
             group_approved: false,
+            physically_confirmed: false,
         },
     );
     Ok(true)
@@ -525,6 +548,7 @@ mod tests {
             protocol,
             device_id: None,
             group_approved: false,
+            physically_confirmed: false,
         }
     }
 
@@ -784,6 +808,7 @@ mod identity_tests {
             protocol: Protocol::Kasa,
             device_id: id.map(str::to_owned),
             group_approved: false,
+            physically_confirmed: false,
         }
     }
     #[test]
@@ -795,6 +820,7 @@ mod identity_tests {
                 protocol: Protocol::Tapo,
                 device_id: Some("expected".into()),
                 group_approved: false,
+                physically_confirmed: false,
             },
         )]);
         assert_eq!(
@@ -996,6 +1022,7 @@ mod transaction_tests {
             protocol: Protocol::Kasa,
             device_id: None,
             group_approved: false,
+            physically_confirmed: false,
         }
     }
     #[test]
@@ -1067,6 +1094,7 @@ mod discovery_protocol_tests {
                         protocol: protocol.clone(),
                         device_id: Some("trusted-id".into()),
                         group_approved: false,
+                        physically_confirmed: false,
                     },
                 )]);
                 let before = map.clone();
@@ -1094,6 +1122,7 @@ mod discovery_protocol_tests {
                     protocol: Protocol::Kasa,
                     device_id: Some("kasa-id".into()),
                     group_approved: false,
+                    physically_confirmed: false,
                 },
             ),
             (
@@ -1103,6 +1132,7 @@ mod discovery_protocol_tests {
                     protocol: Protocol::Tapo,
                     device_id: Some("tapo-id".into()),
                     group_approved: false,
+                    physically_confirmed: false,
                 },
             ),
         ]);
@@ -1140,6 +1170,7 @@ mod discovery_protocol_tests {
                     protocol: Protocol::Kasa,
                     device_id: None,
                     group_approved: false,
+                    physically_confirmed: false,
                 },
             ),
             (
@@ -1149,6 +1180,7 @@ mod discovery_protocol_tests {
                     protocol: Protocol::Kasa,
                     device_id: None,
                     group_approved: false,
+                    physically_confirmed: false,
                 },
             ),
         ]);

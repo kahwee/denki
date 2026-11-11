@@ -38,11 +38,35 @@ pub enum Command {
         host: String,
     },
 
-    /// Check reachability, protocol, parsing, and advertised capabilities
+    /// Diagnose connectivity, Wi-Fi signal, and capabilities with suggested next steps
     Doctor {
         /// Device name, saved alias, or IP address
-        #[arg(value_name = "DEVICE")]
-        host: String,
+        #[arg(
+            value_name = "DEVICE",
+            required_unless_present = "all",
+            conflicts_with = "all"
+        )]
+        host: Option<String>,
+        /// Check every saved address once without changing power or retrying failed checks
+        #[arg(long)]
+        all: bool,
+        /// Maximum simultaneous fleet checks
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=8), requires = "all")]
+        concurrency: u8,
+        /// Deadline in seconds for each device
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u16).range(1..=120))]
+        timeout: u16,
+    },
+
+    /// Record or clear your physical identification of an exact saved alias (no device I/O)
+    Identify {
+        name: String,
+        /// Confirm you have physically identified this device
+        #[arg(long, required_unless_present = "clear", conflicts_with = "clear")]
+        confirm: bool,
+        /// Clear an earlier physical identification
+        #[arg(long)]
+        clear: bool,
     },
 
     /// Turn a device on
@@ -386,6 +410,7 @@ impl Command {
             Self::Scan { .. } => "scan",
             Self::Info { .. } => "info",
             Self::Doctor { .. } => "doctor",
+            Self::Identify { .. } => "identify",
             Self::On { .. } => "on",
             Self::Off { .. } => "off",
             Self::Toggle { .. } => "toggle",
