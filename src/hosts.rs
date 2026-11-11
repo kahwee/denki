@@ -330,6 +330,8 @@ pub fn save_if_new_in(
 }
 
 /// Reconcile an observed identity, never guessing from a colliding name.
+/// Kasa identities are unauthenticated, so they cannot authorize address changes.
+/// Callers using KLAP/Tapo must authenticate the peer before reconciling it.
 pub fn reconcile_in(
     name: &str,
     ip: &str,
@@ -345,6 +347,16 @@ pub fn reconcile_in(
             .map(|(n, _)| n.clone())
             .collect();
         if !matches.is_empty() {
+            // A copied Kasa deviceId is not proof that a saved device moved.
+            // Check every matching alias before changing any of them, including
+            // aliases learned earlier in this same scan.
+            if protocol == Protocol::Kasa && matches.iter().any(|name| !same_ip(&map[name].ip, ip))
+            {
+                return Err(crate::error::error(
+                    "identity_rebind_required",
+                    "Kasa discovery cannot change a saved device's address because its identity is unauthenticated. Verify the address independently, then update each affected alias with denki alias NAME IP.",
+                ));
+            }
             let mut changed = false;
             for name in matches {
                 let entry = map.get_mut(&name).unwrap();
@@ -411,7 +423,11 @@ pub fn verify_identity(ip: &str, protocol: Protocol, actual: Option<&str>) -> Re
         {
             return Err(crate::error::error(
                 "identity_mismatch",
-                "Device identity does not match the saved alias. Run denki scan to reconcile addresses.",
+                if protocol == Protocol::Kasa {
+                    "Device identity does not match the saved alias. Verify the device's address independently, then update the alias with denki alias NAME IP."
+                } else {
+                    "Device identity does not match the saved alias. Run denki scan to reconcile addresses."
+                },
             ));
         }
     }
@@ -726,6 +742,7 @@ mod tests {
 #[cfg(test)]
 mod identity_tests {
     use super::*;
+    use rstest::rstest;
     use serde_json::json;
     fn known(ip: &str, id: Option<&str>) -> HostEntry {
         HostEntry {
@@ -760,17 +777,22 @@ mod identity_tests {
         assert_eq!(map.len(), 1);
     }
 
-    #[test]
-    fn identity_reconciles_changed_and_swapped_addresses_preserving_names() {
+    #[rstest]
+    #[case(Protocol::Klap)]
+    #[case(Protocol::Tapo)]
+    fn authenticated_identity_reconciles_swapped_addresses(#[case] protocol: Protocol) {
         let mut map = BTreeMap::from([
             ("custom a".into(), known("192.0.2.1", Some("a"))),
             ("custom b".into(), known("192.0.2.2", Some("b"))),
         ]);
+        for entry in map.values_mut() {
+            entry.protocol = protocol.clone();
+        }
         assert!(
             reconcile_in(
                 "factory a",
                 "192.0.2.2",
-                Protocol::Kasa,
+                protocol.clone(),
                 Some("a"),
                 &mut map
             )
@@ -780,7 +802,7 @@ mod identity_tests {
             reconcile_in(
                 "factory b",
                 "192.0.2.1",
-                Protocol::Kasa,
+                protocol.clone(),
                 Some("b"),
                 &mut map
             )
@@ -789,16 +811,92 @@ mod identity_tests {
         assert_eq!(map["custom a"].ip, "192.0.2.2");
         assert_eq!(map["custom b"].ip, "192.0.2.1");
         assert_eq!(map.len(), 2);
+        assert!(!reconcile_in("factory a", "192.0.2.2", protocol, Some("a"), &mut map).unwrap());
+    }
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn kasa_copied_identity_cannot_rebind_or_persist_in_either_order(#[case] attacker_first: bool) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hosts.json");
+        let original = BTreeMap::from([
+            ("custom desk".into(), known("192.0.2.1", Some("copied-id"))),
+            ("second name".into(), known("192.0.2.1", Some("copied-id"))),
+        ]);
+        save_map(&path, &original).unwrap();
+        let mut map = load_map(&path).unwrap();
+        let mut addresses = ["192.0.2.1", "192.0.2.99"];
+        if attacker_first {
+            addresses.reverse();
+        }
+        for ip in addresses {
+            let outcome = reconcile_in(
+                "Attacker supplied name",
+                ip,
+                Protocol::Kasa,
+                Some("copied-id"),
+                &mut map,
+            );
+            if ip == "192.0.2.99" {
+                assert_eq!(
+                    crate::error::code(&outcome.unwrap_err()),
+                    "identity_rebind_required"
+                );
+            } else {
+                assert!(!outcome.unwrap());
+            }
+            assert_eq!(map, original);
+        }
+        // A separate successful response makes the scan dirty. Persisting its
+        // partial results must still leave all trusted aliases at their old IP.
         assert!(
-            !reconcile_in(
-                "factory a",
+            reconcile_in(
+                "new device",
                 "192.0.2.2",
                 Protocol::Kasa,
-                Some("a"),
+                Some("new-id"),
                 &mut map
             )
             .unwrap()
         );
+        save_if_unchanged_at(&path, &original, &map).unwrap();
+        let persisted = load_map(&path).unwrap();
+        for (name, entry) in &original {
+            assert_eq!(&persisted[name], entry);
+        }
+        assert_eq!(persisted.len(), 3);
+    }
+    #[test]
+    fn kasa_rebind_rejection_is_atomic_for_aliases_at_different_addresses() {
+        let mut map = BTreeMap::from([
+            ("a current".into(), known("192.0.2.2", Some("copied-id"))),
+            ("z old".into(), known("192.0.2.1", Some("copied-id"))),
+        ]);
+        let original = map.clone();
+        let error = reconcile_in(
+            "factory",
+            "192.0.2.2",
+            Protocol::Kasa,
+            Some("copied-id"),
+            &mut map,
+        )
+        .unwrap_err();
+        assert_eq!(crate::error::code(&error), "identity_rebind_required");
+        assert_eq!(map, original);
+    }
+    #[test]
+    fn kasa_equivalent_address_is_not_a_rebind() {
+        let mut map = BTreeMap::from([("desk".into(), known("2001:0db8:0:0:0:0:0:1", Some("a")))]);
+        reconcile_in(
+            "factory",
+            "2001:db8::1",
+            Protocol::Kasa,
+            Some("a"),
+            &mut map,
+        )
+        .unwrap();
+        assert!(same_ip(&map["desk"].ip, "2001:db8::1"));
+        assert_eq!(map.len(), 1);
     }
     #[test]
     fn legacy_entries_learn_at_current_address_but_never_move_by_name() {
@@ -807,6 +905,11 @@ mod identity_tests {
         assert_eq!(map["custom"].ip, "192.0.2.1");
         assert!(reconcile_in("factory", "192.0.2.1", Protocol::Kasa, Some("a"), &mut map).unwrap());
         assert_eq!(map["custom"].device_id.as_deref(), Some("a"));
+        let bound = map.clone();
+        let error =
+            reconcile_in("factory", "192.0.2.2", Protocol::Kasa, Some("a"), &mut map).unwrap_err();
+        assert_eq!(crate::error::code(&error), "identity_rebind_required");
+        assert_eq!(map, bound);
     }
     #[test]
     fn conflicting_or_missing_identity_never_changes_any_entry() {

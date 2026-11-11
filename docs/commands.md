@@ -45,20 +45,32 @@ denki scan
 ```
 
 `scan` auto-saves newly discovered aliases and also probes saved `--klap` and `--tapo` aliases.
-It stores the device identity locally and reconciles subsequent discoveries by
-identity, preserving your chosen name when DHCP changes the IP. It never moves an
-alias merely because a different address reports the same name. Existing v1/v2
-registries remain readable; aliases without identity learn it at their current
-address on their next successful scan. Until then, a DHCP move cannot be identified
-safely by name alone.
+It stores the device identity locally. Existing v1/v2 registries remain readable;
+aliases without identity learn it at their current address on their next successful
+scan. It never moves an alias merely because a different address reports the same
+name.
 
-Kasa UDP discovery can locate moved Kasa devices. Tapo discovery still requires
-known IPs: use `denki scan --tapo-target 192.0.2.51` to probe a Tapo device
+Kasa UDP discovery is unauthenticated: anyone on the LAN can copy a device ID.
+If a reply claims a saved Kasa ID from a different IP, scan reports
+`identity_rebind_required` and leaves every existing alias unchanged. This also
+applies to legitimate DHCP moves. Verify the new IP independently (for example,
+in your router), then explicitly update each affected alias:
+
+```bash
+denki alias "desk lamp" 192.0.2.42
+```
+
+Replace the example IP with the verified address. A subsequent scan can learn its
+identity at that address. Kasa identity checks detect mismatches but do not provide
+cryptographic authentication; only use this legacy protocol on a trusted LAN.
+
+Authenticated Tapo probes can still reconcile moved devices while preserving your
+chosen names. Tapo discovery requires known IPs: use
+`denki scan --tapo-target 192.0.2.51` to probe a Tapo device
 and recover its existing alias by identity. The option can be repeated. An old,
 unreachable Tapo address is reported as a failed probe even if another probe
 finds the device at its new address. Saved identity mismatches stop commands before
-sending mutations. Device IDs identify peers; the legacy Kasa protocol does not
-cryptographically authenticate them.
+sending mutations.
 
 Malformed discovery replies and failed Tapo probes are reported individually;
 partial scans return nonzero and retain their successful results. Tapo probes
@@ -372,7 +384,7 @@ Single-result commands emit exactly one JSON object with this envelope:
 `status` is `ok` or `error`; the process exits nonzero on error. `error` is null
 or an object with stable `code` and human-readable `message`. Codes include
 `invalid_arguments`, `not_found`, `malformed_response`, `device_rejected`,
-`unsupported_operation`, `identity_mismatch`, `connection_failed`, `timeout`,
+`unsupported_operation`, `identity_mismatch`, `identity_rebind_required`, `connection_failed`, `timeout`,
 `io_error`, `partial_failure`, `integrity_failed`, `registry_conflict`, and the
 fallback `command_failed`.
 Messages may change; branch on codes. Resolution and argument failures also emit

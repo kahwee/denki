@@ -116,9 +116,12 @@ Kasa read and write operations share response-envelope validation; each requeste
 namespace/method must report an integer zero `err_code`. Tapo operations require
 integer zero `error_code`. Device info validates explicit state before toggle or
 control. Sysinfo/Tapo info checks stored identities at the destination address.
-Discovery uses validated observations to reconcile identities before normal command
-checks, permitting DHCP moves without rebinding an alias to a different device.
-Legacy aliases learn identity only at their saved address during scan.
+Authenticated Tapo observations can reconcile identities after DHCP moves.
+Kasa IDs are unauthenticated: a matching ID from a different address returns
+`identity_rebind_required` without changing any alias. An operator must verify the
+new address independently and explicitly update it with `denki alias NAME IP`.
+Legacy aliases learn identity only at their saved address during scan. Kasa identity
+checks detect mismatches but cannot authenticate a peer that copies a device ID.
 
 CLI handlers record structured results in a task-local output context. Human
 rendering routes to stderr under `--json`; dispatch emits the schema-v2 envelope
