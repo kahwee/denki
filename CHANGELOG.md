@@ -5,6 +5,8 @@ are on `main` and are not part of the published tags below.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-11
+
 ### Fixed
 
 - Separate release verification/builds from fresh-runner OIDC publication; no
