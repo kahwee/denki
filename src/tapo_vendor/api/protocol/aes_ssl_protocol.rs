@@ -1,0 +1,360 @@
+use super::bounded_response;
+use std::fmt;
+
+use log::debug;
+use reqwest::Client;
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
+
+use crate::tapo_vendor::requests::{SecurePassthroughParams, TapoParams, TapoRequest};
+use crate::tapo_vendor::responses::{TapoResponse, TapoResponseExt, validate_response};
+use crate::tapo_vendor::{Error, TapoResponseError};
+
+use super::aes_ssl_cipher::{
+    AesSslCipher, compute_password_digest, generate_nonce, validate_device_confirm,
+};
+use super::crypto;
+use super::tapo_protocol::request_error;
+
+/// How a login over AES SSL ended.
+pub(super) enum AesSslLogin {
+    LoggedIn,
+    /// The device does not take the AES SSL login at all. Holds the error
+    /// that says so.
+    Refused(Error),
+}
+
+impl AesSslLogin {
+    /// The login as a result, for a caller that has no other login to try.
+    pub fn into_result(self) -> Result<(), Error> {
+        match self {
+            Self::LoggedIn => Ok(()),
+            Self::Refused(error) => Err(error),
+        }
+    }
+}
+
+struct AesSslSession {
+    cipher: AesSslCipher,
+    url_with_token: String,
+    url: String,
+}
+
+pub(super) struct AesSslProtocol {
+    client: Client,
+    session: Option<AesSslSession>,
+}
+
+impl AesSslProtocol {
+    pub fn new(client: Client) -> Self {
+        Self {
+            client,
+            session: None,
+        }
+    }
+
+    pub async fn login(
+        &mut self,
+        url: String,
+        username: &str,
+        password: &str,
+    ) -> Result<AesSslLogin, Error> {
+        self.handshake(url, username, password).await
+    }
+
+    pub async fn refresh_session(&mut self, username: &str, password: &str) -> Result<(), Error> {
+        let url = self.session()?.url.clone();
+
+        self.handshake(url, username, password).await?.into_result()
+    }
+
+    pub async fn execute_request<R>(&self, request: TapoRequest) -> Result<Option<R>, Error>
+    where
+        R: fmt::Debug + DeserializeOwned + TapoResponseExt,
+    {
+        let session = self.session()?;
+
+        let request_string = serde_json::to_string(&request)?;
+
+        let request_encrypted = session.cipher.encrypt(&request_string)?;
+
+        let secure_passthrough_request = TapoRequest::SecurePassthrough(TapoParams::new(
+            SecurePassthroughParams::new(&request_encrypted),
+        ));
+        let secure_passthrough_request_string = serde_json::to_string(&secure_passthrough_request)?;
+
+        let sequence = session.cipher.next_sequence();
+        let tag = session
+            .cipher
+            .generate_tag(&secure_passthrough_request_string, sequence);
+
+        let response = self
+            .client
+            .post(&session.url_with_token)
+            .header("Seq", sequence.to_string())
+            .header("Tapo_tag", tag)
+            .body(secure_passthrough_request_string)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            debug!("Response error: {}", response.status());
+            return Err(request_error(response.status()));
+        }
+
+        let response_body: serde_json::Value = bounded_response::json(response).await?;
+
+        validate_response(extract_error_code(&response_body))?;
+
+        // SmartCam hubs (e.g. H500) encrypt the reply inside the
+        // securePassthrough envelope; cameras respond in plain text.
+        let response_body = match response_body
+            .pointer("/result/response")
+            .and_then(|v| v.as_str())
+        {
+            Some(response_encrypted) => {
+                let response_decrypted = session.cipher.decrypt(response_encrypted)?;
+                let response_body: serde_json::Value = serde_json::from_str(&response_decrypted)?;
+
+                validate_response(extract_error_code(&response_body))?;
+
+                response_body
+            }
+            None => response_body,
+        };
+
+        let result: R = serde_json::from_value(response_body)?;
+
+        Ok(Some(result))
+    }
+
+    fn session(&self) -> Result<&AesSslSession, Error> {
+        self.session
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("AES SSL session not initialized (login first)").into())
+    }
+
+    async fn handshake(
+        &mut self,
+        url: String,
+        username: &str,
+        password: &str,
+    ) -> Result<AesSslLogin, Error> {
+        let local_nonce = generate_nonce();
+
+        let handshake1_result = match self
+            .handshake1(&url, username, password, &local_nonce)
+            .await?
+        {
+            Handshake1::Accepted(result) => result,
+            Handshake1::Refused(error) => return Ok(AesSslLogin::Refused(error)),
+        };
+
+        let handshake2_result = self
+            .handshake2(
+                &url,
+                username,
+                &local_nonce,
+                &handshake1_result.server_nonce,
+                &handshake1_result.password_hash,
+            )
+            .await?;
+
+        let cipher = AesSslCipher::new(
+            local_nonce,
+            &handshake1_result.server_nonce,
+            handshake1_result.password_hash,
+            handshake2_result.start_sequence,
+        );
+
+        self.session = Some(AesSslSession {
+            cipher,
+            url_with_token: format!("{url}/stok={}/ds", handshake2_result.token),
+            url,
+        });
+
+        Ok(AesSslLogin::LoggedIn)
+    }
+
+    async fn handshake1(
+        &self,
+        url: &str,
+        username: &str,
+        password: &str,
+        local_nonce: &str,
+    ) -> Result<Handshake1, Error> {
+        debug!("Performing handshake1...");
+
+        let body = serde_json::json!({
+            "method": "login",
+            "params": {
+                "cnonce": local_nonce,
+                "encrypt_type": "3",
+                "username": username,
+            }
+        });
+
+        let response = self.client.post(url).json(&body).send().await?;
+
+        if !response.status().is_success() {
+            debug!("Handshake1 error: {}", response.status());
+            return Err(Error::Tapo(TapoResponseError::HttpError {
+                status_code: response.status().as_u16(),
+                description: "Handshake1 failed".to_string(),
+            }));
+        }
+
+        // The nonce and device_confirm fields accompany only the expected
+        // -40413 error code, so the error code must be checked before
+        // deserializing the payload.
+        let response_body =
+            bounded_response::json::<TapoResponse<serde_json::Value>>(response).await?;
+        debug!("Handshake1 error code: {}", response_body.error_code);
+
+        // -40413 (INVALID_NONCE) is the expected response indicating the device
+        // is ready for a nonce-based handshake.
+        if response_body.error_code != -40413 {
+            let description = format!(
+                "Expected INVALID_NONCE (-40413) during handshake1, got {}",
+                response_body.error_code
+            );
+            let error = Error::Tapo(TapoResponseError::Unauthorized {
+                kind: "EXPECTED_INVALID_NONCE",
+                description,
+            });
+
+            // -40211 (MISSING_NECESSARY_PARAMS) is what a device answers when
+            // it does not take the AES SSL login at all. A camera does so
+            // while Third-Party Compatibility is off in the Tapo app, and
+            // takes the TPAP login.
+            if response_body.error_code == -40211 {
+                return Ok(Handshake1::Refused(error));
+            }
+
+            return Err(error);
+        }
+
+        let result = response_body
+            .result
+            .ok_or_else(|| Error::Tapo(TapoResponseError::EmptyResult))?;
+        let data = serde_json::from_value::<Handshake1Response>(result)?.data;
+
+        // Try SHA256 password hash first, then MD5 fallback.
+        let password_hash_sha256 = crypto::sha256_hex(password.as_bytes());
+        if validate_device_confirm(
+            local_nonce,
+            &data.nonce,
+            &password_hash_sha256,
+            &data.device_confirm,
+        ) {
+            debug!("Handshake1 OK (SHA256)");
+            return Ok(Handshake1::Accepted(Handshake1Result {
+                server_nonce: data.nonce,
+                password_hash: password_hash_sha256,
+            }));
+        }
+
+        let password_hash_md5 = crypto::md5_hex(password.as_bytes());
+        if validate_device_confirm(
+            local_nonce,
+            &data.nonce,
+            &password_hash_md5,
+            &data.device_confirm,
+        ) {
+            debug!("Handshake1 OK (MD5 fallback)");
+            return Ok(Handshake1::Accepted(Handshake1Result {
+                server_nonce: data.nonce,
+                password_hash: password_hash_md5,
+            }));
+        }
+
+        debug!("Device confirm hash mismatch in handshake1");
+        Err(Error::Tapo(TapoResponseError::password_hash_mismatch()))
+    }
+
+    async fn handshake2(
+        &self,
+        url: &str,
+        username: &str,
+        local_nonce: &str,
+        server_nonce: &str,
+        password_hash: &str,
+    ) -> Result<Handshake2Result, Error> {
+        debug!("Performing handshake2...");
+
+        let password_digest = compute_password_digest(local_nonce, server_nonce, password_hash);
+
+        let body = serde_json::json!({
+            "method": "login",
+            "params": {
+                "cnonce": local_nonce,
+                "encrypt_type": "3",
+                "digest_passwd": password_digest,
+                "username": username,
+            }
+        });
+
+        let response = self.client.post(url).json(&body).send().await?;
+
+        if !response.status().is_success() {
+            debug!("Handshake2 error: {}", response.status());
+            return Err(Error::Tapo(TapoResponseError::HttpError {
+                status_code: response.status().as_u16(),
+                description: "Handshake2 failed".to_string(),
+            }));
+        }
+
+        let response_body =
+            bounded_response::json::<TapoResponse<Handshake2Result>>(response).await?;
+        debug!("Handshake2 error code: {}", response_body.error_code);
+
+        validate_response(response_body.error_code)?;
+
+        let result = response_body
+            .result
+            .ok_or_else(|| Error::Tapo(TapoResponseError::EmptyResult))?;
+
+        Ok(result)
+    }
+}
+
+pub(super) fn extract_error_code(response_body: &serde_json::Value) -> i64 {
+    // Successful responses may omit the error code entirely (e.g. the H200
+    // hub). Errors are reported under either "error_code" or "err_code".
+    response_body
+        .get("error_code")
+        .or_else(|| response_body.get("err_code"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0)
+}
+
+#[derive(Deserialize)]
+struct Handshake1Response {
+    data: Handshake1ResponseData,
+}
+
+#[derive(Deserialize)]
+struct Handshake1ResponseData {
+    nonce: String,
+    device_confirm: String,
+}
+
+enum Handshake1 {
+    Accepted(Handshake1Result),
+    Refused(Error),
+}
+
+struct Handshake1Result {
+    server_nonce: String,
+    password_hash: String,
+}
+
+#[derive(Deserialize)]
+struct Handshake2Result {
+    #[serde(rename = "stok")]
+    token: String,
+    #[serde(rename = "start_seq")]
+    start_sequence: i32,
+}
+
+impl TapoResponseExt for Handshake2Result {}

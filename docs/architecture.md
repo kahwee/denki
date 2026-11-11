@@ -28,6 +28,7 @@
 | `src/tapo.rs` | Tapo `get_device_info` response parsing |
 | `src/tapo_client.rs` | Upstream TPAP/KLAP plug adapter and identity-checked operations |
 | `src/tapo_client/` | Redacted error translation and offline adapter tests |
+| `src/tapo_vendor/` | Bundled upstream transport with streaming limits and response authentication |
 | `src/ops.rs` | All API calls — `bulb_set_*`, `relay_*`, `device_*`, `tapo_*`, `strip_*` |
 | `src/effects.rs` | Light-strip effect helpers |
 | `src/display/` | Colored terminal output for all device types |
@@ -153,7 +154,7 @@ This provides local file protection, not encryption at rest.
 
 ## Tapo automatic mode
 
-`Protocol::Tapo` selects the pinned upstream `tapo` crate; `Protocol::Klap` still
+`Protocol::Tapo` selects the bundled, hardened `tapo` 0.12.2 implementation; `Protocol::Klap` still
 selects Denki's original KLAP implementation. The upstream `p100` constructor
 selects a generic plug handler and negotiates TPAP or KLAP; it is not a P125 model
 assertion or a forced TPAP transport. Denki's adapter converts already-decoded
@@ -165,3 +166,39 @@ errors become stage-specific, redacted messages. P125 power writes require the
 model/type guard in `src/devices/tapo.rs`, then verify state and device identity
 in the same session. `devices.toml` tracks `tapo_auto_supports` and
 `tapo_auto_verified` separately from original-client capabilities and verification.
+
+
+Every buffered automatic-mode HTTP control response uses the same 1 MiB streaming
+cap. Excessive advertised length is rejected before reading, and actual chunks
+are checked before extending the buffer, including responses without a length.
+Oversized negotiation responses fail rather than trigger protocol fallback.
+Peer-selected SHA-crypt work is restricted to 1,000–100,000 rounds (default 5,000);
+malformed rounds and non-crypt salts are rejected before hashing. Credential
+transforms and SPAKE2 proof work run off the async executor, with fixed work caps
+because a started blocking task cannot be cancelled by the operation timeout.
+Redirects and ambient HTTP proxies are disabled so authentication stays at the
+selected device endpoint. Automatic-mode KLAP responses authenticate their MAC
+against the current request sequence before decryption, just like explicit KLAP.
+
+The upstream source is embedded under `src/tapo_vendor/`, with its MIT license,
+provenance, and security regression tests. This is intentional: a versioned Cargo
+path override would be discarded during registry packaging and silently restore
+the vulnerable upstream behavior. Package preflight must compile the embedded
+source. Remove the copy only once upstream offers equivalent protections. Device
+TLS certificates remain self-signed; protocol-level authentication is required,
+not a claim that the local endpoint has a publicly trusted certificate. These
+hardening changes have offline coverage, not new hardware-verification evidence.
+
+## Untrusted presentation and discovery
+
+Human-readable device strings are escaped before applying trusted terminal styles.
+The original values remain available in JSON and in protocol/configuration data.
+Shell hints use POSIX quoting; controls and empty targets suppress the hint rather
+than silently changing the command target. Unauthenticated Kasa scan observations
+never generate physical-control hints. Discovery validates each reply before
+reserving its source for deduplication, bounds retained results, and cannot create
+an alias at an address saved with a different protocol. Neither a copied ID nor a
+matching address authenticates Kasa; a trusted LAN is still required.
+
+Malformed weekday arrays are reported as invalid instead of indexing outside the
+seven-day label table or pretending the schedule is valid.

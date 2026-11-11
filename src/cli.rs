@@ -7,7 +7,7 @@ use clap_complete::Shell;
     name = "denki",
     about = "Control TP-Link Kasa and Tapo devices from the terminal",
     version,
-    after_help = "Start here:\n  denki scan\n  denki aliases\n  denki info \"desk plug\"\n  denki doctor \"desk plug\"\n\nTapo P125: add an alias with --tapo, then run denki login EMAIL.\nUse --json for one result; energy watch streams JSONL with --json.\nUse energy watch --format csv for spreadsheets; do not combine it with --json.\nOnly commands supported by the selected device are available.\nGuide: https://kahwee.github.io/denki/"
+    after_help = "Start here:\n  denki scan\n  denki aliases\n  denki info \"desk plug\"\n  denki doctor \"desk plug\"\n\nTapo P125: add an alias with --tapo, then run denki login EMAIL.\nUse --json for one result; energy watch streams JSONL with --json.\nUse energy watch --format csv for spreadsheets; do not combine it with --json.\nOnly commands supported by the selected device are available.\nHuman output escapes terminal controls; unsafe aliases have no command hints.\nGuide: https://kahwee.github.io/denki/"
 )]
 pub struct Cli {
     /// Emit versioned JSON (energy watch streams JSONL); progress goes to stderr

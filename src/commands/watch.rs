@@ -1,8 +1,9 @@
 use super::energy::EnergyReader;
 use crate::cli::WatchFormat;
+use crate::output::terminal_text;
 use anyhow::Result;
 use serde_json::{Value, json};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub async fn handle_energy_watch(
@@ -22,6 +23,7 @@ pub async fn handle_energy_watch(
         format = WatchFormat::Jsonl;
     }
     let mut stdout = std::io::stdout();
+    let stdout_is_terminal = stdout.is_terminal();
     if format == WatchFormat::Csv {
         writeln!(
             stdout,
@@ -57,9 +59,10 @@ pub async fn handle_energy_watch(
             }
         };
         match format {
-            WatchFormat::Jsonl => writeln!(stdout, "{row}")?,
-            WatchFormat::Csv => writeln!(stdout, "{}", csv_row(&row))?,
+            WatchFormat::Jsonl => writeln!(stdout, "{}", crate::output::json_text(&row))?,
+            WatchFormat::Csv => writeln!(stdout, "{}", csv_output(&row, stdout_is_terminal))?,
             WatchFormat::Table => {
+                let host = terminal_text(host);
                 if row["status"] == "ok" {
                     let power = row["measurement"]["power_w"]
                         .as_f64()
@@ -70,7 +73,7 @@ pub async fn handle_energy_watch(
                     writeln!(
                         stdout,
                         "{timestamp}  {host}  ERROR {}",
-                        row["error"]["message"].as_str().unwrap_or("unknown")
+                        terminal_text(row["error"]["message"].as_str().unwrap_or("unknown"))
                     )?;
                 }
             }
@@ -98,10 +101,19 @@ fn csv_field(value: &Value) -> String {
     if value.is_null() {
         return String::new();
     }
-    let text = value
+    let mut text = value
         .as_str()
         .map(str::to_owned)
         .unwrap_or_else(|| value.to_string());
+    // CSV is advertised for spreadsheets. Quoting alone does not prevent
+    // formula execution; protect string cells while keeping numbers numeric.
+    let first = text
+        .trim_start_matches(|c: char| c.is_whitespace() || c.is_control() || c == '\u{feff}')
+        .chars()
+        .next();
+    if value.is_string() && matches!(first, Some('=' | '+' | '-' | '@')) {
+        text.insert(0, '\'');
+    }
     if text.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", text.replace('"', "\"\""))
     } else {
@@ -133,9 +145,46 @@ fn csv_row(row: &Value) -> String {
         .join(",")
 }
 
+fn csv_output(row: &Value, terminal: bool) -> String {
+    let csv = csv_row(row);
+    if terminal {
+        crate::output::terminal_text(&csv)
+    } else {
+        csv
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn csv_neutralizes_formula_strings_without_changing_numbers() {
+        for text in [
+            "=1+1",
+            "+SUM(A1)",
+            "-1+2",
+            "@SUM(A1)",
+            " \t\r\n=1",
+            "\u{feff}=1",
+        ] {
+            let field = csv_field(&json!(text));
+            assert!(
+                field.starts_with('\'') || field.starts_with("\"'"),
+                "{field:?}"
+            );
+        }
+        assert_eq!(csv_field(&json!(-1.5)), "-1.5");
+        assert_eq!(csv_field(&json!("ordinary")), "ordinary");
+        assert_eq!(csv_field(&json!(null)), "");
+    }
+
+    #[test]
+    fn csv_terminal_display_escapes_controls_but_export_retains_them() {
+        let row = json!({"device":"desk\u{9b}2J\u{202e}","status":"ok"});
+        assert!(crate::output::is_terminal_safe(&csv_output(&row, true)));
+        assert!(csv_output(&row, false).contains("desk\u{9b}2J\u{202e}"));
+    }
+
     #[test]
     fn csv_quotes_aliases_and_multiline_errors_and_keeps_missing_samples_empty() {
         let row = json!({"timestamp_unix_ms":123,"device":"desk, \"A\"","outlet":null,"status":"error","measurement":null,"error":{"code":"io_error","message":"first\nsecond"}});

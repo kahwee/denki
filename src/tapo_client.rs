@@ -4,7 +4,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use ::tapo::{ApiClient, Error, PlugHandler, responses::DeviceInfoPlugResult};
+use crate::tapo_vendor::{ApiClient, Error, PlugHandler, responses::DeviceInfoPlugResult};
 use anyhow::Result;
 
 use crate::tapo::TapoDevice;

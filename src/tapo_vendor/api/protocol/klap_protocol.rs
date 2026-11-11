@@ -1,0 +1,211 @@
+use super::bounded_response;
+use std::fmt;
+use subtle::ConstantTimeEq;
+
+use log::debug;
+use rand::RngExt as _;
+use reqwest::header::COOKIE;
+use reqwest::{Client, StatusCode};
+use serde::de::DeserializeOwned;
+
+use crate::tapo_vendor::api::protocol::TapoProtocol;
+use crate::tapo_vendor::requests::TapoRequest;
+use crate::tapo_vendor::responses::{TapoResponse, TapoResponseExt, validate_response};
+use crate::tapo_vendor::{Error, TapoResponseError};
+
+use super::crypto;
+use super::klap_cipher::KlapCipher;
+use super::tapo_protocol::request_error;
+
+struct KlapSession {
+    url: String,
+    cookie: String,
+    cipher: KlapCipher,
+}
+
+pub(super) struct KlapProtocol {
+    client: Client,
+    session: Option<KlapSession>,
+}
+
+impl KlapProtocol {
+    pub fn new(client: Client) -> Self {
+        Self {
+            client,
+            session: None,
+        }
+    }
+
+    pub async fn login(
+        &mut self,
+        url: String,
+        username: &str,
+        password: &str,
+    ) -> Result<(), Error> {
+        self.handshake(url, username, password).await
+    }
+
+    pub async fn refresh_session(&mut self, username: &str, password: &str) -> Result<(), Error> {
+        let url = self.session()?.url.clone();
+        self.handshake(url, username, password).await
+    }
+
+    pub async fn execute_request<R>(&self, request: TapoRequest) -> Result<Option<R>, Error>
+    where
+        R: fmt::Debug + DeserializeOwned + TapoResponseExt,
+    {
+        let session = self.session()?;
+
+        let request_string = serde_json::to_string(&request)?;
+
+        let (payload, seq) = session.cipher.encrypt(&request_string)?;
+
+        let response = self
+            .client
+            .post(format!("{}/request?seq={seq}", session.url))
+            .header(COOKIE, &session.cookie)
+            .body(payload)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            debug!("Response error: {}", response.status());
+            return Err(request_error(response.status()));
+        }
+
+        let response_body = bounded_response::bytes(response).await?;
+
+        let response_decrypted = session.cipher.decrypt(seq, &response_body)?;
+
+        let response: TapoResponse<R> = serde_json::from_str(&response_decrypted)?;
+
+        validate_response(response.error_code)?;
+        let result = response.result;
+
+        Ok(result)
+    }
+
+    fn session(&self) -> Result<&KlapSession, Error> {
+        self.session
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("KLAP session not initialized (login first)").into())
+    }
+
+    async fn handshake(
+        &mut self,
+        url: String,
+        username: &str,
+        password: &str,
+    ) -> Result<(), Error> {
+        let auth_hash = crypto::sha256(
+            &[
+                crypto::sha1(username.as_bytes()),
+                crypto::sha1(password.as_bytes()),
+            ]
+            .concat(),
+        );
+
+        let local_seed: [u8; 16] = rand::rng().random();
+
+        let (remote_seed, cookie) = self.handshake1(&url, &local_seed, &auth_hash).await?;
+
+        self.handshake2(&url, &cookie, &local_seed, &remote_seed, &auth_hash)
+            .await?;
+
+        let cipher = KlapCipher::new(&local_seed, &remote_seed, &auth_hash)?;
+
+        self.session = Some(KlapSession {
+            url,
+            cookie,
+            cipher,
+        });
+
+        Ok(())
+    }
+
+    async fn handshake1(
+        &self,
+        url: &str,
+        local_seed: &[u8],
+        auth_hash: &[u8],
+    ) -> Result<(Vec<u8>, String), Error> {
+        debug!("Performing handshake1...");
+        let url = format!("{url}/handshake1");
+
+        let response = self
+            .client
+            .post(&url)
+            .body(local_seed.to_vec())
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            debug!("Handshake1 error: {}", response.status());
+
+            if response.status() == StatusCode::FORBIDDEN {
+                return Err(Error::Tapo(TapoResponseError::forbidden()));
+            }
+            return Err(Error::Tapo(TapoResponseError::HttpError {
+                status_code: response.status().as_u16(),
+                description: "Handshake1 failed".to_string(),
+            }));
+        }
+
+        let cookie = TapoProtocol::get_cookie(response.cookies())?;
+
+        let response_body = bounded_response::bytes(response).await?;
+
+        let Some((remote_seed, server_hash)) = response_body.split_at_checked(16) else {
+            return Err(Error::Tapo(TapoResponseError::ResponseError {
+                description: format!(
+                    "Handshake1 response of {} bytes is shorter than its 16-byte seed",
+                    response_body.len()
+                ),
+            }));
+        };
+        let local_hash = crypto::sha256(&[local_seed, remote_seed, auth_hash].concat());
+
+        if local_hash.ct_eq(server_hash).unwrap_u8() != 1 {
+            debug!("Local hash does not match server hash");
+            return Err(Error::Tapo(TapoResponseError::hash_mismatch()));
+        }
+
+        debug!("Handshake1 OK");
+
+        Ok((remote_seed.to_vec(), cookie))
+    }
+
+    async fn handshake2(
+        &self,
+        url: &str,
+        cookie: &str,
+        local_seed: &[u8],
+        remote_seed: &[u8],
+        auth_hash: &[u8],
+    ) -> Result<(), Error> {
+        debug!("Performing handshake2...");
+        let url = format!("{url}/handshake2");
+
+        let payload = crypto::sha256(&[remote_seed, local_seed, auth_hash].concat());
+
+        let response = self
+            .client
+            .post(&url)
+            .header(COOKIE, cookie)
+            .body(payload.to_vec())
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            debug!("Handshake2 error: {}", response.status());
+            return Err(Error::Tapo(TapoResponseError::HttpError {
+                status_code: response.status().as_u16(),
+                description: "Handshake2 failed".to_string(),
+            }));
+        }
+
+        debug!("Handshake2 OK");
+
+        Ok(())
+    }
+}

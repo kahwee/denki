@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 use anyhow::Result;
 use colored::Colorize;
 
@@ -107,7 +108,11 @@ pub async fn handle_energy_daily(
     if let Some(outlet_num) = outlet {
         let (child_id, child_alias) = ctx.strip_energy_outlet(outlet_num)?;
         let resp = ops::strip_outlet_energy_daily(ctx.ip(), &child_id, year, mo).await?;
-        crate::output::println!("Outlet {} ({})", outlet_num, child_alias.bold());
+        crate::output::println!(
+            "Outlet {} ({})",
+            outlet_num,
+            terminal_text(&child_alias).bold()
+        );
         print_history(&resp, &month_str, false)?;
     } else {
         devices::require_energy(ctx.json(), ctx.kind())?;
@@ -128,7 +133,11 @@ pub async fn handle_energy_monthly(
     if let Some(outlet_num) = outlet {
         let (child_id, child_alias) = ctx.strip_energy_outlet(outlet_num)?;
         let resp = ops::strip_outlet_energy_monthly(ctx.ip(), &child_id, year).await?;
-        crate::output::println!("Outlet {} ({})", outlet_num, child_alias.bold());
+        crate::output::println!(
+            "Outlet {} ({})",
+            outlet_num,
+            terminal_text(&child_alias).bold()
+        );
         print_history(&resp, &year.to_string(), true)?;
     } else {
         devices::require_energy(ctx.json(), ctx.kind())?;
@@ -144,7 +153,7 @@ pub async fn handle_energy_monthly(
 fn print_history(response: &serde_json::Value, period: &str, monthly: bool) -> Result<()> {
     let rows = crate::energy::history(response, monthly)?;
     let key = if monthly { "month" } else { "day" };
-    crate::output::println!("Energy history for {period}:");
+    crate::output::println!("Energy history for {}:", terminal_text(period));
     for row in &rows {
         crate::output::println!("  {} {}: {} Wh", key, row[key], row["energy_wh"]);
     }

@@ -3,6 +3,7 @@ use crate::devices;
 use crate::dimmer::Dimmer;
 use crate::plug::Plug;
 use crate::strip::Strip;
+use colored::Colorize;
 
 pub(crate) fn caps_label(bulb: &Bulb) -> String {
     let mut caps = vec![];
@@ -18,12 +19,26 @@ pub(crate) fn caps_label(bulb: &Bulb) -> String {
     caps.join(", ")
 }
 
+pub(crate) fn print_hints(indent: &str, hints: Vec<String>) {
+    if !hints.is_empty() {
+        crate::output::println!("{indent}{}", format!("→ {}", hints.join("  ·  ")).dimmed());
+    }
+}
+
+pub(crate) fn power_hints(alias: &str, is_on: bool) -> Vec<String> {
+    if !devices::safe_hint_target(alias) {
+        return Vec::new();
+    }
+    let action = if is_on { "off" } else { "on" };
+    vec![format!("denki {action} {}", devices::shell_quote(alias))]
+}
+
 pub(crate) fn model_hints(model: &str, alias: &str, is_on: bool) -> Vec<String> {
+    if !devices::safe_hint_target(alias) {
+        return Vec::new();
+    }
     devices::lookup(model).map_or_else(
-        || {
-            let action = if is_on { "off" } else { "on" };
-            vec![format!("denki {action} {}", devices::shell_quote(alias))]
-        },
+        || power_hints(alias, is_on),
         |e| devices::hints(e, alias, is_on),
     )
 }
@@ -45,6 +60,9 @@ pub(crate) fn dimmer_hints(d: &Dimmer, alias: &str) -> Vec<String> {
 }
 
 pub(crate) fn lightstrip_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
+    if !devices::safe_hint_target(alias) {
+        return Vec::new();
+    }
     devices::lookup(&bulb.model)
         .map(|e| {
             let mut h = devices::hints(e, alias, bulb.light_state.is_on());
@@ -62,6 +80,9 @@ pub(crate) fn lightstrip_hints(bulb: &Bulb, alias: &str) -> Vec<String> {
 }
 
 pub(crate) fn strip_hints(s: &Strip, alias: &str) -> Vec<String> {
+    if !devices::safe_hint_target(alias) {
+        return Vec::new();
+    }
     let mut hints = devices::lookup(&s.model)
         .map(|e| {
             let mut h = devices::hints(

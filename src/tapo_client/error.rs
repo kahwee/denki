@@ -1,4 +1,4 @@
-use ::tapo::{Error, TapoResponseError};
+use crate::tapo_vendor::{Error, TapoResponseError};
 
 // Do not include upstream free-form descriptions or raw error chains: they can
 // contain response payloads, network names, or authentication material.
@@ -12,6 +12,7 @@ pub(super) fn upstream_error(stage: &str, error: Error) -> anyhow::Error {
         return crate::error::error(crate::error::code(inner), format!("Tapo {stage}: {inner}"));
     }
     let code = match &error {
+        Error::ResponseTooLarge => "malformed_response",
         Error::Tapo(TapoResponseError::Unauthorized {
             kind: "TPAP_CREDENTIALS",
             ..
@@ -29,6 +30,7 @@ pub(super) fn upstream_error(stage: &str, error: Error) -> anyhow::Error {
         _ => "command_failed",
     };
     let detail = match error {
+        Error::ResponseTooLarge => "HTTP response exceeds the 1048576-byte limit".to_owned(),
         Error::Tapo(TapoResponseError::Unauthorized { kind: "TPAP_CREDENTIALS", .. }) =>
             "TPAP_CREDENTIALS: credentials rejected. Check TAPO_USER/TAPO_PASS or run `denki login <email>`. Do not retry in a loop.".to_owned(),
         Error::Tapo(TapoResponseError::Unauthorized { kind: "TPAP_AUTH_ATTEMPTS_LIMIT", .. }) =>

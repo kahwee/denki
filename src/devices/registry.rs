@@ -87,12 +87,21 @@ pub fn lookup(model: &str) -> Option<&'static DeviceEntry> {
     all().iter().find(|d| d.model.eq_ignore_ascii_case(base))
 }
 
+/// A displayed command must retain its exact target without terminal controls or
+/// option-like names. These names can still be used explicitly by the caller.
+pub(crate) fn safe_hint_target(alias: &str) -> bool {
+    !alias.is_empty() && !alias.starts_with('-') && crate::output::is_terminal_safe(alias)
+}
+
 /// Quotes an untrusted value as one POSIX shell word for copy-pasteable hints.
 pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 pub fn hint_for(feature: &str, alias: &str) -> Option<String> {
+    if !safe_hint_target(alias) {
+        return None;
+    }
     let alias = shell_quote(alias);
     match feature {
         "dim" => Some(format!("denki dim {alias} 80")),
@@ -111,6 +120,9 @@ pub fn hint_for(feature: &str, alias: &str) -> Option<String> {
 }
 
 pub fn hints(entry: &DeviceEntry, alias: &str, is_on: bool) -> Vec<String> {
+    if !safe_hint_target(alias) {
+        return Vec::new();
+    }
     let action = if is_on { "off" } else { "on" };
     let mut out = vec![format!("denki {action} {}", shell_quote(alias))];
     for feature in &entry.supports {

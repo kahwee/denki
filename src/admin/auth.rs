@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 use anyhow::Result;
 
 use crate::creds;
@@ -10,7 +11,10 @@ pub fn handle_login(email: &str, password: Option<String>) -> Result<()> {
     };
     creds::save(email, &password)?;
     crate::output::record(serde_json::json!({"credentials_saved":true}));
-    crate::output::println!("Tapo credentials saved to {}", creds::path_display());
+    crate::output::println!(
+        "Tapo credentials saved to {}",
+        terminal_text(&creds::path_display())
+    );
     crate::output::println!(
         "(On Unix, only your account can read this file. Use TAPO_USER/TAPO_PASS env vars to override.)"
     );

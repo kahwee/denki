@@ -1,6 +1,7 @@
 use crate::devices::{self, DeviceKind};
 use crate::hosts;
 use crate::ops;
+use crate::output::terminal_text;
 use crate::resolve::{Resolved, resolve};
 use crate::strip;
 use anyhow::Result;
@@ -225,10 +226,15 @@ pub async fn handle_group(
             "Would turn {} {} alias(es) matching \"{}\":",
             action.as_verb(),
             matches.len(),
-            pattern
+            terminal_text(pattern)
         );
         for (alias, entry) in matches {
-            crate::output::println!("  {} [{}; {}]", alias.bold(), entry.ip, entry.protocol);
+            crate::output::println!(
+                "  {} [{}; {}]",
+                terminal_text(&alias).bold(),
+                terminal_text(&entry.ip),
+                entry.protocol
+            );
         }
         return Ok(());
     }
@@ -237,7 +243,7 @@ pub async fn handle_group(
         "Turning {} {} alias(es) matching \"{}\" (up to {} at once):",
         action.as_verb(),
         matches.len(),
-        pattern,
+        terminal_text(pattern),
         concurrency
     );
 
@@ -257,11 +263,16 @@ pub async fn handle_group(
             Ok(on) => crate::output::println!(
                 "  {} {} -> {}",
                 "OK".green().bold(),
-                outcome.alias,
+                terminal_text(&outcome.alias),
                 if on { "on" } else { "off" }
             ),
             Err(error) => {
-                eprintln!("  {} {}: {error:#}", "FAILED".red().bold(), outcome.alias);
+                eprintln!(
+                    "  {} {}: {}",
+                    "FAILED".red().bold(),
+                    terminal_text(&outcome.alias),
+                    terminal_text(&format!("{error:#}"))
+                );
                 failures.push(outcome.alias);
             }
         }

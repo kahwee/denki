@@ -132,3 +132,14 @@ fn sort_energy_entries_orders_ascending_by_key() {
 fn sort_energy_entries_empty_list() {
     assert!(sort_energy_entries(&[], "day").is_empty());
 }
+
+#[rstest]
+#[case(json!([]))]
+#[case(json!([1, 0]))]
+#[case(json!([1, 1, 1, 1, 1, 1, 1, 1]))]
+#[case(json!([1, 0, 0, 0, 0, 0, 2]))]
+#[case(json!([1, 0, 0, 0, 0, 0, "1"]))]
+#[case(json!([1, 0, 0, 0, 0, 0, null]))]
+fn malformed_weekdays_are_reported_without_panicking(#[case] value: serde_json::Value) {
+    assert_eq!(format_wday(value.as_array()), "invalid weekday data");
+}

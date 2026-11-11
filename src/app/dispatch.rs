@@ -117,9 +117,18 @@ pub async fn run() -> Result<()> {
                 let result = Err(crate::error::error("invalid_arguments", error.to_string()));
                 std::println!(
                     "{}",
-                    crate::output::envelope("parse", &result, serde_json::Value::Null)
+                    crate::output::json_text(&crate::output::envelope(
+                        "parse",
+                        &result,
+                        serde_json::Value::Null
+                    ))
                 );
                 return result;
+            }
+            if error.use_stderr() {
+                // clap includes user-supplied arguments in parse errors.
+                eprintln!("{}", crate::output::terminal_text(&error.to_string()));
+                std::process::exit(error.exit_code());
             }
             error.exit();
         }
@@ -134,7 +143,10 @@ pub async fn run() -> Result<()> {
     let command = cli.command.name();
     let (result, data) = crate::output::collect(cli.json, dispatch_command(cli.command)).await;
     if cli.json && !streaming {
-        std::println!("{}", crate::output::envelope(command, &result, data));
+        std::println!(
+            "{}",
+            crate::output::json_text(&crate::output::envelope(command, &result, data))
+        );
     }
     result
 }

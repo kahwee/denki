@@ -1,0 +1,135 @@
+use crate::tapo_vendor::error::Error;
+#[cfg(any())]
+use crate::tapo_vendor::responses::ChildDeviceComponentList;
+use crate::tapo_vendor::responses::{
+    ChildDeviceListPowerStripEnergyMonitoringResult, DeviceInfoPowerStripResult,
+    PowerStripPlugEnergyMonitoringResult,
+};
+
+use super::{Plug, PowerStripPlugEnergyMonitoringHandler};
+
+tapo_handler! {
+    /// Handler for the [P304M](https://www.tp-link.com/uk/search/?q=P304M) and
+    /// [P316M](https://www.tp-link.com/us/search/?q=P316M) devices.
+    PowerStripEnergyMonitoringHandler(DeviceInfoPowerStripResult),
+    device_management,
+}
+
+impl PowerStripEnergyMonitoringHandler {
+    /// Returns *child device list* as [`Vec<PowerStripPlugEnergyMonitoringResult>`].
+    /// It is not guaranteed to contain all the properties returned from the Tapo API.
+    /// If the deserialization fails, or if a property that you care about it's not present,
+    #[cfg_attr(
+        any(),
+        doc = "try [`PowerStripEnergyMonitoringHandler::get_child_device_list_json`] (requires the `debug` feature)."
+    )]
+    #[cfg_attr(
+        not(any()),
+        doc = "try `PowerStripEnergyMonitoringHandler::get_child_device_list_json` (requires the `debug` feature)."
+    )]
+    pub async fn get_child_device_list(
+        &self,
+    ) -> Result<Vec<PowerStripPlugEnergyMonitoringResult>, Error> {
+        self.client
+            .read()
+            .await
+            .get_child_device_list::<ChildDeviceListPowerStripEnergyMonitoringResult>(0)
+            .await
+            .map(|r| r.plugs)
+    }
+
+    /// Returns *child device list* as [`serde_json::Value`].
+    /// It contains all the properties returned from the Tapo API.
+    #[cfg(any())]
+    pub async fn get_child_device_list_json(&self) -> Result<serde_json::Value, Error> {
+        self.client.read().await.get_child_device_list(0).await
+    }
+
+    /// Returns *child device component list* as [`Vec<ChildDeviceComponentList>`].
+    /// This information is useful in debugging or when investigating new functionality to add.
+    #[cfg(any())]
+    pub async fn get_child_device_component_list(
+        &self,
+    ) -> Result<Vec<ChildDeviceComponentList>, Error> {
+        self.client
+            .read()
+            .await
+            .get_child_device_component_list()
+            .await
+    }
+}
+
+/// Child device handler builders.
+impl PowerStripEnergyMonitoringHandler {
+    /// Returns a [`PowerStripPlugEnergyMonitoringHandler`] for the given [`Plug`].
+    ///
+    /// # Arguments
+    ///
+    /// * `identifier` - a PowerStrip plug identifier.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # use tapo::{ApiClient, Plug};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Connect to the hub
+    /// let power_strip = ApiClient::new("tapo-username@example.com", "tapo-password")
+    ///     .p304("192.168.1.100")
+    ///     .await?;
+    /// // Get a handler for the child device
+    /// let device_id = "0000000000000000000000000000000000000000".to_string();
+    /// let device = power_strip.plug(Plug::ByDeviceId(device_id)).await?;
+    /// // Get the device info of the child device
+    /// let device_info = device.get_device_info().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn plug(
+        &self,
+        identifier: Plug,
+    ) -> Result<PowerStripPlugEnergyMonitoringHandler, Error> {
+        let children = self.get_child_device_list().await?;
+
+        let device_id = match identifier {
+            Plug::ByDeviceId(device_id) => children
+                .iter()
+                .find(|child| child.device_id == device_id)
+                .ok_or_else(|| Error::DeviceNotFound)?
+                .device_id
+                .clone(),
+            Plug::ByNickname(nickname) => children
+                .iter()
+                .find(|child| child.nickname == nickname)
+                .ok_or_else(|| Error::DeviceNotFound)?
+                .device_id
+                .clone(),
+            Plug::ByPosition(position) => children
+                .iter()
+                .find(|child| child.position == position)
+                .ok_or_else(|| Error::DeviceNotFound)?
+                .device_id
+                .clone(),
+        };
+
+        Ok(PowerStripPlugEnergyMonitoringHandler::new(
+            self.client.clone(),
+            device_id,
+        ))
+    }
+
+    /// Returns a [`PowerStripPlugEnergyMonitoringHandler`] for the given
+    /// `device_id` without first listing the power strip's plugs to verify
+    /// the device exists. The device id is trusted; if it is wrong,
+    /// subsequent operations on the returned handler will fail at request
+    /// time. Use this when you already have a valid device id (e.g. from a
+    /// prior [`PowerStripEnergyMonitoringHandler::get_child_device_list`]
+    /// call) to avoid the extra validation round-trip performed by
+    /// [`PowerStripEnergyMonitoringHandler::plug`].
+    pub fn plug_unchecked(
+        &self,
+        device_id: impl Into<String>,
+    ) -> PowerStripPlugEnergyMonitoringHandler {
+        PowerStripPlugEnergyMonitoringHandler::new(self.client.clone(), device_id.into())
+    }
+}

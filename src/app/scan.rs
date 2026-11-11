@@ -70,12 +70,14 @@ pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Resu
             Ok(changed) => {
                 dirty |= changed;
                 let alias = hosts::lookup_by_ip_in(&ip.to_string(), &map);
-                print_kasa_summary(ip, &response, alias.as_deref().unwrap_or(""));
-                results.push(json!({"ip":ip.to_string(),"protocol":"kasa","alias":alias,"status":"ok","registry_updated":changed,
+                // UDP discovery is not authenticated, even when the claimed ID
+                // matches. Do not turn it into a trusted physical-control hint.
+                print_kasa_summary(ip, &response, "");
+                results.push(json!({"ip":ip.to_string(),"protocol":"kasa","authenticated":false,"alias":alias,"status":"ok","registry_updated":changed,
                     "device":crate::output::sanitized(response["system"]["get_sysinfo"].clone())}));
             }
             Err(error) => {
-                eprintln!("{ip}: {error}");
+                eprintln!("{ip}: {}", crate::output::terminal_text(&error.to_string()));
                 results.push(json!({"ip":ip.to_string(),"protocol":"kasa","status":"error","error":crate::output::failure(&error)}));
             }
         }
@@ -115,7 +117,7 @@ pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Resu
                 results.push(json!({"ip":ip,"protocol":protocol,"alias":alias,"status":"ok","device":crate::output::sanitized(serde_json::to_value(device)?)}));
             }
             Err(error) => {
-                eprintln!("{ip}: {error}");
+                eprintln!("{ip}: {}", crate::output::terminal_text(&error.to_string()));
                 results.push(json!({"ip":ip,"protocol":protocol,"status":"error","error":crate::output::failure(&error)}));
             }
         }

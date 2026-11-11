@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
@@ -208,9 +209,9 @@ async fn inspect(host: &str) -> Result<DoctorReport> {
 }
 
 fn print_text(report: &DoctorReport) {
-    let label = report.alias.as_deref().unwrap_or(&report.ip);
+    let label = terminal_text(report.alias.as_deref().unwrap_or(&report.ip));
     crate::output::println!("{}", format!("Diagnostics: {label}").bold());
-    crate::output::println!("  Host:         {}", report.ip);
+    crate::output::println!("  Host:         {}", terminal_text(&report.ip));
     crate::output::println!("  Protocol:     {}", report.protocol);
     crate::output::println!(
         "  Reachable:    {}",
@@ -221,25 +222,28 @@ fn print_text(report: &DoctorReport) {
         }
     );
     if let Some(model) = &report.model {
-        crate::output::println!("  Model:        {model}");
+        crate::output::println!("  Model:        {}", terminal_text(model));
     }
     if let Some(kind) = &report.kind {
-        crate::output::println!("  Type:         {kind}");
+        crate::output::println!("  Type:         {}", terminal_text(kind));
     }
     if let Some(firmware) = &report.firmware_version {
-        crate::output::println!("  Firmware:     {firmware}");
+        crate::output::println!("  Firmware:     {}", terminal_text(firmware));
     }
     if let Some(on) = report.power_on {
         crate::output::println!("  Power:        {}", if on { "on" } else { "off" });
     }
     if !report.capabilities.is_empty() {
-        crate::output::println!("  Capabilities: {}", report.capabilities.join(", "));
+        crate::output::println!(
+            "  Capabilities: {}",
+            terminal_text(&report.capabilities.join(", "))
+        );
     }
     for warning in &report.warnings {
-        crate::output::println!("  {} {warning}", "Warning:".yellow());
+        crate::output::println!("  {} {}", "Warning:".yellow(), terminal_text(warning));
     }
     if let Some(error) = &report.error {
-        crate::output::println!("  {} {error}", "Error:".red().bold());
+        crate::output::println!("  {} {}", "Error:".red().bold(), terminal_text(error));
     }
 }
 

@@ -1,0 +1,14 @@
+use serde::{Deserialize, Serialize};
+
+/// Auto Off Status.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    any(),
+    pyo3::prelude::pyclass(from_py_object, get_all, eq, hash, frozen)
+)]
+#[allow(missing_docs)]
+pub enum AutoOffStatus {
+    On,
+    Off,
+}

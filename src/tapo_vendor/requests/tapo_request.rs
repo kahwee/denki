@@ -1,0 +1,151 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
+
+use super::{
+    AddTimerParams, ControlChildParams, DeviceRebootParams, GetChildDeviceListParams,
+    GetEnergyDataParams, GetPowerDataParams, GetScheduleRulesParams, GetTriggerLogsParams,
+    LightingEffect, MultipleRequestParams, PlayAlarmParams, RemoveScheduleRulesParams,
+    RemoveTimersParams, ScheduleRuleRaw, SecurePassthroughParams, SegmentEffect,
+    SendIrCmdByIdParams, SmartCamAddMotorPositionParams, SmartCamControlChildParams,
+    SmartCamDeletePresetParams, SmartCamGetChildDeviceListParams, SmartCamGetDeviceInfoParams,
+    SmartCamGetGeneralDeviceListParams, SmartCamGetPresetConfigParams, SmartCamGetTimezoneParams,
+    SmartCamMotorMoveParams, SmartCamMotorMoveToPresetParams, SmartCamRebootDeviceParams,
+    SmartCamSearchDateWithVideoParams, SmartCamSearchDetectionListParams,
+    SmartCamSearchVideoWithUtcParams, SmartCamSoftResetParams,
+};
+
+#[cfg(any())]
+use super::SmartCamGetAppComponentListParams;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "method")]
+pub(crate) enum TapoRequest {
+    #[cfg(any())]
+    #[serde(rename = "component_nego")]
+    ComponentNegotiation(TapoParams<EmptyParams>),
+    #[serde(rename = "securePassthrough")]
+    SecurePassthrough(TapoParams<SecurePassthroughParams>),
+    SetDeviceInfo(Box<TapoParams<serde_json::Value>>),
+    SetLightingEffect(Box<TapoParams<LightingEffect>>),
+    ApplySegmentEffectRule(Box<TapoParams<SegmentEffect>>),
+    DeviceReset(TapoParams<EmptyParams>),
+    DeviceReboot(TapoParams<DeviceRebootParams>),
+    GetDeviceInfo(TapoParams<EmptyParams>),
+    GetCurrentPower(TapoParams<EmptyParams>),
+    GetEmeterData(TapoParams<EmptyParams>),
+    GetDeviceUsage(TapoParams<EmptyParams>),
+    GetEnergyData(TapoParams<GetEnergyDataParams>),
+    GetEnergyUsage(TapoParams<EmptyParams>),
+    GetPowerData(TapoParams<GetPowerDataParams>),
+    GetDeviceTime(TapoParams<EmptyParams>),
+    GetChildDeviceList(TapoParams<GetChildDeviceListParams>),
+    #[cfg(any())]
+    GetChildDeviceComponentList(TapoParams<EmptyParams>),
+    ControlChild(Box<TapoParams<ControlChildParams>>),
+    // Child requests
+    #[serde(rename = "multipleRequest")]
+    MultipleRequest(Box<TapoParams<MultipleRequestParams>>),
+    GetTriggerLogs(Box<TapoParams<GetTriggerLogsParams>>),
+    #[serde(rename = "get_temp_humidity_records")]
+    GetTemperatureHumidityRecords(Box<TapoParams<EmptyParams>>),
+    PlayAlarm(TapoParams<PlayAlarmParams>),
+    StopAlarm(TapoParams<EmptyParams>),
+    #[cfg(any())]
+    #[serde(rename = "get_support_alarm_type_list")]
+    GetSupportedAlarmTypeList(TapoParams<EmptyParams>),
+    // IR remote requests. Unlike the other hub children, IR remotes are addressed
+    // with camelCase method names.
+    #[serde(rename = "getDeviceInfo")]
+    GetDeviceInfoCamelCase(TapoParams<EmptyParams>),
+    #[serde(rename = "sendIrCmdById")]
+    SendIrCmdById(TapoParams<SendIrCmdByIdParams>),
+    // Smart Camera requests
+    #[serde(rename = "getDeviceInfo")]
+    SmartCamGetDeviceInfo(TapoParams<SmartCamGetDeviceInfoParams>),
+    #[serde(rename = "getPresetConfig")]
+    SmartCamGetPresetConfig(TapoParams<SmartCamGetPresetConfigParams>),
+    #[serde(rename = "motorMove")]
+    SmartCamMotorMove(TapoParams<SmartCamMotorMoveParams>),
+    // The misspelling is the device's.
+    #[serde(rename = "addMotorPostion")]
+    SmartCamAddMotorPosition(TapoParams<SmartCamAddMotorPositionParams>),
+    #[serde(rename = "motorMoveToPreset")]
+    SmartCamMotorMoveToPreset(TapoParams<SmartCamMotorMoveToPresetParams>),
+    #[serde(rename = "deletePreset")]
+    SmartCamDeletePreset(TapoParams<SmartCamDeletePresetParams>),
+    #[serde(rename = "rebootDevice")]
+    SmartCamRebootDevice(TapoParams<SmartCamRebootDeviceParams>),
+    #[serde(rename = "softReset")]
+    SmartCamSoftReset(TapoParams<SmartCamSoftResetParams>),
+    #[serde(rename = "getChildDeviceList")]
+    SmartCamGetChildDeviceList(TapoParams<SmartCamGetChildDeviceListParams>),
+    // Shares the `childControl` pagination payload with `getChildDeviceList`.
+    #[cfg(any())]
+    #[serde(rename = "getChildDeviceComponentList")]
+    SmartCamGetChildDeviceComponentList(TapoParams<SmartCamGetChildDeviceListParams>),
+    #[cfg(any())]
+    #[serde(rename = "getAppComponentList")]
+    SmartCamGetAppComponentList(TapoParams<SmartCamGetAppComponentListParams>),
+    #[serde(rename = "getGeneralDeviceList")]
+    SmartCamGetGeneralDeviceList(TapoParams<SmartCamGetGeneralDeviceListParams>),
+    #[serde(rename = "getTimezone")]
+    SmartCamGetTimezone(TapoParams<SmartCamGetTimezoneParams>),
+    #[serde(rename = "searchDateWithVideo")]
+    SmartCamSearchDateWithVideo(TapoParams<SmartCamSearchDateWithVideoParams>),
+    #[serde(rename = "searchVideoWithUTC")]
+    SmartCamSearchVideoWithUtc(TapoParams<SmartCamSearchVideoWithUtcParams>),
+    #[serde(rename = "searchDetectionList")]
+    SmartCamSearchDetectionList(TapoParams<SmartCamSearchDetectionListParams>),
+    #[serde(rename = "controlChild")]
+    SmartCamControlChild(Box<TapoParams<SmartCamControlChildParams>>),
+    // Plug "Timer" (countdown) requests
+    AddCountdownRule(TapoParams<AddTimerParams>),
+    GetCountdownRules(TapoParams<EmptyObjectParams>),
+    RemoveCountdownRules(TapoParams<RemoveTimersParams>),
+    // Plug "Schedule" requests
+    AddScheduleRule(TapoParams<ScheduleRuleRaw>),
+    EditScheduleRule(TapoParams<ScheduleRuleRaw>),
+    GetScheduleRules(TapoParams<GetScheduleRulesParams>),
+    RemoveScheduleRules(TapoParams<RemoveScheduleRulesParams>),
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct EmptyParams;
+
+/// Serializes as `{}` instead of `null`. The P110 rejects
+/// `params: null` for `get_countdown_rules` with `-1008 PARAMS`.
+#[derive(Debug, Serialize)]
+pub(crate) struct EmptyObjectParams {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TapoParams<T> {
+    params: T,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_time_milis: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "terminalUUID")]
+    terminal_uuid: Option<String>,
+}
+
+impl<T> TapoParams<T> {
+    pub fn new(params: T) -> Self {
+        Self {
+            params,
+            request_time_milis: None,
+            terminal_uuid: None,
+        }
+    }
+
+    pub fn set_request_time_mils(mut self) -> anyhow::Result<Self> {
+        self.request_time_milis
+            .replace(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64);
+        Ok(self)
+    }
+
+    pub fn set_terminal_uuid(mut self, terminal_uuid: &str) -> Self {
+        self.terminal_uuid.replace(terminal_uuid.to_string());
+        self
+    }
+}

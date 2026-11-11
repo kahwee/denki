@@ -1,0 +1,488 @@
+use std::collections::HashMap;
+
+use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
+use serde::{Deserialize, Serialize};
+
+use crate::tapo_vendor::responses::TapoResponseExt;
+use crate::tapo_vendor::utils::{datetime_from_unix_seconds_or_rfc3339, local_day};
+
+/// Recording date list result (`searchDateWithVideo`).
+#[derive(Debug, Deserialize)]
+pub(crate) struct RecordingDateListHubResultRaw {
+    playback: RecordingDateListRaw,
+}
+
+impl RecordingDateListHubResultRaw {
+    /// The hub reports days on its own calendar, so `timezone` is the hub's,
+    /// as reported by `getTimezone`.
+    pub fn dates(self, timezone: Tz) -> Result<Vec<RecordingDateHubResult>, anyhow::Error> {
+        self.playback
+            .search_results
+            .into_iter()
+            .flat_map(HashMap::into_values)
+            .map(|entry| {
+                let date = NaiveDate::parse_from_str(&entry.date, "%Y%m%d")?;
+                hub_day(date, timezone)
+            })
+            .collect()
+    }
+}
+
+impl TapoResponseExt for RecordingDateListHubResultRaw {}
+
+#[derive(Debug, Deserialize)]
+struct RecordingDateListRaw {
+    /// Each date is wrapped in a single-key section object, e.g.
+    /// `{"search_results_1": {"date": "20260906"}}`.
+    #[serde(default)]
+    search_results: Vec<HashMap<String, RecordingDateRaw>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RecordingDateRaw {
+    date: String,
+}
+
+/// A day on a camera hub's calendar that has recordings for a camera paired to it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(any(), pyo3::prelude::pyclass(from_py_object, get_all))]
+pub struct RecordingDateHubResult {
+    /// The day, on the hub's calendar.
+    pub date: NaiveDate,
+    /// When the day starts on the hub, in UTC.
+    pub start_time: DateTime<Utc>,
+    /// The last second of the day on the hub, in UTC.
+    pub end_time: DateTime<Utc>,
+}
+
+#[cfg(any())]
+crate::tapo_vendor::impl_to_dict!(RecordingDateHubResult);
+
+/// Turns a day on the hub's calendar into the range of time it covers, from
+/// local midnight to a second before the next local midnight.
+fn hub_day(date: NaiveDate, timezone: Tz) -> Result<RecordingDateHubResult, anyhow::Error> {
+    let (start_time, end_time) = local_day(date, &timezone)?;
+
+    Ok(RecordingDateHubResult {
+        date,
+        start_time,
+        end_time,
+    })
+}
+
+/// Recording list result (`searchVideoWithUTC`).
+#[derive(Debug, Deserialize)]
+pub(crate) struct RecordingListHubResultRaw {
+    playback: RecordingListRaw,
+}
+
+impl RecordingListHubResultRaw {
+    pub fn recordings(self) -> Vec<RecordingHubResult> {
+        self.playback
+            .search_video_results
+            .into_iter()
+            .flat_map(HashMap::into_values)
+            .collect()
+    }
+}
+
+impl TapoResponseExt for RecordingListHubResultRaw {}
+
+#[derive(Debug, Deserialize)]
+struct RecordingListRaw {
+    /// Each recording is wrapped in a single-key section object, e.g.
+    /// `{"search_video_results_1": {"startTime": ..., "endTime": ..., "video_type": "2"}}`.
+    #[serde(default)]
+    search_video_results: Vec<HashMap<String, RecordingHubResult>>,
+}
+
+/// Recording stored on a camera hub for a camera paired to it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordingHubResult {
+    /// Start of the recording.
+    #[serde(
+        alias = "startTime",
+        deserialize_with = "datetime_from_unix_seconds_or_rfc3339"
+    )]
+    pub start_time: DateTime<Utc>,
+    /// End of the recording.
+    #[serde(
+        alias = "endTime",
+        deserialize_with = "datetime_from_unix_seconds_or_rfc3339"
+    )]
+    pub end_time: DateTime<Utc>,
+    /// The type of event that produced the recording.
+    pub video_type: RecordingType,
+}
+
+/// The type of event that produced a recording, or that a camera detected.
+/// The names follow the Tapo app's playback event table, whose codes the
+/// clip search sends as numeric strings and the detection list as numbers.
+/// It serializes as the variant name and deserializes from the name or the
+/// numeric string.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum RecordingType {
+    /// `1`: continuous (timing) recording.
+    #[serde(alias = "1")]
+    Timing,
+    /// `2`: motion detection.
+    #[serde(alias = "2")]
+    Motion,
+    /// `3`: camera tampering.
+    #[serde(alias = "3")]
+    Tamper,
+    /// `4`: line crossing detection.
+    #[serde(alias = "4")]
+    LineCrossing,
+    /// `5`: area intrusion detection.
+    #[serde(alias = "5")]
+    AreaIntrusion,
+    /// `6`: person detection.
+    #[serde(alias = "6")]
+    Person,
+    /// `7`: baby cry detection.
+    #[serde(alias = "7")]
+    BabyCry,
+    /// `8`: vehicle detection.
+    #[serde(alias = "8")]
+    Vehicle,
+    /// `9`: pet detection.
+    #[serde(alias = "9")]
+    Pet,
+    /// `10`: ring alarm.
+    #[serde(alias = "10")]
+    RingAlarm,
+    /// `11`: bark detection.
+    #[serde(alias = "11")]
+    Bark,
+    /// `12`: meow detection.
+    #[serde(alias = "12")]
+    Meow,
+    /// `13`: glass breaking detection.
+    #[serde(alias = "13")]
+    GlassBreaking,
+    /// `14`: smoke alarm detection.
+    #[serde(alias = "14")]
+    Smoke,
+    /// `15`: package delivered.
+    #[serde(alias = "15")]
+    PackageDelivered,
+    /// `16`: package picked up.
+    #[serde(alias = "16")]
+    PackagePickedUp,
+    /// `17`: missed doorbell ring.
+    #[serde(alias = "17")]
+    MissedDoorbellRing,
+    /// `18`: answered doorbell ring.
+    #[serde(alias = "18")]
+    AnsweredDoorbellRing,
+    /// `19`: anti-theft alarm.
+    #[serde(alias = "19")]
+    AntiTheft,
+    /// `20`: face detection.
+    #[serde(alias = "20")]
+    Face,
+    /// `21`: unfamiliar face detection.
+    #[serde(alias = "21")]
+    UnfamiliarFace,
+    /// `22`: unfamiliar person detection.
+    #[serde(alias = "22")]
+    UnfamiliarPerson,
+    /// `23`: baby leaving detection.
+    #[serde(alias = "23")]
+    BabyLeave,
+    /// `24`: baby caregiver detection.
+    #[serde(alias = "24")]
+    BabyCaregiver,
+    /// `25`: baby asleep detection.
+    #[serde(alias = "25")]
+    BabyAsleep,
+    /// `26`: baby waking up detection.
+    #[serde(alias = "26")]
+    BabyAwake,
+    /// `27`: covered face detection.
+    #[serde(alias = "27")]
+    FaceCover,
+    /// `28`: leaving the safety fence detection.
+    #[serde(alias = "28")]
+    SafeFenceOut,
+    /// `30`: baby motion detection.
+    #[serde(alias = "30")]
+    BabyMotion,
+    /// `31`: panoramic video.
+    #[serde(alias = "31")]
+    PanoramicVideo,
+    /// `33`: animal detection.
+    #[serde(alias = "33")]
+    Animal,
+    /// A recording type this library does not know yet, as its raw wire value.
+    #[serde(untagged)]
+    Other(String),
+}
+
+impl RecordingType {
+    /// The type for a code of the Tapo app's playback event table, which the
+    /// clip search sends as a numeric string and the detection list as a
+    /// number. A code this library does not know yet is `Other`, as its
+    /// decimal digits.
+    pub(crate) fn from_code(code: u64) -> Self {
+        match code {
+            1 => Self::Timing,
+            2 => Self::Motion,
+            3 => Self::Tamper,
+            4 => Self::LineCrossing,
+            5 => Self::AreaIntrusion,
+            6 => Self::Person,
+            7 => Self::BabyCry,
+            8 => Self::Vehicle,
+            9 => Self::Pet,
+            10 => Self::RingAlarm,
+            11 => Self::Bark,
+            12 => Self::Meow,
+            13 => Self::GlassBreaking,
+            14 => Self::Smoke,
+            15 => Self::PackageDelivered,
+            16 => Self::PackagePickedUp,
+            17 => Self::MissedDoorbellRing,
+            18 => Self::AnsweredDoorbellRing,
+            19 => Self::AntiTheft,
+            20 => Self::Face,
+            21 => Self::UnfamiliarFace,
+            22 => Self::UnfamiliarPerson,
+            23 => Self::BabyLeave,
+            24 => Self::BabyCaregiver,
+            25 => Self::BabyAsleep,
+            26 => Self::BabyAwake,
+            27 => Self::FaceCover,
+            28 => Self::SafeFenceOut,
+            30 => Self::BabyMotion,
+            31 => Self::PanoramicVideo,
+            33 => Self::Animal,
+            other => Self::Other(other.to_string()),
+        }
+    }
+
+    /// The types in a bit mask of event types, in which bit *n* stands for
+    /// the code *n + 1*, as the detection list sends them (`events_1`).
+    pub(crate) fn from_mask(mask: u64) -> Vec<Self> {
+        (0..u64::BITS)
+            .filter(|bit| mask & (1 << bit) != 0)
+            .map(|bit| Self::from_code(u64::from(bit) + 1))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The day `date` covers on a hub in `timezone`, as `(start_time, end_time)`.
+    fn day_range(timezone: Tz, date: &str) -> (String, String) {
+        let date = date.parse::<NaiveDate>().unwrap();
+        let day = hub_day(date, timezone).unwrap();
+
+        assert_eq!(day.date, date);
+
+        (day.start_time.to_rfc3339(), day.end_time.to_rfc3339())
+    }
+
+    #[test]
+    fn test_recording_dates_parse_from_section_entries() {
+        let json = r#"{
+            "playback": {
+                "search_results": [
+                    {"search_results_1": {"date": "20260801"}},
+                    {"search_results_2": {"date": "20260817"}}
+                ]
+            }
+        }"#;
+
+        let parsed: RecordingDateListHubResultRaw = serde_json::from_str(json).unwrap();
+        let dates = parsed.dates(Tz::Europe__Paris).unwrap();
+
+        assert_eq!(
+            dates.iter().map(|day| day.date).collect::<Vec<_>>(),
+            vec![
+                NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 8, 17).unwrap()
+            ]
+        );
+        assert_eq!(
+            dates[0].start_time,
+            "2026-07-31T22:00:00Z".parse::<DateTime<Utc>>().unwrap()
+        );
+        assert_eq!(
+            dates[0].end_time,
+            "2026-08-01T21:59:59Z".parse::<DateTime<Utc>>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_invalid_recording_date_is_an_error() {
+        let json =
+            r#"{"playback": {"search_results": [{"search_results_1": {"date": "not-a-date"}}]}}"#;
+
+        let parsed: RecordingDateListHubResultRaw = serde_json::from_str(json).unwrap();
+
+        assert!(parsed.dates(Tz::Europe__Paris).is_err());
+    }
+
+    #[test]
+    fn test_hub_day_covers_the_local_day() {
+        // Paris is two hours ahead of UTC in September.
+        assert_eq!(
+            day_range(Tz::Europe__Paris, "2026-09-08"),
+            (
+                "2026-09-07T22:00:00+00:00".to_string(),
+                "2026-09-08T21:59:59+00:00".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_hub_day_covers_a_day_the_clocks_go_back_on() {
+        // The clocks go back at 03:00 local on 2026-10-25, a 25 hour day.
+        assert_eq!(
+            day_range(Tz::Europe__Paris, "2026-10-25"),
+            (
+                "2026-10-24T22:00:00+00:00".to_string(),
+                "2026-10-25T22:59:59+00:00".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_hub_day_covers_a_day_the_clocks_go_forward_on() {
+        // The clocks go forward at 02:00 local on 2026-03-29, a 23 hour day.
+        assert_eq!(
+            day_range(Tz::Europe__Paris, "2026-03-29"),
+            (
+                "2026-03-28T23:00:00+00:00".to_string(),
+                "2026-03-29T21:59:59+00:00".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_hub_day_starts_where_a_skipped_midnight_jumps_to() {
+        // Chile's clocks go forward at midnight on 2026-09-06, so the day
+        // starts at 01:00 local, when they jump.
+        assert_eq!(
+            day_range(Tz::America__Santiago, "2026-09-06"),
+            (
+                "2026-09-06T04:00:00+00:00".to_string(),
+                "2026-09-07T02:59:59+00:00".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_hub_day_starts_at_the_first_of_two_midnights() {
+        // Cuba's clocks go back at 01:00 local on 2026-11-01, so midnight
+        // happens twice and the first one starts the day.
+        assert_eq!(
+            day_range(Tz::America__Havana, "2026-11-01"),
+            (
+                "2026-11-01T04:00:00+00:00".to_string(),
+                "2026-11-02T04:59:59+00:00".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_recordings_parse_from_section_entries() {
+        let json = r#"{
+            "playback": {
+                "search_video_results": [
+                    {"search_video_results_1": {"startTime": 1786694400, "endTime": 1786694460, "video_type": "2"}}
+                ]
+            }
+        }"#;
+
+        let parsed: RecordingListHubResultRaw = serde_json::from_str(json).unwrap();
+        let recordings = parsed.recordings();
+
+        assert_eq!(recordings.len(), 1);
+        assert_eq!(
+            recordings[0].start_time,
+            "2026-08-14T08:00:00Z".parse::<DateTime<Utc>>().unwrap()
+        );
+        assert_eq!(
+            recordings[0].end_time,
+            "2026-08-14T08:01:00Z".parse::<DateTime<Utc>>().unwrap()
+        );
+        assert_eq!(recordings[0].video_type, RecordingType::Motion);
+    }
+
+    #[test]
+    fn test_recording_round_trips_through_its_own_json() {
+        let recording = RecordingHubResult {
+            start_time: "2026-08-14T08:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+            end_time: "2026-08-14T08:01:00Z".parse::<DateTime<Utc>>().unwrap(),
+            video_type: RecordingType::Motion,
+        };
+
+        let json = serde_json::to_string(&recording).unwrap();
+
+        assert_eq!(
+            json,
+            r#"{"start_time":"2026-08-14T08:00:00Z","end_time":"2026-08-14T08:01:00Z","video_type":"Motion"}"#
+        );
+
+        let parsed: RecordingHubResult = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.start_time, recording.start_time);
+        assert_eq!(parsed.end_time, recording.end_time);
+        assert_eq!(parsed.video_type, recording.video_type);
+    }
+
+    #[test]
+    fn test_recording_type_from_code_matches_the_string_aliases() {
+        for code in 1..=33u64 {
+            let from_code = RecordingType::from_code(code);
+            let from_string: RecordingType =
+                serde_json::from_value(serde_json::Value::String(code.to_string())).unwrap();
+
+            assert_eq!(from_code, from_string, "code {code}");
+        }
+    }
+
+    #[test]
+    fn test_recording_types_from_mask() {
+        assert_eq!(RecordingType::from_mask(0), vec![]);
+        assert_eq!(RecordingType::from_mask(2), vec![RecordingType::Motion]);
+        assert_eq!(
+            RecordingType::from_mask(34),
+            vec![RecordingType::Motion, RecordingType::Person]
+        );
+        assert_eq!(
+            RecordingType::from_mask(66),
+            vec![RecordingType::Motion, RecordingType::BabyCry]
+        );
+        assert_eq!(
+            RecordingType::from_mask(1 << 63),
+            vec![RecordingType::Other("64".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_unknown_recording_type_parses_as_other() {
+        let json = r#"{
+            "playback": {
+                "search_video_results": [
+                    {"search_video_results_1": {"startTime": 0, "endTime": 1, "video_type": "99"}}
+                ]
+            }
+        }"#;
+
+        let parsed: RecordingListHubResultRaw = serde_json::from_str(json).unwrap();
+        let recordings = parsed.recordings();
+
+        assert_eq!(
+            recordings[0].video_type,
+            RecordingType::Other("99".to_string())
+        );
+    }
+}

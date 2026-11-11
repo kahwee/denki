@@ -12,6 +12,7 @@ const PORT: u16 = 9999;
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 // Generous enough for device info and history, but never trust a peer's allocation size.
 pub(crate) const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+const MAX_DISCOVERY_DEVICES: usize = 1024;
 
 pub(crate) fn validate_response_length(len: usize) -> Result<()> {
     anyhow::ensure!(
@@ -134,16 +135,36 @@ where
         tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await
     {
         let ip = addr.ip();
-        if !seen.insert(ip) {
-            continue; // duplicate response to multiple broadcasts
-        }
-        let decoded = cipher::decode(&buf[..n]);
-        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&decoded) {
+        if let Some(json) = discovery_response(ip, &buf[..n], &mut seen)? {
             f(ip, json);
             count += 1;
         }
     }
     Ok(count)
+}
+
+// Invalid replies must not reserve an IP ahead of a legitimate response.
+fn discovery_response(
+    ip: std::net::IpAddr,
+    packet: &[u8],
+    seen: &mut std::collections::HashSet<std::net::IpAddr>,
+) -> Result<Option<serde_json::Value>> {
+    if seen.contains(&ip) {
+        return Ok(None);
+    }
+    let decoded = cipher::decode(packet);
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&decoded) else {
+        return Ok(None);
+    };
+    if crate::ops::validate_sysinfo(&json).is_err() {
+        return Ok(None);
+    }
+    anyhow::ensure!(
+        seen.len() < MAX_DISCOVERY_DEVICES,
+        "Too many discovery responses; scan stopped at {MAX_DISCOVERY_DEVICES} devices"
+    );
+    seen.insert(ip);
+    Ok(Some(json))
 }
 
 #[cfg(test)]
@@ -238,5 +259,63 @@ mod tests {
             msg.contains("offline") || msg.contains("wrong network"),
             "{msg}"
         );
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn valid_packet() -> Vec<u8> {
+        let response = serde_json::json!({"system":{"get_sysinfo":{
+            "err_code":0,"model":"KP115(US)","mic_type":"IOT.SMARTPLUGSWITCH",
+            "alias":"Test Plug","deviceId":"synthetic-device","hw_ver":"1.0",
+            "sw_ver":"1.0","rssi":-42,"relay_state":0,"feature":"TIM:ENE","on_time":0
+        }}});
+        cipher::encode_raw(&serde_json::to_vec(&response).unwrap())
+    }
+
+    #[test]
+    fn malformed_discovery_cannot_suppress_later_valid_reply() {
+        let ip = "192.0.2.1".parse().unwrap();
+        for malformed in [
+            vec![],
+            cipher::encode_raw(b"not JSON"),
+            cipher::encode_raw(b"{}"),
+            cipher::encode_raw(br#"{"system":{"get_sysinfo":{"err_code":-1}}}"#),
+        ] {
+            let mut seen = HashSet::new();
+            assert!(
+                discovery_response(ip, &malformed, &mut seen)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(seen.is_empty());
+            assert!(
+                discovery_response(ip, &valid_packet(), &mut seen)
+                    .unwrap()
+                    .is_some()
+            );
+            assert_eq!(seen.len(), 1);
+            assert!(
+                discovery_response(ip, &valid_packet(), &mut seen)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn discovery_retained_results_are_bounded() {
+        let mut seen = (0..MAX_DISCOVERY_DEVICES)
+            .map(|i| IpAddr::V4(Ipv4Addr::from(u32::try_from(i).unwrap())))
+            .collect::<HashSet<_>>();
+        let before = seen.clone();
+        let error = discovery_response("192.0.2.1".parse().unwrap(), &valid_packet(), &mut seen)
+            .unwrap_err();
+        assert!(error.to_string().contains("Too many discovery responses"));
+        assert_eq!(seen, before);
     }
 }

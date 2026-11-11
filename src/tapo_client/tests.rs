@@ -1,5 +1,5 @@
 use super::*;
-use ::tapo::TapoResponseError;
+use crate::tapo_vendor::TapoResponseError;
 
 fn fixture(on: bool) -> DeviceInfoPlugResult {
     serde_json::from_value(serde_json::json!({
@@ -133,4 +133,14 @@ fn parse_errors_preserve_stage_without_response_contents() {
     assert!(message.contains("information read"));
     assert!(message.contains("parse"));
     assert!(!message.contains("private"));
+}
+
+#[test]
+fn oversized_auto_tapo_response_has_bounded_structured_diagnostic() {
+    let error = upstream_error("connection/authentication", Error::ResponseTooLarge);
+    assert_eq!(crate::error::code(&error), "malformed_response");
+    assert_eq!(
+        error.to_string(),
+        "Tapo connection/authentication: HTTP response exceeds the 1048576-byte limit"
+    );
 }

@@ -1,0 +1,114 @@
+use std::time::Duration;
+
+use crate::tapo_vendor::error::Error;
+use crate::tapo_vendor::requests::ScheduleRule;
+use crate::tapo_vendor::responses::{
+    DeviceInfoPlugResult, DeviceUsageResult, PowerState, ScheduleRuleResult, Timer,
+};
+
+tapo_handler! {
+    /// Handler for the [P100](https://www.tapo.com/en/search/?q=P100),
+    /// [P105](https://www.tapo.com/en/search/?q=P105), [P125](https://www.tapo.com/en/search/?q=P125),
+    /// [P125M](https://www.tapo.com/en/search/?q=P125M) and
+    /// [TP10](https://www.tapo.com/en/search/?q=TP10) devices.
+    PlugHandler(DeviceInfoPlugResult),
+    on_off,
+    device_usage = DeviceUsageResult,
+    device_management,
+}
+
+impl PlugHandler {
+    /// Arms the plug's countdown timer (the "Timer" feature in the
+    /// Tapo app), replacing any timer that is currently armed.
+    /// After `delay`, the plug transitions to `desired_state`.
+    ///
+    /// # Arguments
+    ///
+    /// * `delay` - between 1 second and 24 hours, the maximum the Tapo app allows.
+    /// * `desired_state` - the state the plug transitions to when the timer fires.
+    pub async fn set_timer(
+        &self,
+        delay: Duration,
+        desired_state: PowerState,
+    ) -> Result<Timer, Error> {
+        self.client
+            .read()
+            .await
+            .set_timer(delay, desired_state)
+            .await
+    }
+
+    /// Returns the armed timer, or `None` if no timer is armed.
+    pub async fn get_timer(&self) -> Result<Option<Timer>, Error> {
+        self.client.read().await.get_timer().await
+    }
+
+    /// Cancels the armed timer (the "Stop" button in the Tapo app),
+    /// or returns successfully if no timer was armed.
+    pub async fn clear_timer(&self) -> Result<(), Error> {
+        self.client.read().await.clear_timer().await
+    }
+
+    /// Adds a new schedule rule to the device. Returns it as a
+    /// [`ScheduleRuleResult`] carrying the device-assigned `id`. Schedule rules fire on the device
+    /// itself, so they keep working even if the phone / Wi-Fi router / Tapo
+    /// cloud is offline.
+    ///
+    /// # Arguments
+    ///
+    /// * `rule` - the rule to add; build one with the [`ScheduleRule`]
+    ///   builders. Any `id` it carries is ignored, because the device assigns
+    ///   one.
+    ///
+    /// The device has a fixed capacity (a P110 stores 32 rules) and returns
+    /// a device error once it is full.
+    pub async fn add_schedule_rule(&self, rule: ScheduleRule) -> Result<ScheduleRuleResult, Error> {
+        self.client.read().await.add_schedule_rule(rule).await
+    }
+
+    /// Edits an existing schedule rule, replacing it with the given one.
+    ///
+    /// # Arguments
+    ///
+    /// * `rule` - the replacement rule. Its `id` must be set to the id of the
+    ///   rule to update, either from `add_schedule_rule` /
+    ///   `get_schedule_rules` or via [`ScheduleRule::with_id`]; an unset id is
+    ///   an `Error::Validation`, and an id the device does not know is a
+    ///   device error.
+    pub async fn edit_schedule_rule(&self, rule: ScheduleRule) -> Result<(), Error> {
+        self.client.read().await.edit_schedule_rule(rule).await
+    }
+
+    /// Returns every schedule rule currently stored on the device. A rule the
+    /// library cannot parse is skipped rather than failing the whole listing.
+    pub async fn get_schedule_rules(&self) -> Result<Vec<ScheduleRuleResult>, Error> {
+        self.client.read().await.get_schedule_rules().await
+    }
+
+    /// Returns how many schedule rules the device can store in total, as
+    /// reported by the device itself. A P110 stores 32. Compare against the
+    /// length of `get_schedule_rules` to tell whether there is room for
+    /// another rule, because `add_schedule_rule` fails once the device is
+    /// full.
+    pub async fn get_max_schedule_rules(&self) -> Result<u32, Error> {
+        self.client.read().await.get_max_schedule_rules().await
+    }
+
+    /// Removes a single schedule rule, leaving every other rule in place.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - the device-assigned id of the rule to remove.
+    pub async fn remove_schedule_rule(&self, id: impl Into<String>) -> Result<(), Error> {
+        self.client
+            .read()
+            .await
+            .remove_schedule_rule(id.into())
+            .await
+    }
+
+    /// Removes every schedule rule from the device.
+    pub async fn remove_all_schedule_rules(&self) -> Result<(), Error> {
+        self.client.read().await.remove_all_schedule_rules().await
+    }
+}
