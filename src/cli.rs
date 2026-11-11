@@ -20,6 +20,9 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Scan Kasa devices and saved Tapo aliases; save new names without replacing existing aliases
+    ///
+    /// Kasa discovery cannot authenticate address changes. Verify a moved device's IP
+    /// independently, then update its saved name with `denki alias NAME IP`.
     Scan {
         #[arg(short, long, default_value = "5")]
         timeout: u64,

@@ -34,6 +34,10 @@ denki on "desk plug"
 denki off "desk plug"
 ```
 
+Scan never moves a saved Kasa alias based on an unauthenticated device ID. After a
+DHCP change, verify the new address independently (for example, in your router),
+then run `denki alias "desk plug" NEW_IP`. See [discovery](docs/commands.md#discover-devices).
+
 For a Tapo P125, save its address and TP-Link account credentials:
 
 ```sh

@@ -252,29 +252,43 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         assert_eq!(value["error"]["code"], "identity_mismatch");
         assert_eq!(peer.mutations(), 0);
     }
-    // Reconcile an actual address change then use the retained custom name via the CLI.
+    // An unauthenticated copied ID cannot redirect a trusted alias to the peer.
+    // Only an explicit alias update may accept a verified Kasa address change.
     {
-        let _peer = Peer::start(|r, _| reply(r));
+        let peer = Peer::start(|r, _| reply(r));
         let mut map = std::collections::BTreeMap::new();
         map.insert(
             "custom desk".into(),
             denki::hosts::HostEntry {
-                ip: "192.0.2.9".into(),
+                ip: "127.0.0.2".into(),
                 protocol: denki::hosts::Protocol::Kasa,
                 device_id: Some("synthetic-device-a".into()),
             },
         );
-        assert!(
-            denki::hosts::reconcile_in(
-                "Factory Name",
-                "127.0.0.1",
-                denki::hosts::Protocol::Kasa,
-                Some("synthetic-device-a"),
-                &mut map
-            )
-            .unwrap()
-        );
+        let original = map.clone();
+        let error = denki::hosts::reconcile_in(
+            "Factory Name",
+            "127.0.0.1",
+            denki::hosts::Protocol::Kasa,
+            Some("synthetic-device-a"),
+            &mut map,
+        )
+        .unwrap_err();
+        assert_eq!(denki::error::code(&error), "identity_rebind_required");
+        assert_eq!(map, original);
         aliases(&config, serde_json::to_value(map).unwrap());
+        assert!(
+            !run(&config, &["on", "custom desk", "--json"])
+                .status
+                .success()
+        );
+        assert!(peer.requests.lock().unwrap().is_empty());
+        assert_eq!(peer.mutations(), 0);
+        assert!(
+            run(&config, &["alias", "custom desk", "127.0.0.1"])
+                .status
+                .success()
+        );
         assert_eq!(
             document(&run(&config, &["on", "custom desk", "--json"]))["status"],
             "ok"

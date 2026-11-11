@@ -31,8 +31,10 @@ denki info "desk plug"
 ```
 
 Replace `desk plug` with your own alias. Scan saves discovered devices and their
-identities. Later scans can update their addresses after DHCP changes while
-preserving your chosen names.
+identities, but Kasa replies cannot authenticate an address change. If DHCP moves
+a Kasa device, verify its new IP independently (for example, in your router), then
+update the saved name with `denki alias "desk plug" NEW_IP`. Scan will not move it
+automatically, even if a reply claims the same device ID.
 
 If discovery does not find a device, look up its IP in your router and add it:
 

@@ -41,7 +41,8 @@ pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Resu
     crate::output::println!("Scanning network for {timeout}s...");
     let mut found = Vec::new();
     transport::broadcast_each(timeout, |ip, response| found.push((ip, response))).await?;
-    // Reconcile known identities before learning new devices, including swapped leases.
+    // Process known identities first. Kasa replies may confirm their saved
+    // address, but an unauthenticated deviceId must never move an alias.
     found.sort_by_key(|(_, response)| {
         let id = response
             .pointer("/system/get_sysinfo/deviceId")

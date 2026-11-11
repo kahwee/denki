@@ -62,9 +62,19 @@ is `null` in JSON or empty in CSV; it does not mean zero consumption.
 ## Identity mismatch
 
 The saved address now reports a different device identity, or none. Denki stops
-before sending control commands. Run scan to reconcile known identities and check
-your router's device list. Do not delete the saved identity just to bypass the
-check; first verify which physical device owns the address.
+before sending control commands. First verify which physical device owns the
+address, for example in your router's device list. Do not delete the saved identity
+just to bypass the check. For Kasa, explicitly update a verified address with
+`denki alias NAME IP`; scan cannot authenticate a Kasa address change. For Tapo,
+scan can reconcile an authenticated identity (use `--tapo-target IP` for a new IP).
+
+## Kasa address change requires confirmation
+
+`identity_rebind_required` means a discovery reply claims a saved Kasa device ID
+from a different IP. It may be a legitimate DHCP move or a forged LAN reply. Scan
+keeps the saved aliases unchanged. Verify the address independently, then update
+each affected alias with `denki alias NAME IP`. Repeating scan alone will not
+authorize the move.
 
 ## Registry conflict or malformed configuration
 

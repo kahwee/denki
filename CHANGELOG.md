@@ -5,6 +5,13 @@ are on `main` and are not part of the published tags below.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject Kasa discovery replies that try to move a saved device ID to another IP.
+  Unauthenticated discovery can no longer persistently redirect existing aliases.
+  Verify legitimate DHCP changes independently and update each affected alias with
+  `denki alias NAME IP`; authenticated Tapo reconciliation remains available.
+
 ### Changed
 
 - Refresh compatible locked crypto, TLS and TOML dependencies, including AES
