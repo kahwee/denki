@@ -1,8 +1,8 @@
 use crate::bulb::{LightState, LightingEffectState};
 use colored::{ColoredString, Colorize};
 
-pub(crate) fn short_fw(fw: &str) -> &str {
-    fw.split_whitespace().next().unwrap_or(fw)
+pub(crate) fn short_fw(fw: &str) -> String {
+    crate::output::terminal_text(fw.split_whitespace().next().unwrap_or(fw))
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -63,7 +63,7 @@ pub(crate) fn on_state_detail(is_on: bool) -> ColoredString {
 }
 
 pub(crate) fn header(name: &str) -> ColoredString {
-    format!("== {name} ==").bold()
+    format!("== {} ==", crate::output::terminal_text(name)).bold()
 }
 
 pub(crate) fn signal_label(rssi: i32) -> colored::ColoredString {
@@ -131,7 +131,7 @@ pub(crate) fn print_light_effect_detail(effect: Option<&LightingEffectState>) {
         } else {
             "Off"
         };
-        crate::output::println!("  Effect:     {}", name);
+        crate::output::println!("  Effect:     {}", crate::output::terminal_text(name));
     }
 }
 
@@ -172,11 +172,14 @@ pub(crate) fn format_wday(wday: Option<&Vec<serde_json::Value>>) -> String {
     let Some(days) = wday else {
         return "every day".to_string();
     };
-    let active: Vec<&str> = days
-        .iter()
-        .enumerate()
-        .filter(|(_, v)| v.as_u64().unwrap_or(0) == 1)
-        .map(|(i, _)| LABELS[i])
+    if days.len() != LABELS.len() || days.iter().any(|v| !matches!(v.as_u64(), Some(0 | 1))) {
+        return "invalid weekday data".to_string();
+    }
+    let active: Vec<&str> = LABELS
+        .into_iter()
+        .zip(days)
+        .filter(|(_, v)| v.as_u64() == Some(1))
+        .map(|(label, _)| label)
         .collect();
     match active.len() {
         0 => "no days".to_string(),

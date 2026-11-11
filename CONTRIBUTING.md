@@ -158,12 +158,10 @@ push, pull-request, and manual runs retain the full checks. Separate concurrency
 groups keep a scheduled audit from cancelling a full CI run. GitHub may delay
 scheduled jobs; the cron time is the requested start, not a delivery guarantee.
 
-The pinned Tapo dependency brings `rsa`, whose timing advisory
-[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) has no
-patched release. `.cargo/audit.toml` records the scoped exception: Tapo 0.12.0
-only generates a discovery key and exports the public key, with no RSA decryption
-or signing. Reassess the call sites whenever Tapo/RSA changes or another RSA
-consumer is introduced. All other advisories remain checked.
+The bundled Tapo transport uses `rsa` 0.10.0 or newer, which fixes
+[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html).
+No advisory exceptions are configured. Keep the dependency audit enabled and
+review new advisories and the bundled transport whenever dependencies change.
 
 ## Documentation website
 

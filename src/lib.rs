@@ -30,3 +30,5 @@ pub mod display;
 
 #[cfg(test)]
 pub(crate) mod test_support;
+
+mod tapo_vendor;

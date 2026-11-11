@@ -199,8 +199,15 @@ fn lookup_in(
         0 => Ok(None),
         1 => Ok(Some(hits[0].1.clone())),
         _ => {
-            let names: Vec<&str> = hits.iter().map(|(k, _)| k.as_str()).collect();
-            anyhow::bail!("\"{}\" is ambiguous; matches: {}", name, names.join(", "))
+            let names: Vec<String> = hits
+                .iter()
+                .map(|(k, _)| crate::output::terminal_text(k))
+                .collect();
+            anyhow::bail!(
+                "\"{}\" is ambiguous; matches: {}",
+                crate::output::terminal_text(name),
+                names.join(", ")
+            )
         }
     }
 }
@@ -339,6 +346,17 @@ pub fn reconcile_in(
     device_id: Option<&str>,
     map: &mut BTreeMap<String, HostEntry>,
 ) -> Result<bool> {
+    // A UDP claim must never create a Kasa alias at an authenticated peer's
+    // saved address or make IP-based resolution select the wrong protocol.
+    if map
+        .values()
+        .any(|entry| same_ip(&entry.ip, ip) && entry.protocol != protocol)
+    {
+        return Err(crate::error::error(
+            "protocol_conflict",
+            "Discovered address is saved with a different protocol; verify the device and update its aliases explicitly",
+        ));
+    }
     let id = device_id.filter(|id| !id.trim().is_empty());
     if let Some(id) = id {
         let matches: Vec<String> = map
@@ -1012,5 +1030,108 @@ mod transaction_tests {
         })
         .unwrap();
         assert!(load_map(&path).unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod discovery_protocol_tests {
+    use super::*;
+
+    #[test]
+    fn unauthenticated_discovery_cannot_borrow_or_conflict_with_tapo_aliases() {
+        for protocol in [Protocol::Klap, Protocol::Tapo] {
+            for claimed_id in [None, Some("trusted-id"), Some("attacker-id")] {
+                let mut map = BTreeMap::from([(
+                    "Trusted Tapo".into(),
+                    HostEntry {
+                        ip: "192.0.2.1".into(),
+                        protocol: protocol.clone(),
+                        device_id: Some("trusted-id".into()),
+                    },
+                )]);
+                let before = map.clone();
+                let error = reconcile_in(
+                    "Attacker",
+                    "192.0.2.1",
+                    Protocol::Kasa,
+                    claimed_id,
+                    &mut map,
+                )
+                .unwrap_err();
+                assert_eq!(crate::error::code(&error), "protocol_conflict");
+                assert_eq!(map, before);
+            }
+        }
+    }
+
+    #[test]
+    fn conflicting_protocol_is_rejected_before_identity_rebinding() {
+        let mut map = BTreeMap::from([
+            (
+                "Kasa".into(),
+                HostEntry {
+                    ip: "192.0.2.1".into(),
+                    protocol: Protocol::Kasa,
+                    device_id: Some("kasa-id".into()),
+                },
+            ),
+            (
+                "Tapo".into(),
+                HostEntry {
+                    ip: "192.0.2.2".into(),
+                    protocol: Protocol::Tapo,
+                    device_id: Some("tapo-id".into()),
+                },
+            ),
+        ]);
+        let before = map.clone();
+        assert!(
+            reconcile_in(
+                "Kasa",
+                "192.0.2.2",
+                Protocol::Kasa,
+                Some("kasa-id"),
+                &mut map
+            )
+            .is_err()
+        );
+        assert!(
+            reconcile_in(
+                "Tapo",
+                "192.0.2.1",
+                Protocol::Tapo,
+                Some("tapo-id"),
+                &mut map
+            )
+            .is_err()
+        );
+        assert_eq!(map, before);
+    }
+
+    #[test]
+    fn ambiguous_alias_errors_escape_untrusted_terminal_controls() {
+        let map = BTreeMap::from([
+            (
+                "Office \u{1b}]52;c;payload\u{7}".into(),
+                HostEntry {
+                    ip: "192.0.2.1".into(),
+                    protocol: Protocol::Kasa,
+                    device_id: None,
+                },
+            ),
+            (
+                "Office\r\nFORGED\u{202e}".into(),
+                HostEntry {
+                    ip: "192.0.2.2".into(),
+                    protocol: Protocol::Kasa,
+                    device_id: None,
+                },
+            ),
+        ]);
+        let message = lookup_in("office", &map).unwrap_err().to_string();
+        assert!(crate::output::is_terminal_safe(&message));
+        assert!(message.contains("\\u{1b}"));
+        assert!(message.contains("\\r\\n"));
+        assert!(message.contains("\\u{202e}"));
     }
 }

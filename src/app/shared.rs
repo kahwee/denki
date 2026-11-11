@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 use anyhow::{Result, bail};
 use colored::Colorize;
 use std::net::IpAddr;
@@ -74,14 +75,69 @@ pub(super) fn print_kasa_detail(ip: &str, json: &serde_json::Value, hint: &str) 
         DeviceKind::Tapo | DeviceKind::Unknown(_) => {
             eprintln!(
                 "{}",
-                format!("Detailed info is not available for {kind} yet. Raw sysinfo from {ip}:")
-                    .yellow()
+                terminal_text(&format!(
+                    "Detailed info is not available for {kind} yet. Device information from {ip}:"
+                ))
+                .yellow()
             );
-            crate::output::println!(
-                "{}",
-                serde_json::to_string_pretty(json).unwrap_or_else(|_| json.to_string())
-            );
+            // Keep identifier redaction consistent with the structured info result.
+            let sanitized = crate::output::sanitized(json.clone());
+            // JSON escapes data newlines; preserve only the pretty printer's layout.
+            for line in serde_json::to_string_pretty(&sanitized)
+                .unwrap_or_else(|_| sanitized.to_string())
+                .lines()
+            {
+                crate::output::println!("{}", terminal_text(line));
+            }
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_detail_fixture() {
+        if std::env::var_os("DENKI_UNKNOWN_DETAIL_FIXTURE").is_none() {
+            return;
+        }
+        colored::control::set_override(false);
+        let json = serde_json::json!({"system":{"get_sysinfo":{
+            "alias":"visible\u{202e}\u{9b}2J",
+            "mic_type":"unknown\x1b]52;c;YQ==\x07",
+            "model":"unsupported", "mac":"private-mac-sentinel",
+            "deviceId":"private-device-sentinel", "ssid":"private-wifi-sentinel"
+        }}});
+        print_kasa_detail("192.0.2.1", &json, "").unwrap();
+        assert_eq!(json["system"]["get_sysinfo"]["mac"], "private-mac-sentinel");
+    }
+
+    #[test]
+    fn unknown_details_redact_identifiers_and_escape_text() {
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "app::shared::tests::unknown_detail_fixture",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("DENKI_UNKNOWN_DETAIL_FIXTURE", "1")
+            .output()
+            .unwrap();
+        assert!(result.status.success());
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        assert!(stdout.contains("visible\\u{202e}\\u{9b}2J"));
+        assert!(!stdout.contains("private-"));
+        assert!(
+            stdout.contains('\n'),
+            "pretty JSON layout should remain readable"
+        );
+        for text in [&stdout, &String::from_utf8(result.stderr).unwrap()] {
+            for c in text.chars().filter(|c| *c != '\n') {
+                assert!(crate::output::is_terminal_safe(&c.to_string()), "{text:?}");
+            }
+        }
+    }
 }

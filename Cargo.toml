@@ -49,9 +49,34 @@ toml = "1.1.8"
 if-addrs = "0.15.0"
 rpassword = "7.5.4"
 tempfile = "3.27.0"
-tapo = "=0.12.2"
+# The bounded Auto Tapo implementation is bundled in src/tapo_vendor.
+# Do not replace it with the upstream crate until it enforces streaming limits.
+
+async-trait = { version = "0.1" }
+base16ct = { version = "1.0", features = ["alloc"] }
+ccm = { version = "0.6" }
+chrono = { version = "0.4.34", features = ["clock", "serde"], default-features = false }
+chrono-tz = { version = "0.10", features = ["serde"] }
+crc32fast = { version = "1.5" }
+hkdf = { version = "0.13" }
+hmac = { version = "0.13" }
+itertools = { version = "0.15" }
+lazy_static = { version = "1.5" }
+log = { version = "0.4" }
+md-5 = { version = "0.11" }
+p256 = { version = "0.14", features = ["arithmetic"], default-features = false }
+pbkdf2 = { version = "0.13" }
+reqwest = { version = "0.13", features = ["cookies", "json", "rustls"], default-features = false }
+retina = { version = "0.4" }
+rsa = { version = "0.10.0", features = ["getrandom"] }
+serde_with = { version = "3.20" }
+sha-crypt = { version = "0.6", default-features = false }
+thiserror = { version = "2.0" }
+tokio-stream = { version = "0.1" }
+uuid = { version = "1.23", features = ["serde", "v4"] }
 
 [dev-dependencies]
+once_cell = "1.21"
 rstest = "0.28.0"
 proptest = "1.12.0"
 insta = "1.49.0"

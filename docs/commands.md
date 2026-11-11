@@ -72,9 +72,23 @@ unreachable Tapo address is reported as a failed probe even if another probe
 finds the device at its new address. Saved identity mismatches stop commands before
 sending mutations.
 
-Malformed discovery replies and failed Tapo probes are reported individually;
-partial scans return nonzero and retain their successful results. Tapo probes
-are limited to four concurrent connections.
+Malformed UDP replies are ignored before deduplication, so a bad packet cannot
+hide a later valid response from the same address. A scan accepts at most 1,024
+valid Kasa sources; exceeding that limit stops the scan without saving discoveries.
+Conflicting identities, conflicting saved protocols, and failed Tapo probes are
+reported individually; those partial scans return nonzero and retain successful
+results. Tapo probes are limited to four concurrent connections.
+
+Kasa scan summaries do not recommend physical-control commands: a spoofed reply
+must not borrow the authority of a saved alias. Their JSON records include
+`authenticated: false`. `info` remains available when you explicitly choose a
+verified target. Command hints use POSIX shell quoting and are omitted for empty
+aliases, option-like aliases, or aliases containing terminal controls. Device names, firmware, effects,
+and errors are escaped in human-readable output. JSON escapes terminal-active
+Unicode while retaining original parsed values. CSV protects formula-leading string cells with an apostrophe; numeric measurements
+remain numeric. CSV printed directly to a terminal also escapes display controls.
+Use JSON/JSONL when exact original string values are required. Treat downloaded
+or piped CSV as data rather than replaying it into a terminal.
 
 ### Inspect and control power
 

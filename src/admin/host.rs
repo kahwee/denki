@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 use anyhow::{Result, bail};
 use colored::Colorize;
 
@@ -48,7 +49,10 @@ pub async fn handle_clock(host: &str) -> Result<()> {
     if let Some(line) = format_clock(&resp) {
         crate::output::println!("{line}");
     } else {
-        bail!("Unexpected response from {}: no time data", ctx.ip());
+        bail!(
+            "Unexpected response from {}: no time data",
+            terminal_text(ctx.ip())
+        );
     }
     Ok(())
 }
@@ -57,7 +61,7 @@ pub async fn handle_rename(host: &str, name: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "rename").await?;
     ops::rename(ctx.ip(), name).await?;
     crate::output::record(serde_json::json!({"name":name}));
-    crate::output::println!("Renamed to \"{}\"", name.bold());
+    crate::output::println!("Renamed to \"{}\"", terminal_text(name).bold());
     Ok(())
 }
 
@@ -65,7 +69,7 @@ pub async fn handle_restart(host: &str) -> Result<()> {
     let ctx = KasaContext::load(host, "restart").await?;
     ops::restart(ctx.ip()).await?;
     crate::output::record(serde_json::json!({"restarting":true}));
-    crate::output::println!("{} rebooting...", ctx.ip());
+    crate::output::println!("{} rebooting...", terminal_text(ctx.ip()));
     Ok(())
 }
 
@@ -91,8 +95,8 @@ pub async fn handle_outlet_rename(host: &str, outlet: u8, name: &str) -> Result<
     crate::output::println!(
         "Outlet {} renamed: {} → {}",
         outlet,
-        child_alias,
-        name.bold()
+        terminal_text(&child_alias),
+        terminal_text(name).bold()
     );
     Ok(())
 }

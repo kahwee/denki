@@ -9,3 +9,6 @@ pub use bulbs::*;
 pub use energy::*;
 pub use strip::*;
 pub use tapo::*;
+
+#[cfg(test)]
+mod tests;

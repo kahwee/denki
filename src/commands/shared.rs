@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 use anyhow::Result;
 use colored::Colorize;
 
@@ -95,17 +96,26 @@ pub(crate) fn power_state_label(is_on: bool) -> colored::ColoredString {
 
 pub(crate) fn print_power_state(ip: &str, is_on: bool) {
     crate::output::record(serde_json::json!({"ip":ip,"power_on":is_on}));
-    crate::output::println!("{} {}", ip, power_state_label(is_on));
+    crate::output::println!("{} {}", terminal_text(ip), power_state_label(is_on));
 }
 
 pub(crate) fn print_outlet_power_state(outlet: u8, alias: &str, is_on: bool) {
     crate::output::record(serde_json::json!({"outlet":outlet,"alias":alias,"power_on":is_on}));
-    crate::output::println!("Outlet {} ({}) {}", outlet, alias, power_state_label(is_on));
+    crate::output::println!(
+        "Outlet {} ({}) {}",
+        outlet,
+        terminal_text(alias),
+        power_state_label(is_on)
+    );
 }
 
 pub(crate) fn print_outlet_toggle_state(outlet: u8, alias: &str, now_on: bool) {
     crate::output::record(serde_json::json!({"outlet":outlet,"alias":alias,"power_on":now_on}));
-    crate::output::println!("Outlet {outlet} ({alias}) -> {}", power_state_label(now_on));
+    crate::output::println!(
+        "Outlet {outlet} ({}) -> {}",
+        terminal_text(alias),
+        power_state_label(now_on)
+    );
 }
 
 pub(crate) async fn resolve_power_target(

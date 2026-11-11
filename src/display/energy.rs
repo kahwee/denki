@@ -1,4 +1,5 @@
 use super::common::{format_energy_lines, format_wday, sort_energy_entries};
+use crate::output::terminal_text;
 use crate::tapo::TapoEnergyUsage;
 use colored::Colorize;
 
@@ -65,7 +66,7 @@ pub fn print_schedules(json: &serde_json::Value) {
                 action,
                 time,
                 days,
-                name.bold(),
+                terminal_text(name).bold(),
                 status
             );
         }
@@ -87,7 +88,10 @@ pub fn print_energy_realtime(json: &serde_json::Value) {
                 .get("err_msg")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown error");
-            crate::output::println!("{}", format!("Energy not supported: {msg}").yellow());
+            crate::output::println!(
+                "{}",
+                format!("Energy not supported: {}", terminal_text(msg)).yellow()
+            );
             return;
         }
         for line in format_energy_lines(d) {
@@ -108,7 +112,10 @@ pub fn print_energy_daily(json: &serde_json::Value, month: &str) {
         .and_then(|v| v.as_array());
 
     if let Some(list) = days {
-        crate::output::println!("{}", format!("Daily energy usage for {month}:").bold());
+        crate::output::println!(
+            "{}",
+            format!("Daily energy usage for {}:", terminal_text(month)).bold()
+        );
         for (day, wh) in sort_energy_entries(list, "day") {
             let bar = "#".repeat((wh / 10).min(40) as usize);
             crate::output::println!("  Day {:2}: {:4} Wh  {}", day, wh, bar.yellow());

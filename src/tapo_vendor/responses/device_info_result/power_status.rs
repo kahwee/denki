@@ -1,0 +1,50 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    any(),
+    pyo3::prelude::pyclass(from_py_object, get_all, eq, hash, frozen)
+)]
+#[allow(missing_docs)]
+pub enum ChargingStatus {
+    Finished,
+    Normal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    any(),
+    pyo3::prelude::pyclass(from_py_object, get_all, eq, hash, frozen)
+)]
+#[allow(missing_docs)]
+pub enum OvercurrentStatus {
+    Lifted,
+    Normal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    any(),
+    pyo3::prelude::pyclass(from_py_object, get_all, eq, hash, frozen)
+)]
+#[allow(missing_docs)]
+pub enum OverheatStatus {
+    CoolDown,
+    Normal,
+    Overheated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(
+    any(),
+    pyo3::prelude::pyclass(from_py_object, get_all, eq, hash, frozen)
+)]
+#[allow(missing_docs)]
+pub enum PowerProtectionStatus {
+    Normal,
+    Overloaded,
+}

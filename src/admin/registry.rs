@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 use anyhow::{Result, bail};
 use colored::Colorize;
 
@@ -7,7 +8,7 @@ fn format_alias_rows(list: &[(String, hosts::HostEntry)]) -> String {
     if list.is_empty() {
         return format!(
             "No saved aliases. Use `denki alias <name> <ip> [--klap | --tapo]` to add one.\nFile: {}",
-            hosts::path_display()
+            terminal_text(&hosts::path_display())
         );
     }
 
@@ -22,13 +23,15 @@ fn format_alias_rows(list: &[(String, hosts::HostEntry)]) -> String {
     for (name, entry) in list {
         out.push_str(&format!(
             "{:<30} {:<18} {}\n",
-            name, entry.ip, entry.protocol
+            terminal_text(name),
+            terminal_text(&entry.ip),
+            entry.protocol
         ));
     }
     out.push_str(&format!(
         "({} aliases in {})",
         list.len(),
-        hosts::path_display()
+        terminal_text(&hosts::path_display())
     ));
     out
 }
@@ -53,14 +56,19 @@ pub fn handle_alias(name: &str, ip: &str, klap: bool, tapo: bool) -> Result<()> 
     } else {
         "".normal()
     };
-    crate::output::println!("Saved: {} → {}{}", name.bold(), ip, tag);
+    crate::output::println!(
+        "Saved: {} → {}{}",
+        terminal_text(name).bold(),
+        terminal_text(ip),
+        tag
+    );
     Ok(())
 }
 
 pub fn handle_unalias(name: &str) -> Result<()> {
     if hosts::remove(name)? {
         crate::output::record(serde_json::json!({"removed":name}));
-        crate::output::println!("Removed alias \"{name}\"");
+        crate::output::println!("Removed alias \"{}\"", terminal_text(name));
     } else {
         bail!("No alias named \"{name}\" found");
     }

@@ -1,3 +1,4 @@
+use crate::output::terminal_text;
 // Device name/IP resolution and protocol guards for the CLI.
 
 use crate::{hosts, strip};
@@ -34,7 +35,15 @@ fn not_found(input: &str) -> anyhow::Error {
 pub async fn resolve(input: &str) -> Result<Resolved> {
     let r = resolve_quiet(input)?;
     if let Some(name) = &r.saved_name {
-        crate::output::println!("{}", format!("Using alias \"{name}\" [{}]", r.ip).dimmed());
+        crate::output::println!(
+            "{}",
+            format!(
+                "Using alias \"{}\" [{}]",
+                terminal_text(name),
+                terminal_text(&r.ip)
+            )
+            .dimmed()
+        );
     }
     Ok(r)
 }

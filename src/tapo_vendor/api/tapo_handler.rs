@@ -1,0 +1,888 @@
+/// Generates common handler boilerplate for Tapo device handlers.
+///
+/// # Usage
+///
+/// ```ignore
+/// tapo_handler! {
+///     /// Doc comment for the handler.
+///     Handler(DeviceInfoResult),
+///     on_off,
+///     device_usage = DeviceUsageResult,
+///     device_management,
+/// }
+/// ```
+///
+/// All options (`on_off`, `device_usage`, `device_management`) are independently optional.
+///
+/// # Generated code
+///
+/// * `#[derive(Debug)]` struct with `client: Arc<RwLock<ApiClient>>`, `ip: String`
+///   and `port: u16` fields
+/// * `new(client, address)` constructor, which takes a logged-in client and
+///   the IP address and the port that it reached the device at
+/// * `address()` method
+/// * `refresh_session()` method
+/// * `get_device_info()` method (typed)
+/// * `get_device_info_json()` method
+/// * `on()` and `off()` methods (if `on_off` specified)
+/// * `get_device_usage()` method (if `device_usage = Type` specified)
+/// * `device_reboot()` and `device_reset()` methods (if `device_management` specified)
+/// * `impl HandlerExt` with `get_client()`
+macro_rules! tapo_handler {
+    // With on_off + device_usage + device_management
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        on_off,
+        device_usage = $device_usage:ty,
+        device_management,
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+        tapo_handler!(@on_off $name);
+        tapo_handler!(@device_usage $name, $device_usage);
+        tapo_handler!(@device_management $name);
+    };
+
+    // With on_off + device_usage only
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        on_off,
+        device_usage = $device_usage:ty,
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+        tapo_handler!(@on_off $name);
+        tapo_handler!(@device_usage $name, $device_usage);
+    };
+
+    // With on_off + device_management only
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        on_off,
+        device_management,
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+        tapo_handler!(@on_off $name);
+        tapo_handler!(@device_management $name);
+    };
+
+    // With on_off only
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        on_off,
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+        tapo_handler!(@on_off $name);
+    };
+
+    // With device_usage + device_management
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        device_usage = $device_usage:ty,
+        device_management,
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+        tapo_handler!(@device_usage $name, $device_usage);
+        tapo_handler!(@device_management $name);
+    };
+
+    // With device_usage only
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        device_usage = $device_usage:ty,
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+        tapo_handler!(@device_usage $name, $device_usage);
+    };
+
+    // With device_management only
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        device_management,
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+        tapo_handler!(@device_management $name);
+    };
+
+    // No options
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+    ) => {
+        tapo_handler!(@base $(#[$meta])* $name($device_info));
+    };
+
+    // Internal: base struct + core methods + HandlerExt
+    (@base $(#[$meta:meta])* $name:ident($device_info:ty)) => {
+        $(#[$meta])*
+        #[derive(Debug)]
+        pub struct $name {
+            client: std::sync::Arc<tokio::sync::RwLock<crate::tapo_vendor::api::ApiClient>>,
+            ip: String,
+            port: u16,
+        }
+
+        impl $name {
+            pub(crate) fn new(client: crate::tapo_vendor::api::ApiClient, (ip, port): (String, u16)) -> Self {
+                Self {
+                    client: std::sync::Arc::new(tokio::sync::RwLock::new(client)),
+                    ip,
+                    port,
+                }
+            }
+        }
+
+        tapo_handler!(@methods $name($device_info));
+        tapo_handler!(@handler_ext $name);
+    };
+
+    // Internal: shared methods (refresh_session, get_device_info, etc.)
+    // Also called directly by handlers that declare their own struct, such
+    // as `CameraHubHandler`.
+    (@methods $name:ident($device_info:ty)) => {
+        impl $name {
+            /// Returns the IP address and the port that the handler reaches
+            /// the device at. Pass them to an [`ApiClient`](crate::tapo_vendor::ApiClient)
+            /// builder as `"{ip}:{port}"` to reach the device again.
+            pub fn address(&self) -> (String, u16) {
+                (self.ip.clone(), self.port)
+            }
+
+            /// Refreshes the authentication session.
+            pub async fn refresh_session(&mut self) -> Result<&mut Self, crate::tapo_vendor::error::Error> {
+                self.client.write().await.refresh_session().await?;
+                Ok(self)
+            }
+
+            #[doc = concat!(
+                "Returns *device info* as [`", stringify!($device_info), "`].\n",
+                "It is not guaranteed to contain all the properties returned from the Tapo API.\n",
+                "If the deserialization fails, or if a property that you care about it's not present,",
+            )]
+            #[cfg_attr(any(), doc = concat!(
+                "try [`", stringify!($name), "::get_device_info_json`] (requires the `debug` feature).",
+            ))]
+            #[cfg_attr(not(any()), doc = concat!(
+                "try `", stringify!($name), "::get_device_info_json` (requires the `debug` feature).",
+            ))]
+            pub async fn get_device_info(&self) -> Result<$device_info, crate::tapo_vendor::error::Error> {
+                self.client.read().await.get_device_info().await
+            }
+
+            /// Returns *device info* as [`serde_json::Value`].
+            /// It contains all the properties returned from the Tapo API.
+            #[cfg(any())]
+            pub async fn get_device_info_json(
+                &self,
+            ) -> Result<serde_json::Value, crate::tapo_vendor::error::Error> {
+                self.client.read().await.get_device_info().await
+            }
+
+            /// Returns the *component list* of the device.
+            /// This information is useful in debugging or when investigating new functionality to add.
+            #[cfg(any())]
+            pub async fn get_component_list(
+                &self,
+            ) -> Result<Vec<crate::tapo_vendor::responses::Component>, crate::tapo_vendor::error::Error> {
+                self.client.read().await.get_component_list().await
+            }
+        }
+    };
+
+    // Internal: HandlerExt impl
+    // Also called directly by handlers that declare their own struct, such
+    // as `CameraHubHandler`.
+    (@handler_ext $name:ident) => {
+        #[async_trait::async_trait]
+        impl crate::tapo_vendor::api::HandlerExt for $name {
+            async fn get_client(
+                &self,
+            ) -> tokio::sync::RwLockReadGuard<'_, dyn crate::tapo_vendor::api::ApiClientExt> {
+                tokio::sync::RwLockReadGuard::map(
+                    self.client.read().await,
+                    |client: &crate::tapo_vendor::api::ApiClient| -> &dyn crate::tapo_vendor::api::ApiClientExt { client },
+                )
+            }
+        }
+    };
+
+    // Internal: on_off
+    (@on_off $name:ident) => {
+        impl $name {
+            /// Turns *on* the device.
+            pub async fn on(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                let json = serde_json::to_value(
+                    crate::tapo_vendor::requests::GenericSetDeviceInfoParams::device_on(true)?,
+                )?;
+                crate::tapo_vendor::api::ApiClientExt::set_device_info(&*self.client.read().await, json).await
+            }
+
+            /// Turns *off* the device.
+            pub async fn off(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                let json = serde_json::to_value(
+                    crate::tapo_vendor::requests::GenericSetDeviceInfoParams::device_on(false)?,
+                )?;
+                crate::tapo_vendor::api::ApiClientExt::set_device_info(&*self.client.read().await, json).await
+            }
+        }
+    };
+
+    // Internal: device_usage
+    (@device_usage $name:ident, $device_usage:ty) => {
+        impl $name {
+            #[doc = concat!("Returns *device usage* as [`", stringify!($device_usage), "`].")]
+            pub async fn get_device_usage(&self) -> Result<$device_usage, crate::tapo_vendor::error::Error> {
+                self.client.read().await.get_device_usage().await
+            }
+        }
+    };
+
+    // Internal: device_management
+    (@device_management $name:ident) => {
+        impl $name {
+            /// *Reboots* the device.
+            ///
+            /// Notes:
+            /// * Using a very small delay (e.g. 0 seconds) may cause a `ConnectionReset` or `TimedOut` error as the device reboots immediately.
+            /// * Using a larger delay (e.g. 2-3 seconds) allows the device to respond before rebooting, reducing the chance of errors.
+            /// * With larger delays, the method completes successfully before the device reboots.
+            ///   However, subsequent commands may fail if sent during the reboot process or before the device reconnects to the network.
+            ///
+            /// # Arguments
+            ///
+            /// * `delay_s` - The delay in seconds before the device is rebooted.
+            pub async fn device_reboot(&self, delay_s: u16) -> Result<(), crate::tapo_vendor::error::Error> {
+                crate::tapo_vendor::api::ApiClientExt::device_reboot(&*self.client.read().await, delay_s).await
+            }
+
+            /// *Hardware resets* the device.
+            ///
+            /// **Warning**: This action will reset the device to its factory settings.
+            /// The connection to the Wi-Fi network and the Tapo app will be lost,
+            /// and the device will need to be reconfigured.
+            ///
+            /// This feature is especially useful when the device is difficult to access
+            /// and requires reconfiguration.
+            pub async fn device_reset(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                crate::tapo_vendor::api::ApiClientExt::device_reset(&*self.client.read().await).await
+            }
+        }
+    };
+}
+
+/// Generates common handler boilerplate for Tapo child device handlers (hub child devices,
+/// power strip plugs, etc.).
+///
+/// # Usage
+///
+/// ```ignore
+/// tapo_child_handler! {
+///     /// Doc comment for the handler.
+///     ChildHandler(DeviceInfoResult),
+///     on_off,
+/// }
+/// ```
+///
+/// The `on_off` option is optional. Alternatively, `trigger_logs = EventType,` generates
+/// `get_trigger_logs()` returning `TriggerLogsResult<EventType>`, whose entries are `TriggerLog<EventType>`.
+/// Another alternative, `camel_case_device_info,`, makes `get_device_info` and
+/// `get_device_info_json` use the camelCase `getDeviceInfo` method, which is how IR remotes are addressed.
+///
+/// # Generated code
+///
+/// * Struct with `client: Arc<RwLock<ApiClient>>` and `device_id: String` fields
+/// * `new(client, device_id)` constructor
+/// * `get_device_info()` method (typed)
+/// * `get_device_info_json()` method
+/// * `on()` and `off()` methods (if `on_off` specified)
+/// * `get_trigger_logs()` method (if `trigger_logs = EventType` specified)
+macro_rules! tapo_child_handler {
+    // With on_off
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        on_off,
+    ) => {
+        tapo_child_handler!(@base $(#[$meta])* $name($device_info), GetDeviceInfo);
+        tapo_child_handler!(@on_off $name);
+    };
+
+    // With trigger_logs
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        trigger_logs = $log:ty,
+    ) => {
+        tapo_child_handler!(@base $(#[$meta])* $name($device_info), GetDeviceInfo);
+        tapo_child_handler!(@trigger_logs $name, $log);
+    };
+
+    // With a camelCase `getDeviceInfo` request
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+        camel_case_device_info,
+    ) => {
+        tapo_child_handler!(@base $(#[$meta])* $name($device_info), GetDeviceInfoCamelCase);
+    };
+
+    // No options
+    (
+        $(#[$meta:meta])*
+        $name:ident($device_info:ty),
+    ) => {
+        tapo_child_handler!(@base $(#[$meta])* $name($device_info), GetDeviceInfo);
+    };
+
+    // Internal: base struct + core methods
+    (@base $(#[$meta:meta])* $name:ident($device_info:ty), $get_device_info:ident) => {
+        $(#[$meta])*
+        pub struct $name {
+            client: std::sync::Arc<tokio::sync::RwLock<crate::tapo_vendor::api::ApiClient>>,
+            device_id: String,
+        }
+
+        impl $name {
+            pub(crate) fn new(
+                client: std::sync::Arc<tokio::sync::RwLock<crate::tapo_vendor::api::ApiClient>>,
+                device_id: String,
+            ) -> Self {
+                Self { client, device_id }
+            }
+
+            #[doc = concat!(
+                "Returns *device info* as [`", stringify!($device_info), "`].\n",
+                "It is not guaranteed to contain all the properties returned from the Tapo API.\n",
+                "If the deserialization fails, or if a property that you care about it's not present,",
+            )]
+            #[cfg_attr(any(), doc = concat!(
+                "try [`", stringify!($name), "::get_device_info_json`] (requires the `debug` feature).",
+            ))]
+            #[cfg_attr(not(any()), doc = concat!(
+                "try `", stringify!($name), "::get_device_info_json` (requires the `debug` feature).",
+            ))]
+            pub async fn get_device_info(&self) -> Result<$device_info, crate::tapo_vendor::error::Error> {
+                let request = crate::tapo_vendor::requests::TapoRequest::$get_device_info(
+                    crate::tapo_vendor::requests::TapoParams::new(crate::tapo_vendor::requests::EmptyParams),
+                );
+
+                self.client
+                    .read()
+                    .await
+                    .control_child::<$device_info>(self.device_id.clone(), request)
+                    .await?
+                    .ok_or_else(|| {
+                        crate::tapo_vendor::error::Error::Tapo(crate::tapo_vendor::error::TapoResponseError::EmptyResult)
+                    })
+                    .map(|result| crate::tapo_vendor::responses::DecodableResultExt::decode(result))?
+            }
+
+            /// Returns *device info* as [`serde_json::Value`].
+            /// It contains all the properties returned from the Tapo API.
+            #[cfg(any())]
+            pub async fn get_device_info_json(
+                &self,
+            ) -> Result<serde_json::Value, crate::tapo_vendor::error::Error> {
+                let request = crate::tapo_vendor::requests::TapoRequest::$get_device_info(
+                    crate::tapo_vendor::requests::TapoParams::new(crate::tapo_vendor::requests::EmptyParams),
+                );
+
+                self.client
+                    .read()
+                    .await
+                    .control_child::<serde_json::Value>(self.device_id.clone(), request)
+                    .await?
+                    .ok_or_else(|| {
+                        crate::tapo_vendor::error::Error::Tapo(crate::tapo_vendor::error::TapoResponseError::EmptyResult)
+                    })
+            }
+
+            /// Returns the *component list* of the device.
+            /// This information is useful in debugging or when investigating new functionality to add.
+            #[cfg(any())]
+            pub async fn get_component_list(
+                &self,
+            ) -> Result<Vec<crate::tapo_vendor::responses::Component>, crate::tapo_vendor::error::Error> {
+                let request = crate::tapo_vendor::requests::TapoRequest::ComponentNegotiation(
+                    crate::tapo_vendor::requests::TapoParams::new(crate::tapo_vendor::requests::EmptyParams),
+                );
+
+                let result: crate::tapo_vendor::responses::ComponentListResult = self
+                    .client
+                    .read()
+                    .await
+                    .control_child(self.device_id.clone(), request)
+                    .await?
+                    .ok_or_else(|| {
+                        crate::tapo_vendor::error::Error::Tapo(crate::tapo_vendor::error::TapoResponseError::EmptyResult)
+                    })?;
+
+                Ok(result.component_list)
+            }
+        }
+    };
+
+    // Internal: on_off for child devices
+    (@on_off $name:ident) => {
+        impl $name {
+            /// Turns *on* the device.
+            pub async fn on(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                let json = serde_json::to_value(
+                    crate::tapo_vendor::requests::GenericSetDeviceInfoParams::device_on(true)?,
+                )?;
+                let request = crate::tapo_vendor::requests::TapoRequest::SetDeviceInfo(
+                    Box::new(crate::tapo_vendor::requests::TapoParams::new(json)),
+                );
+
+                self.client
+                    .read()
+                    .await
+                    .control_child::<serde_json::Value>(self.device_id.clone(), request)
+                    .await?;
+
+                Ok(())
+            }
+
+            /// Turns *off* the device.
+            pub async fn off(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                let json = serde_json::to_value(
+                    crate::tapo_vendor::requests::GenericSetDeviceInfoParams::device_on(false)?,
+                )?;
+                let request = crate::tapo_vendor::requests::TapoRequest::SetDeviceInfo(
+                    Box::new(crate::tapo_vendor::requests::TapoParams::new(json)),
+                );
+
+                self.client
+                    .read()
+                    .await
+                    .control_child::<serde_json::Value>(self.device_id.clone(), request)
+                    .await?;
+
+                Ok(())
+            }
+        }
+    };
+
+    // Internal: trigger logs for hub sensors
+    (@trigger_logs $name:ident, $log:ty) => {
+        impl $name {
+            /// Returns a list of *trigger logs*.
+            ///
+            /// # Arguments
+            ///
+            /// * `page_size` - the maximum number of log items to return
+            /// * `start_id` - the log item `id` from which to start returning results in reverse chronological order (newest first)
+            ///
+            /// Use a `start_id` of `0` to get the most recent X logs, where X is capped by `page_size`.
+            pub async fn get_trigger_logs(
+                &self,
+                page_size: u64,
+                start_id: u64,
+            ) -> Result<crate::tapo_vendor::responses::TriggerLogsResult<$log>, crate::tapo_vendor::error::Error> {
+                let params = crate::tapo_vendor::requests::GetTriggerLogsParams::new(page_size, start_id);
+                let request = crate::tapo_vendor::requests::TapoRequest::GetTriggerLogs(Box::new(
+                    crate::tapo_vendor::requests::TapoParams::new(params),
+                ));
+
+                self.client
+                    .read()
+                    .await
+                    .control_child(self.device_id.clone(), request)
+                    .await?
+                    .ok_or_else(|| {
+                        crate::tapo_vendor::error::Error::Tapo(crate::tapo_vendor::error::TapoResponseError::EmptyResult)
+                    })
+            }
+        }
+    };
+}
+
+/// Generates the alarm (siren) methods shared by the hub handlers with a siren (H100, H110):
+/// `get_supported_ringtone_list`, `play_alarm` and `stop_alarm`.
+macro_rules! hub_alarm_handlers {
+    ($name:ident) => {
+        /// Hub alarm methods.
+        impl $name {
+            /// Returns a list of ringtones (alarm types) supported by the hub.
+            /// This information is useful in debugging or when investigating new functionality to add.
+            #[cfg(any())]
+            pub async fn get_supported_ringtone_list(
+                &self,
+            ) -> Result<Vec<String>, crate::tapo_vendor::error::Error> {
+                self.client
+                    .read()
+                    .await
+                    .get_supported_alarm_type_list()
+                    .await
+                    .map(|response| response.alarm_type_list)
+            }
+
+            /// Start playing the hub alarm.
+            pub async fn play_alarm(
+                &self,
+                ringtone: crate::tapo_vendor::requests::AlarmRingtone,
+                volume: crate::tapo_vendor::requests::AlarmVolume,
+                duration: crate::tapo_vendor::requests::AlarmDuration,
+            ) -> Result<(), crate::tapo_vendor::error::Error> {
+                self.client
+                    .read()
+                    .await
+                    .play_alarm(crate::tapo_vendor::requests::PlayAlarmParams::new(
+                        ringtone, volume, duration,
+                    )?)
+                    .await
+            }
+
+            /// Stop playing the hub alarm, if it's currently playing.
+            pub async fn stop_alarm(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                self.client.read().await.stop_alarm().await
+            }
+        }
+    };
+}
+
+/// Generates `device_reboot` and `device_reset` for SmartCam handlers, which
+/// take neither the delay nor the requests of the Smart protocol ones.
+macro_rules! camera_device_management_handlers {
+    ($name:ident) => {
+        impl $name {
+            /// *Reboots* the device.
+            ///
+            /// The device reboots right away. Subsequent commands may fail if sent during
+            /// the reboot process or before the device reconnects to the network.
+            pub async fn device_reboot(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                let request = crate::tapo_vendor::requests::TapoRequest::SmartCamRebootDevice(
+                    crate::tapo_vendor::requests::TapoParams::new(
+                        crate::tapo_vendor::requests::SmartCamRebootDeviceParams::new(),
+                    ),
+                );
+
+                self.client
+                    .read()
+                    .await
+                    .execute_smart_cam_command(request)
+                    .await
+            }
+
+            /// *Hardware resets* the device.
+            ///
+            /// **Warning**: This action will reset the device to its factory settings.
+            /// The connection to the Wi-Fi network and the Tapo app will be lost,
+            /// and the device will need to be reconfigured.
+            ///
+            /// This feature is especially useful when the device is difficult to access
+            /// and requires reconfiguration.
+            pub async fn device_reset(&self) -> Result<(), crate::tapo_vendor::error::Error> {
+                let request = crate::tapo_vendor::requests::TapoRequest::SmartCamSoftReset(
+                    crate::tapo_vendor::requests::TapoParams::new(
+                        crate::tapo_vendor::requests::SmartCamSoftResetParams::factory(),
+                    ),
+                );
+
+                self.client
+                    .read()
+                    .await
+                    .execute_smart_cam_command(request)
+                    .await
+            }
+        }
+    };
+}
+
+/// Generates the detection methods shared by the camera handlers
+/// (`CameraHandler`, `CameraPtzHandler`): `get_detections`. The `builder`
+/// is the [`ApiClient`](crate::tapo_vendor::ApiClient) method that the doc example
+/// creates the handler with.
+macro_rules! camera_detection_handlers {
+    ($name:ident, builder = $builder:ident) => {
+        /// Camera detection methods.
+        impl $name {
+            /// Returns the detections stored on the camera's SD card within the
+            /// given time range (`searchDetectionList`), as
+            /// [`Vec<DetectionResult>`](crate::tapo_vendor::responses::DetectionResult).
+            /// Each comes with its start, its end, the event the camera filed it
+            /// under and every event detected in that span, such as a person
+            /// and motion. Like the Tapo app, all pages are fetched, up to
+            /// 12,300 detections, oldest first.
+            ///
+            /// The camera keeps this index on its SD card, whether it records
+            /// continuously or on detection only.
+            ///
+            /// # Arguments
+            ///
+            /// * `start_time` - the start of the search range.
+            /// * `end_time` - the end of the search range, at most 24 hours after `start_time`.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if `end_time` is before `start_time` or more
+            /// than 24 hours after it, which the camera would reject, if
+            /// either is before 1970, or if the camera has no SD card
+            /// (`STORAGE_NOT_EXIST`).
+            ///
+            /// # Example
+            ///
+            /// ```ignore
+            /// # use tapo::ApiClient;
+            /// # #[tokio::main]
+            /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+            #[doc = concat!(
+                "let device = ApiClient::new(\"tapo-username@example.com\", \"tapo-password\")
+",
+                "    .", stringify!($builder), "(\"192.168.1.100\")
+",
+                "    .await?;
+",
+            )]
+            ///
+            /// let end_time = chrono::Utc::now();
+            /// let start_time = end_time - chrono::Duration::hours(1);
+            /// let detections = device.get_detections(start_time, end_time).await?;
+            ///
+            /// for detection in detections {
+            ///     println!(
+            ///         "{} to {}: {:?} ({:?})",
+            ///         detection.start_time, detection.end_time, detection.trigger, detection.events
+            ///     );
+            /// }
+            /// # Ok(())
+            /// # }
+            /// ```
+            pub async fn get_detections(
+                &self,
+                start_time: chrono::DateTime<chrono::Utc>,
+                end_time: chrono::DateTime<chrono::Utc>,
+            ) -> Result<Vec<crate::tapo_vendor::responses::DetectionResult>, crate::tapo_vendor::error::Error> {
+                self.client
+                    .read()
+                    .await
+                    .get_detections(start_time, end_time)
+                    .await
+            }
+        }
+    };
+}
+
+/// Generates the stream methods shared by the camera handlers (`CameraHandler`, `CameraPtzHandler`):
+/// `get_rtsp_stream_url` and `get_snapshot`.
+macro_rules! camera_stream_handlers {
+    ($name:ident) => {
+        /// Camera stream methods.
+        impl $name {
+            /// Returns the RTSP stream URLs for the camera.
+            ///
+            /// The credentials are the **camera account** credentials set in the Tapo app
+            /// (Camera Settings > Advanced Settings > Camera Account), not the TP-Link cloud account credentials.
+            /// They will be URL-encoded automatically.
+            pub fn get_rtsp_stream_url(
+                &self,
+                username: &str,
+                password: &str,
+            ) -> crate::tapo_vendor::responses::RtspStreamUrl {
+                crate::tapo_vendor::api::camera_stream::rtsp_stream_url(
+                    &self.ip, username, password,
+                )
+            }
+
+            /// Captures a JPEG snapshot from the camera's dedicated MJPEG stream.
+            ///
+            /// The output resolution is fixed by the camera's jpegStream profile
+            /// (approximately 640x360 on current models) and is not user-configurable.
+            /// Typical latency is well under a second on a local network: each frame
+            /// arrives already JPEG-encoded, so no decoder is involved.
+            ///
+            /// The credentials are the **camera account** credentials set in the Tapo app
+            /// (Camera Settings > Advanced Settings > Camera Account), not the TP-Link cloud
+            /// account credentials. They are the same credentials accepted by `get_rtsp_stream_url`.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the camera rejects the credentials, if it has no MJPEG stream,
+            /// or if the snapshot doesn't finish within the client's timeout, set with
+            /// [`ApiClient::with_timeout`](crate::tapo_vendor::ApiClient::with_timeout).
+            pub async fn get_snapshot(
+                &self,
+                username: &str,
+                password: &str,
+            ) -> Result<crate::tapo_vendor::responses::Snapshot, crate::tapo_vendor::error::Error>
+            {
+                let timeout = self.client.read().await.timeout();
+                crate::tapo_vendor::api::camera_stream::snapshot(
+                    &self.ip, username, password, timeout,
+                )
+                .await
+            }
+        }
+    };
+}
+
+/// Generates the child device methods shared by hub handlers (H100, H110, H200,
+/// H500): `get_child_device_list`, which pages through the hub's children
+/// and returns them as the given child device result type (e.g. `ChildDeviceHubResult`),
+/// its `get_child_device_list_json` counterpart,
+/// `get_child_device_component_list`, the checked `ke100`/`s200`/.../`t31x`
+/// methods that resolve a [`HubDevice`](crate::tapo_vendor::HubDevice) against that
+/// list, plus their `_unchecked` counterparts that trust a given
+/// `device_id`.
+///
+/// The optional `child_device_list_note` is appended to the docs of
+/// `get_child_device_list`.
+macro_rules! hub_child_handlers {
+    (
+        $name:ident,
+        $child:ident
+        $(, child_device_list_note = $child_device_list_note:literal)?
+        $(,)?
+    ) => {
+        impl $name {
+            #[doc = concat!(
+                "Returns *child device list* as [`", stringify!($child), "`](crate::tapo_vendor::responses::", stringify!($child), ").\n",
+                "It is not guaranteed to contain all the properties returned from the Tapo API\n",
+                "or to support all the possible devices connected to the hub.\n",
+                "If the deserialization fails, or if a property that you care about it's not present,",
+            )]
+            #[cfg_attr(any(), doc = concat!(
+                "try [`", stringify!($name), "::get_child_device_list_json`] (requires the `debug` feature).",
+            ))]
+            #[cfg_attr(not(any()), doc = concat!(
+                "try `", stringify!($name), "::get_child_device_list_json` (requires the `debug` feature).",
+            ))]
+            $(#[doc = $child_device_list_note])?
+            pub async fn get_child_device_list(
+                &self,
+            ) -> Result<Vec<crate::tapo_vendor::responses::$child>, crate::tapo_vendor::error::Error> {
+                let mut results = Vec::new();
+                let mut start_index = 0;
+                let mut fetch = true;
+
+                while fetch {
+                    let devices = self
+                        .client
+                        .read()
+                        .await
+                        .get_child_device_list::<crate::tapo_vendor::responses::ChildDeviceListHubResult<
+                            crate::tapo_vendor::responses::$child,
+                        >>(
+                            start_index,
+                        )
+                        .await
+                        .map(|r| r.devices)?;
+
+                    fetch = devices.len() == 10;
+                    start_index += 10;
+                    results.extend(devices);
+                }
+
+                Ok(results)
+            }
+
+            /// Returns *child device list* as [`serde_json::Value`].
+            /// It contains all the properties returned from the Tapo API.
+            ///
+            /// # Arguments
+            ///
+            /// * `start_index` - the index to start fetching the child device list.
+            ///   It should be `0` for the first page, `10` for the second, and so on.
+            #[cfg(any())]
+            pub async fn get_child_device_list_json(
+                &self,
+                start_index: u64,
+            ) -> Result<serde_json::Value, crate::tapo_vendor::error::Error> {
+                self.client
+                    .read()
+                    .await
+                    .get_child_device_list(start_index)
+                    .await
+            }
+
+            /// Returns *child device component list* as [`Vec<ChildDeviceComponentList>`](crate::tapo_vendor::responses::ChildDeviceComponentList).
+            /// This information is useful in debugging or when investigating new functionality to add.
+            #[cfg(any())]
+            pub async fn get_child_device_component_list(
+                &self,
+            ) -> Result<Vec<crate::tapo_vendor::responses::ChildDeviceComponentList>, crate::tapo_vendor::error::Error> {
+                self.client
+                    .read()
+                    .await
+                    .get_child_device_component_list()
+                    .await
+            }
+        }
+
+        /// Child device handler builders.
+        impl $name {
+            hub_child_handlers!(@checked $child, ke100, KE100Handler, KE100);
+            hub_child_handlers!(@checked $child, s200, S200Handler, S200);
+            hub_child_handlers!(@checked $child, s210, S210Handler, S210);
+            hub_child_handlers!(@checked $child, t100, T100Handler, T100);
+            hub_child_handlers!(@checked $child, t110, T110Handler, T110);
+            hub_child_handlers!(@checked $child, t300, T300Handler, T300);
+            hub_child_handlers!(@checked $child, t31x, T31XHandler, T31X);
+        }
+
+        /// Unchecked child device handler builders.
+        impl $name {
+            hub_child_handlers!(@unchecked $name, ke100_unchecked, ke100, KE100Handler);
+            hub_child_handlers!(@unchecked $name, s200_unchecked, s200, S200Handler);
+            hub_child_handlers!(@unchecked $name, s210_unchecked, s210, S210Handler);
+            hub_child_handlers!(@unchecked $name, t100_unchecked, t100, T100Handler);
+            hub_child_handlers!(@unchecked $name, t110_unchecked, t110, T110Handler);
+            hub_child_handlers!(@unchecked $name, t300_unchecked, t300, T300Handler);
+            hub_child_handlers!(@unchecked $name, t31x_unchecked, t31x, T31XHandler);
+        }
+    };
+
+    (@checked $child:ident, $method:ident, $handler:ident, $variant:ident) => {
+        #[doc = concat!(
+            "Returns a [`", stringify!($handler), "`](crate::tapo_vendor::", stringify!($handler),
+            ") for the given [`HubDevice`](crate::tapo_vendor::HubDevice).\n\n",
+            "# Arguments\n\n",
+            "* `identifier` - a hub device identifier",
+        )]
+        pub async fn $method(
+            &self,
+            identifier: crate::tapo_vendor::api::HubDevice,
+        ) -> Result<crate::tapo_vendor::api::$handler, crate::tapo_vendor::error::Error> {
+            let device_id = self
+                .get_child_device_list()
+                .await?
+                .into_iter()
+                .find_map(|child| match child {
+                    crate::tapo_vendor::responses::$child::$variant(c) => match &identifier {
+                        crate::tapo_vendor::api::HubDevice::ByDeviceId(id) if c.device_id == *id => {
+                            Some(c.device_id)
+                        }
+                        crate::tapo_vendor::api::HubDevice::ByNickname(nickname) if c.nickname == *nickname => {
+                            Some(c.device_id)
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .ok_or(crate::tapo_vendor::error::Error::DeviceNotFound)?;
+            Ok(crate::tapo_vendor::api::$handler::new(self.client.clone(), device_id))
+        }
+    };
+
+    (@unchecked $name:ident, $method:ident, $checked:ident, $handler:ident) => {
+        #[doc = concat!(
+            "Returns a [`", stringify!($handler), "`](crate::tapo_vendor::", stringify!($handler),
+            ") for the given `device_id` without first\n",
+            "listing the hub's children to verify the device exists or matches the\n",
+            "requested model. The device id is trusted; if it is wrong or refers to\n",
+            "a different model, subsequent operations on the returned handler will\n",
+            "fail at request time. Use this when you already have a valid device id\n",
+            "(e.g. from a prior [`", stringify!($name), "::get_child_device_list`] call) to avoid\n",
+            "the extra validation round-trip performed by [`",
+            stringify!($name), "::", stringify!($checked), "`].",
+        )]
+        pub fn $method(&self, device_id: String) -> crate::tapo_vendor::api::$handler {
+            crate::tapo_vendor::api::$handler::new(self.client.clone(), device_id)
+        }
+    };
+}

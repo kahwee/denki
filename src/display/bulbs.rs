@@ -4,6 +4,7 @@ use super::common::{
 };
 use super::hints::{bulb_hints, caps_label};
 use crate::bulb::Bulb;
+use crate::output::terminal_text;
 use colored::Colorize;
 use std::net::IpAddr;
 
@@ -17,29 +18,27 @@ pub fn print_bulb_summary(ip: IpAddr, bulb: &Bulb, hint_alias: &str) {
     );
     crate::output::println!(
         "   {} {}  HW:{}  FW:{}",
-        bulb.model,
+        terminal_text(&bulb.model),
         caps_label(bulb).dimmed(),
-        bulb.hw_ver,
+        terminal_text(&bulb.hw_ver),
         short_fw(&bulb.sw_ver),
     );
     print_light_color(&bulb.light_state, "   ");
-    crate::output::println!(
-        "   {}",
-        format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed()
-    );
+    super::hints::print_hints("   ", bulb_hints(bulb, hint_alias));
     crate::output::println!();
 }
 
 pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
+    let ip = terminal_text(ip);
     crate::output::println!("{}", header(&bulb.alias));
     crate::output::println!("  Host:       {ip}");
     crate::output::println!(
         "  State:      {}",
         on_state_detail(bulb.light_state.is_on())
     );
-    crate::output::println!("  Model:      {}", bulb.model);
-    crate::output::println!("  Hardware:   {}", bulb.hw_ver);
-    crate::output::println!("  Firmware:   {}", bulb.sw_ver);
+    crate::output::println!("  Model:      {}", terminal_text(&bulb.model));
+    crate::output::println!("  Hardware:   {}", terminal_text(&bulb.hw_ver));
+    crate::output::println!("  Firmware:   {}", terminal_text(&bulb.sw_ver));
     crate::output::println!(
         "  Signal:     {} dBm  {}",
         bulb.rssi,
@@ -48,10 +47,7 @@ pub fn print_bulb_detail(ip: &str, bulb: &Bulb, hint_alias: &str) {
     print_light_state_detail(&bulb.light_state);
     print_light_effect_detail(bulb.lighting_effect_state.as_ref());
     crate::output::println!("  Features:   {}", caps_label(bulb));
-    crate::output::println!(
-        "  {}",
-        format!("→ {}", bulb_hints(bulb, hint_alias).join("  ·  ")).dimmed()
-    );
+    super::hints::print_hints("  ", bulb_hints(bulb, hint_alias));
 }
 
 pub fn print_bulb_specs(json: &serde_json::Value) {

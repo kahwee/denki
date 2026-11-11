@@ -1,4 +1,5 @@
 use crate::bulb::LightingEffectState;
+use crate::output::terminal_text;
 use colored::Colorize;
 
 use crate::commands::KasaContext;
@@ -54,7 +55,10 @@ pub fn resolve(name: &str) -> Option<&'static str> {
 
 pub fn print_catalog(current: &LightingEffectState) {
     let state = if current.enable == 1 { "On" } else { "Off" };
-    crate::output::println!("Current effect: {} ({state})", current.name.bold());
+    crate::output::println!(
+        "Current effect: {} ({state})",
+        terminal_text(&current.name).bold()
+    );
     crate::output::println!("{}", "Built-in effects:".bold());
     for effect in BUILTIN_EFFECTS {
         if effect.eq_ignore_ascii_case("off") {

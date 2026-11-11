@@ -1,6 +1,7 @@
 use super::common::{
     header, on_state, on_state_detail, short_fw, signal_summary, tapo_signal_label,
 };
+use crate::output::terminal_text;
 use crate::tapo::TapoDevice;
 use colored::Colorize;
 
@@ -17,13 +18,18 @@ pub fn print_unknown_summary(ip: std::net::IpAddr, json: &serde_json::Value, typ
         "{} {} [{}]",
         header(alias),
         format!("[{ip}]").dimmed(),
-        type_str.dimmed(),
+        terminal_text(type_str).dimmed(),
     );
-    crate::output::println!("   {} {}", model, "— unsupported device type".dimmed());
+    crate::output::println!(
+        "   {} {}",
+        terminal_text(model),
+        "— unsupported device type".dimmed()
+    );
     crate::output::println!();
 }
 
 pub fn print_tapo_summary(ip: &str, d: &TapoDevice, hint_alias: &str) {
+    let ip = terminal_text(ip);
     crate::output::println!(
         "{} {} {} {} {}",
         header(hint_alias),
@@ -32,25 +38,27 @@ pub fn print_tapo_summary(ip: &str, d: &TapoDevice, hint_alias: &str) {
         on_state(d.is_on()),
         signal_summary(d.rssi),
     );
-    crate::output::println!("   {} HW:{}  FW:{}", d.model, d.hw_ver, short_fw(&d.fw_ver));
+    crate::output::println!(
+        "   {} HW:{}  FW:{}",
+        terminal_text(&d.model),
+        terminal_text(&d.hw_ver),
+        short_fw(&d.fw_ver)
+    );
     if d.is_on() && d.on_time > 0 {
         crate::output::println!("   On for: {}", crate::fmt::duration(d.on_time));
     }
-    let action = if d.is_on() { "off" } else { "on" };
-    crate::output::println!(
-        "   {}",
-        format!("→ denki {action} \"{hint_alias}\"").dimmed()
-    );
+    super::hints::print_hints("   ", super::hints::power_hints(hint_alias, d.is_on()));
     crate::output::println!();
 }
 
 pub fn print_tapo_detail(ip: &str, d: &TapoDevice, hint_alias: &str) {
+    let ip = terminal_text(ip);
     crate::output::println!("{}", header(hint_alias));
     crate::output::println!("  Host:      {ip}");
     crate::output::println!("  State:     {}", on_state_detail(d.is_on()));
-    crate::output::println!("  Model:     {}", d.model);
-    crate::output::println!("  Hardware:  {}", d.hw_ver);
-    crate::output::println!("  Firmware:  {}", d.fw_ver);
+    crate::output::println!("  Model:     {}", terminal_text(&d.model));
+    crate::output::println!("  Hardware:  {}", terminal_text(&d.hw_ver));
+    crate::output::println!("  Firmware:  {}", terminal_text(&d.fw_ver));
     crate::output::println!(
         "  Signal:    {} dBm  {}",
         d.rssi,
@@ -62,9 +70,5 @@ pub fn print_tapo_detail(ip: &str, d: &TapoDevice, hint_alias: &str) {
     if d.overheated {
         crate::output::println!("  {}", "WARNING: device overheated".red().bold());
     }
-    let action = if d.is_on() { "off" } else { "on" };
-    crate::output::println!(
-        "  {}",
-        format!("→ denki {action} \"{hint_alias}\"").dimmed()
-    );
+    super::hints::print_hints("  ", super::hints::power_hints(hint_alias, d.is_on()));
 }

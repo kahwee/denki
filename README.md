@@ -36,7 +36,9 @@ denki off "desk plug"
 
 Scan never moves a saved Kasa alias based on an unauthenticated device ID. After a
 DHCP change, verify the new address independently (for example, in your router),
-then run `denki alias "desk plug" NEW_IP`. See [discovery](docs/commands.md#discover-devices).
+then run `denki alias "desk plug" NEW_IP`. Kasa scan results are unauthenticated
+and do not include physical-control command hints. Verify a device independently
+before controlling it. See [discovery](docs/commands.md#discover-devices).
 
 For a Tapo P125, save its address and TP-Link account credentials:
 
@@ -78,5 +80,10 @@ record exact capabilities and evidence.
 - [Contributing and offline tests](CONTRIBUTING.md) · [agent guide](AGENTS.md)
 - [Publishing](docs/actions-publishing.md) · [changelog](CHANGELOG.md) · [CI maintenance](.github/ACTIONS.md)
 
-TPAP/KLAP auto-negotiation uses [Mihai Dinculescu's tapo library](https://github.com/mihai-dinculescu/tapo).
+Device responses are limited to 1 MiB on every control transport. Human-readable
+output escapes terminal control characters; unsafe aliases never become command
+hints. JSON escapes terminal-active Unicode reversibly and preserves values for programs.
+
+TPAP/KLAP auto-negotiation uses a [bundled, hardened copy](src/tapo_vendor/README.md)
+of [Mihai Dinculescu's tapo library](https://github.com/mihai-dinculescu/tapo).
 Denki is [MIT licensed](LICENSE); dependencies retain their own licenses.

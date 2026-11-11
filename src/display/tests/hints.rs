@@ -81,20 +81,20 @@ fn lightstrip_hints_for_kl420l5_include_energy_and_monthly_commands() {
         "hints: {h:?}"
     );
     assert!(
-        !h.iter().any(|s| s == "denki on 'lights'"),
-        "light strip should not advertise power control: {h:?}"
+        h.iter().any(|s| s == "denki on 'lights'"),
+        "the registry advertises light-strip power support: {h:?}"
     );
 }
 
 #[test]
 fn hints_posix_quote_untrusted_aliases() {
     let p = make_plug_for_hints("KP115", false, true);
-    let alias = "lamp'; touch /tmp/pwned; echo '$HOME`id`$(id)\nnext";
+    let alias = "lamp'; touch /tmp/pwned; echo '$HOME`id`$(id) next";
     let hints = plug_hints(&p, alias);
 
     assert_eq!(
         hints[0],
-        "denki on 'lamp'\"'\"'; touch /tmp/pwned; echo '\"'\"'$HOME`id`$(id)\nnext'"
+        "denki on 'lamp'\"'\"'; touch /tmp/pwned; echo '\"'\"'$HOME`id`$(id) next'"
     );
 }
 
@@ -104,4 +104,55 @@ fn dimmer_hints_includes_dim_and_schedules() {
     let h = dimmer_hints(&d, "d");
     assert!(h.iter().any(|s| s.contains("dim")), "hints: {h:?}");
     assert!(h.iter().any(|s| s.contains("schedules")), "hints: {h:?}");
+}
+
+#[test]
+fn all_hint_paths_suppress_unsafe_or_untrusted_targets() {
+    use crate::display::hints::{bulb_hints, model_hints, power_hints};
+    for alias in [
+        "",
+        "bad\nline",
+        "bad\rline",
+        "bad\tline",
+        "bad\x1b[2J",
+        "bad\u{9b}2J",
+        "bad\u{202e}",
+        "--help",
+    ] {
+        assert!(bulb_hints(&make_lightstrip_for_hints("KL135", false), alias).is_empty());
+        assert!(lightstrip_hints(&make_lightstrip_for_hints("KL420L5", false), alias).is_empty());
+        assert!(plug_hints(&make_plug_for_hints("KP115", false, true), alias).is_empty());
+        assert!(dimmer_hints(&make_dimmer_for_hints(), alias).is_empty());
+        assert!(strip_hints(&make_strip_for_hints("HS300", true), alias).is_empty());
+        assert!(model_hints("unknown", alias, false).is_empty());
+        assert!(power_hints(alias, false).is_empty());
+        assert!(crate::devices::hint_for("dim", alias).is_none());
+        assert!(
+            crate::devices::hints(crate::devices::lookup("KP115").unwrap(), alias, false)
+                .is_empty()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn quoted_hints_pass_the_exact_alias_to_a_posix_shell() {
+    use crate::display::hints::power_hints;
+    // Stub denki; nothing is sent to a device or executed from the hostile alias.
+    let alias =
+        "lamp'\"; printf INJECTED; # $HOME `printf SUBSTITUTED` $(printf SUBSTITUTED)\\suffix";
+    for hint in power_hints(alias, false)
+        .into_iter()
+        .chain(strip_hints(&make_strip_for_hints("HS300", true), alias))
+    {
+        let script = format!("denki() {{ printf '%s\\0' \"$@\"; }}; {hint}");
+        let result = std::process::Command::new("sh")
+            .args(["-c", &script])
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{hint}");
+        assert!(result.stderr.is_empty());
+        let words: Vec<_> = result.stdout.split(|b| *b == 0).collect();
+        assert_eq!(words[1], alias.as_bytes(), "{hint}");
+    }
 }

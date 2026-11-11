@@ -1,0 +1,80 @@
+use serde::{Deserialize, Serialize};
+
+use crate::tapo_vendor::error::Error;
+use crate::tapo_vendor::responses::{
+    DecodableResultExt, DefaultPlugState, OverheatStatus, TapoResponseExt, decode_value,
+};
+
+use super::AutoOffStatus;
+
+/// Power Strip child device list result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ChildDeviceListPowerStripResult {
+    /// Power Strip child devices
+    #[serde(rename = "child_device_list")]
+    pub plugs: Vec<PowerStripPlugResult>,
+}
+
+impl DecodableResultExt for ChildDeviceListPowerStripResult {
+    fn decode(self) -> Result<Self, Error> {
+        Ok(ChildDeviceListPowerStripResult {
+            plugs: self
+                .plugs
+                .into_iter()
+                .map(|d| d.decode())
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+impl TapoResponseExt for ChildDeviceListPowerStripResult {}
+
+/// P300 and P306 power strip child plugs.
+///
+/// Specific properties: `auto_off_remain_time`, `auto_off_status`,
+/// `bind_count`, `default_states`, `overheat_status`, `position`, `slot_number`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(any(), pyo3::prelude::pyclass(from_py_object, get_all))]
+#[allow(missing_docs)]
+pub struct PowerStripPlugResult {
+    pub auto_off_remain_time: u64,
+    pub auto_off_status: AutoOffStatus,
+    pub avatar: String,
+    pub bind_count: u8,
+    pub category: String,
+    pub default_states: DefaultPlugState,
+    pub device_id: String,
+    pub device_on: bool,
+    pub fw_id: String,
+    pub fw_ver: String,
+    pub has_set_location_info: bool,
+    pub hw_id: String,
+    pub hw_ver: String,
+    pub latitude: Option<i64>,
+    pub longitude: Option<i64>,
+    pub mac: String,
+    pub model: String,
+    pub nickname: String,
+    pub oem_id: String,
+    /// The time in seconds this device has been ON since the last state change (On/Off).
+    pub on_time: u64,
+    pub original_device_id: String,
+    pub overheat_status: Option<OverheatStatus>,
+    pub position: u8,
+    pub region: Option<String>,
+    pub slot_number: u8,
+    pub status_follow_edge: bool,
+    pub r#type: String,
+}
+
+#[cfg(any())]
+crate::tapo_vendor::impl_to_dict!(PowerStripPlugResult);
+
+impl TapoResponseExt for PowerStripPlugResult {}
+
+impl DecodableResultExt for PowerStripPlugResult {
+    fn decode(mut self) -> Result<Self, Error> {
+        self.nickname = decode_value(&self.nickname)?;
+        Ok(self)
+    }
+}

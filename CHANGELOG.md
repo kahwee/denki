@@ -7,6 +7,17 @@ are on `main` and are not part of the published tags below.
 
 ### Fixed
 
+- Upgrade RSA to the patched 0.10.0 release and remove the timing-advisory exception.
+- Bound every automatic Tapo HTTP control response before buffering, authenticate
+  automatic-mode KLAP replies, and keep authentication off redirects and proxies.
+  Bundle the reviewed upstream transport so registry packaging retains the fixes.
+- Escape untrusted terminal text and shell hints, including Tapo, effects, outlet
+  names and errors. Suppress unsafe or unauthenticated discovery control hints.
+  Preserve JSON values with safe Unicode escapes and protect CSV formula strings.
+- Validate UDP discovery before deduplication, bound retained sources, and reject
+  discovery that conflicts with a saved protocol. Report malformed weekday data
+  without panicking.
+
 - Reject Kasa discovery replies that try to move a saved device ID to another IP.
   Unauthenticated discovery can no longer persistently redirect existing aliases.
   Verify legitimate DHCP changes independently and update each affected alias with
@@ -15,7 +26,7 @@ are on `main` and are not part of the published tags below.
 ### Changed
 
 - Refresh compatible locked crypto, TLS and TOML dependencies, including AES
-  0.9.4 and TOML 1.2.0. Retain the reviewed RSA prerelease and advisory policy.
+  0.9.4 and TOML 1.2.0. Use the patched RSA stable release without an advisory exception.
 - Enable future tag-only crates.io publishing with metadata, exact-source CI,
   package and audit checks before short-lived OIDC authentication. Activating the
   workflow does not republish existing tags or prove registry availability.
