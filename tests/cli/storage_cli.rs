@@ -1,5 +1,6 @@
 //! Cross-process locking, crash release, and secure credential replacement.
 #![cfg(target_os = "linux")]
+use super::process::CommandExt;
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
 use std::process::{Command, Stdio};
@@ -40,8 +41,7 @@ fn concurrent_alias_commands_preserve_every_edit_and_never_publish_partial_json(
                     "--json",
                 ],
             )
-            .spawn()
-            .unwrap(),
+            .spawn_bounded(),
         );
     }
     std::thread::sleep(Duration::from_millis(150));
@@ -67,7 +67,7 @@ fn concurrent_alias_commands_preserve_every_edit_and_never_publish_partial_json(
         std::thread::sleep(Duration::from_millis(2));
     }
     for child in children {
-        let output = child.wait_with_output().unwrap();
+        let output = child.finish(super::process::CLI_TIMEOUT);
         assert!(
             output.status.success(),
             "{}",
@@ -83,8 +83,7 @@ fn concurrent_alias_commands_preserve_every_edit_and_never_publish_partial_json(
                 config.path(),
                 &["unalias", &format!("device {i}"), "--json"],
             )
-            .spawn()
-            .unwrap(),
+            .spawn_bounded(),
         );
     }
     for i in 16..24 {
@@ -98,12 +97,11 @@ fn concurrent_alias_commands_preserve_every_edit_and_never_publish_partial_json(
                     "--json",
                 ],
             )
-            .spawn()
-            .unwrap(),
+            .spawn_bounded(),
         );
     }
     for child in children {
-        assert!(child.wait_with_output().unwrap().status.success());
+        assert!(child.finish(super::process::CLI_TIMEOUT).status.success());
     }
     let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(saved.as_object().unwrap().len(), 16);
@@ -141,10 +139,9 @@ fn credential_creation_is_private_under_permissive_umask_and_atomic_on_replaceme
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        std::io::Write::write_all(&mut child.stdin.take().unwrap(), pass.as_bytes()).unwrap();
-        let output = child.wait_with_output().unwrap();
+            .spawn_bounded();
+        std::io::Write::write_all(&mut child.take_stdin(), pass.as_bytes()).unwrap();
+        let output = child.finish(super::process::CLI_TIMEOUT);
         assert!(
             output.status.success(),
             "{}",
@@ -189,8 +186,7 @@ fn killed_writer_releases_lock_without_deleting_sidecar() {
         .env("DENKI_TEST_LOCK", &path)
         .env("DENKI_TEST_READY", &ready)
         .stdout(Stdio::null())
-        .spawn()
-        .unwrap();
+        .spawn_bounded();
     let deadline = Instant::now() + Duration::from_secs(5);
     while !ready.exists() {
         if Instant::now() > deadline {
@@ -206,7 +202,7 @@ fn killed_writer_releases_lock_without_deleting_sidecar() {
         .unwrap();
     assert!(file.try_lock().is_err());
     child.kill().unwrap();
-    child.wait().unwrap();
+    child.finish(super::process::CLI_TIMEOUT);
     file.try_lock()
         .expect("OS must release a killed process's lock");
     assert!(path.exists());
@@ -221,9 +217,7 @@ fn unsafe_registry_is_rejected_before_control_and_credentials_never_leak() {
     let hosts = dir.join("hosts.json");
     std::fs::write(&hosts, br#"{"test":{"ip":"127.0.0.1","protocol":"tapo"}}"#).unwrap();
     std::fs::set_permissions(&hosts, std::fs::Permissions::from_mode(0o666)).unwrap();
-    let output = command(config.path(), &["on", "test", "--json"])
-        .output()
-        .unwrap();
+    let output = command(config.path(), &["on", "test", "--json"]).bounded_output();
     let json: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(!output.status.success());
     assert_eq!(json["error"]["code"], "unsafe_configuration");
@@ -238,8 +232,7 @@ fn unsafe_registry_is_rejected_before_control_and_credentials_never_leak() {
     let output = command(config.path(), &["doctor", "test", "--json"])
         .env_remove("TAPO_USER")
         .env_remove("TAPO_PASS")
-        .output()
-        .unwrap();
+        .bounded_output();
     assert!(!output.status.success());
     assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-secret"));
     assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-secret"));
@@ -248,8 +241,7 @@ fn unsafe_registry_is_rejected_before_control_and_credentials_never_leak() {
     let output = command(config.path(), &["doctor", "test", "--json"])
         .env_remove("TAPO_USER")
         .env_remove("TAPO_PASS")
-        .output()
-        .unwrap();
+        .bounded_output();
     assert!(!output.status.success());
     assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-secret"));
     assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-secret"));
@@ -266,7 +258,7 @@ fn unsafe_registry_is_rejected_before_control_and_credentials_never_leak() {
         if let Some(pass) = pass {
             cmd.env("TAPO_PASS", pass);
         }
-        let output = cmd.output().unwrap();
+        let output = cmd.bounded_output();
         assert!(!output.status.success());
         assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-secret"));
         assert!(String::from_utf8_lossy(&output.stdout).contains("Set both non-empty"));

@@ -1,4 +1,5 @@
 //! A corrupt registry must stop scan before discovery or persistence.
+use super::process::CommandExt;
 #[cfg(target_os = "linux")]
 #[test]
 fn scan_preserves_corrupt_registry_and_reports_error() {
@@ -12,8 +13,7 @@ fn scan_preserves_corrupt_registry_and_reports_error() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_denki"))
         .env("XDG_CONFIG_HOME", config.path())
         .args(["scan", "--timeout", "0"])
-        .output()
-        .unwrap();
+        .bounded_output();
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);

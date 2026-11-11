@@ -1,5 +1,6 @@
 //! Offline CLI checks: use capability rejection to prove routing without device IO.
 #![cfg(target_os = "linux")]
+use super::process::CommandExt;
 use std::process::Command;
 
 #[test]
@@ -12,8 +13,7 @@ fn direct_ips_use_saved_protocol_and_scan_rejects_conflicts_before_network() {
         let output = Command::new(env!("CARGO_BIN_EXE_denki"))
             .env("XDG_CONFIG_HOME", config.path())
             .args(args)
-            .output()
-            .unwrap();
+            .bounded_output();
         assert!(!output.status.success());
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
     };

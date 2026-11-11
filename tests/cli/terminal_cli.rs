@@ -1,5 +1,6 @@
 //! Offline terminal-boundary regressions; no device sockets are opened.
 #![cfg(target_os = "linux")]
+use super::process::CommandExt;
 use serde_json::Value;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -12,8 +13,7 @@ fn run(config: &Path, args: &[&str]) -> Output {
         .env("NO_COLOR", "1")
         .env_remove("CLICOLOR_FORCE")
         .args(args)
-        .output()
-        .unwrap()
+        .bounded_output()
 }
 
 fn safe(bytes: &[u8]) -> String {
@@ -103,15 +103,12 @@ fn login_rejects_password_arguments_without_echoing_and_accepts_redirected_input
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+        .spawn_bounded();
     child
-        .stdin
-        .take()
-        .unwrap()
+        .take_stdin()
         .write_all(b"private-password-sentinel\n")
         .unwrap();
-    let result = child.wait_with_output().unwrap();
+    let result = child.finish(super::process::CLI_TIMEOUT);
     assert!(result.status.success());
     assert!(!String::from_utf8_lossy(&result.stdout).contains("private-password-sentinel"));
     assert!(!String::from_utf8_lossy(&result.stderr).contains("private-password-sentinel"));
@@ -170,8 +167,7 @@ fn tpap_policy_blocks_explicit_klap_before_any_connection() {
         .env("TAPO_USER", "synthetic@example.invalid")
         .env("TAPO_PASS", "synthetic-password")
         .args(["info", "fixture", "--json"])
-        .output()
-        .unwrap();
+        .bounded_output();
     assert!(!result.status.success());
     let value: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(value["error"]["code"], "authentication_policy");

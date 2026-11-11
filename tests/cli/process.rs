@@ -1,9 +1,26 @@
 //! Bounded subprocess capture. Readers drain both pipes while the child runs.
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Output, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+pub(super) const CLI_TIMEOUT: Duration = Duration::from_secs(10);
+
+pub(super) trait CommandExt {
+    fn bounded_output(&mut self) -> Output;
+    fn spawn_bounded(&mut self) -> Process;
+}
+
+impl CommandExt for Command {
+    fn bounded_output(&mut self) -> Output {
+        Process::spawn(self.stdin(Stdio::null())).finish(CLI_TIMEOUT)
+    }
+
+    fn spawn_bounded(&mut self) -> Process {
+        Process::spawn(self)
+    }
+}
 
 pub(super) struct Process {
     child: Child,
@@ -40,6 +57,21 @@ impl Process {
             })),
             first,
         }
+    }
+
+    pub(super) fn take_stdin(&mut self) -> ChildStdin {
+        self.child
+            .stdin
+            .take()
+            .expect("configure piped stdin before spawning")
+    }
+
+    pub(super) fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    pub(super) fn kill(&mut self) -> std::io::Result<()> {
+        self.child.kill()
     }
 
     pub(super) fn id(&self) -> u32 {

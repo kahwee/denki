@@ -1,5 +1,6 @@
 //! Offline CLI coverage: protocol changes preserve the alias registry.
 #![cfg(target_os = "linux")]
+use super::process::CommandExt;
 
 use std::process::Command;
 
@@ -21,8 +22,7 @@ fn tapo_alias_migration_and_group_preview_are_offline() {
         Command::new(env!("CARGO_BIN_EXE_denki"))
             .env("XDG_CONFIG_HOME", config.path())
             .args(args)
-            .output()
-            .unwrap()
+            .bounded_output()
     };
     assert!(
         run(&["alias", "Test Plug", "192.0.2.1", "--tpap"])
