@@ -34,6 +34,9 @@ pub struct HostEntry {
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
+    /// Explicit local enrollment for Kasa group commands; old registries default to false.
+    #[serde(default)]
+    pub group_approved: bool,
 }
 
 fn hosts_path() -> PathBuf {
@@ -61,6 +64,7 @@ fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
                             ip,
                             protocol: Protocol::Kasa,
                             device_id: None,
+                            group_approved: false,
                         },
                     )
                 })
@@ -238,6 +242,7 @@ pub fn set(name: &str, ip: &str, protocol: Protocol) -> Result<()> {
                 ip: ip.to_string(),
                 protocol,
                 device_id,
+                group_approved: true,
             },
         );
         Ok(())
@@ -310,30 +315,15 @@ fn save_if_unchanged_at(
     })
 }
 
-/// Insert a new Kasa alias only when neither its IP nor normalized name is saved.
-/// Returns false for blank names or collisions, preserving existing aliases.
+/// Legacy discovery helper. Unauthenticated observations never enroll control targets.
+/// Use `set` after independently verifying the address.
 pub fn save_if_new_in(
     name: &str,
     ip: &str,
     map: &mut std::collections::BTreeMap<String, HostEntry>,
 ) -> bool {
-    let name = name.trim();
-    let normalized = normalize(name);
-    if normalized.is_empty()
-        || map.values().any(|v| v.ip == ip)
-        || map.keys().any(|existing| normalize(existing) == normalized)
-    {
-        return false;
-    }
-    map.insert(
-        name.to_string(),
-        HostEntry {
-            ip: ip.to_string(),
-            protocol: Protocol::Kasa,
-            device_id: None,
-        },
-    );
-    true
+    let _ = (name, ip, map);
+    false
 }
 
 /// Reconcile an observed identity, never guessing from a colliding name.
@@ -414,6 +404,10 @@ pub fn reconcile_in(
     if same_address {
         return Ok(changed);
     }
+    // A device-controlled name cannot authorize a new local control target.
+    if protocol == Protocol::Kasa {
+        return Ok(false);
+    }
     let normalized = normalize(name);
     if normalized.is_empty() || map.keys().any(|n| normalize(n) == normalized) {
         return Ok(false);
@@ -424,9 +418,30 @@ pub fn reconcile_in(
             ip: ip.into(),
             protocol,
             device_id: id.map(str::to_owned),
+            group_approved: false,
         },
     );
     Ok(true)
+}
+
+/// Fail the whole group before contacting devices if any legacy Kasa target lacks
+/// explicit enrollment. Discovery and copied device IDs never grant this approval.
+pub fn require_group_approval(matches: &[(String, HostEntry)]) -> Result<()> {
+    let pending: Vec<_> = matches
+        .iter()
+        .filter(|(_, entry)| entry.protocol == Protocol::Kasa && !entry.group_approved)
+        .map(|(name, _)| crate::output::terminal_text(name))
+        .collect();
+    if !pending.is_empty() {
+        return Err(crate::error::error(
+            "alias_approval_required",
+            format!(
+                "Kasa group targets require explicit approval: {}. Verify each address independently, then run denki alias NAME IP. No devices were contacted.",
+                pending.join(", ")
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Check stored identities before using an address. Legacy entries bind on scan.
@@ -509,6 +524,7 @@ mod tests {
             ip: ip.to_string(),
             protocol,
             device_id: None,
+            group_approved: false,
         }
     }
 
@@ -707,11 +723,11 @@ mod tests {
     }
 
     #[test]
-    fn auto_save_adds_new_device() {
+    fn unauthenticated_auto_save_does_not_enroll_device() {
         let mut map = BTreeMap::new();
         let saved = save_if_new_in("Coat Rack", "192.168.7.203", &mut map);
-        assert!(saved);
-        assert_eq!(map["Coat Rack"].ip, "192.168.7.203");
+        assert!(!saved);
+        assert!(map.is_empty());
     }
 
     #[test]
@@ -767,6 +783,7 @@ mod identity_tests {
             ip: ip.into(),
             protocol: Protocol::Kasa,
             device_id: id.map(str::to_owned),
+            group_approved: false,
         }
     }
     #[test]
@@ -777,6 +794,7 @@ mod identity_tests {
                 ip: "2001:0db8:0:0:0:0:0:1".into(),
                 protocol: Protocol::Tapo,
                 device_id: Some("expected".into()),
+                group_approved: false,
             },
         )]);
         assert_eq!(
@@ -865,10 +883,10 @@ mod identity_tests {
             }
             assert_eq!(map, original);
         }
-        // A separate successful response makes the scan dirty. Persisting its
-        // partial results must still leave all trusted aliases at their old IP.
+        // Even a new identity must not enroll another Kasa target. Persisting
+        // the scan must still leave all approved aliases unchanged.
         assert!(
-            reconcile_in(
+            !reconcile_in(
                 "new device",
                 "192.0.2.2",
                 Protocol::Kasa,
@@ -882,7 +900,7 @@ mod identity_tests {
         for (name, entry) in &original {
             assert_eq!(&persisted[name], entry);
         }
-        assert_eq!(persisted.len(), 3);
+        assert_eq!(persisted.len(), 2);
     }
     #[test]
     fn kasa_rebind_rejection_is_atomic_for_aliases_at_different_addresses() {
@@ -977,6 +995,7 @@ mod transaction_tests {
             ip: ip.into(),
             protocol: Protocol::Kasa,
             device_id: None,
+            group_approved: false,
         }
     }
     #[test]
@@ -1047,6 +1066,7 @@ mod discovery_protocol_tests {
                         ip: "192.0.2.1".into(),
                         protocol: protocol.clone(),
                         device_id: Some("trusted-id".into()),
+                        group_approved: false,
                     },
                 )]);
                 let before = map.clone();
@@ -1073,6 +1093,7 @@ mod discovery_protocol_tests {
                     ip: "192.0.2.1".into(),
                     protocol: Protocol::Kasa,
                     device_id: Some("kasa-id".into()),
+                    group_approved: false,
                 },
             ),
             (
@@ -1081,6 +1102,7 @@ mod discovery_protocol_tests {
                     ip: "192.0.2.2".into(),
                     protocol: Protocol::Tapo,
                     device_id: Some("tapo-id".into()),
+                    group_approved: false,
                 },
             ),
         ]);
@@ -1117,6 +1139,7 @@ mod discovery_protocol_tests {
                     ip: "192.0.2.1".into(),
                     protocol: Protocol::Kasa,
                     device_id: None,
+                    group_approved: false,
                 },
             ),
             (
@@ -1125,6 +1148,7 @@ mod discovery_protocol_tests {
                     ip: "192.0.2.2".into(),
                     protocol: Protocol::Kasa,
                     device_id: None,
+                    group_approved: false,
                 },
             ),
         ]);
@@ -1133,5 +1157,57 @@ mod discovery_protocol_tests {
         assert!(message.contains("\\u{1b}"));
         assert!(message.contains("\\r\\n"));
         assert!(message.contains("\\u{202e}"));
+    }
+}
+
+#[cfg(test)]
+mod enrollment_tests {
+    use super::*;
+    #[test]
+    fn discovery_cannot_enroll_any_new_kasa_name_or_grant_group_approval() {
+        let mut map = BTreeMap::new();
+        for name in ["Office attacker", "Office", "safe name"] {
+            for id in [None, Some("copied-id"), Some("")] {
+                assert!(!reconcile_in(name, "192.0.2.99", Protocol::Kasa, id, &mut map).unwrap());
+                assert!(map.is_empty());
+            }
+        }
+        let legacy: HostEntry =
+            serde_json::from_str(r#"{"ip":"192.0.2.1","protocol":"kasa"}"#).unwrap();
+        map.insert("Office old".into(), legacy);
+        reconcile_in(
+            "Office replacement",
+            "192.0.2.1",
+            Protocol::Kasa,
+            Some("id"),
+            &mut map,
+        )
+        .unwrap();
+        assert!(!map["Office old"].group_approved);
+        let matches = lookup_many_in("office", &map).unwrap();
+        assert_eq!(
+            crate::error::code(&require_group_approval(&matches).unwrap_err()),
+            "alias_approval_required"
+        );
+        map.get_mut("Office old").unwrap().group_approved = true;
+        let saved = serde_json::to_string(&map).unwrap();
+        let roundtrip = serde_json::from_str(&saved).unwrap();
+        require_group_approval(&lookup_many_in("office", &roundtrip).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn mixed_groups_fail_as_a_whole_and_tapo_does_not_require_kasa_approval() {
+        let map: BTreeMap<String, HostEntry> = serde_json::from_str(
+            r#"{
+            "office one":{"ip":"192.0.2.1","protocol":"kasa","group_approved":true},
+            "office two":{"ip":"192.0.2.2","protocol":"kasa"},
+            "tapo":{"ip":"192.0.2.3","protocol":"tapo"}}
+        "#,
+        )
+        .unwrap();
+        assert!(require_group_approval(&lookup_many_in("office", &map).unwrap()).is_err());
+        assert!(require_group_approval(&lookup_many_in("office two", &map).unwrap()).is_err());
+        require_group_approval(&lookup_many_in("office one", &map).unwrap()).unwrap();
+        require_group_approval(&lookup_many_in("tapo", &map).unwrap()).unwrap();
     }
 }

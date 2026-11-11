@@ -97,6 +97,7 @@ impl KlapProtocol {
         username: &str,
         password: &str,
     ) -> Result<(), Error> {
+        crate::auth_policy::non_tpap(true)?;
         let auth_hash = crypto::sha256(
             &[
                 crypto::sha1(username.as_bytes()),

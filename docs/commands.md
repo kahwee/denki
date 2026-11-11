@@ -44,7 +44,9 @@ Devices marked `verified` in [`devices.toml`](../devices.toml) have been tested 
 denki scan
 ```
 
-`scan` auto-saves newly discovered aliases and also probes saved `--klap` and `--tapo` aliases.
+`scan` reports Kasa observations without enrolling new aliases, and probes saved
+`--klap` and `--tapo` aliases. Enroll a Kasa device only after independently verifying
+its address with `denki alias NAME IP`. A reply-provided name is not approval.
 It stores the device identity locally. Existing v1/v2 registries remain readable;
 aliases without identity learn it at their current address on their next successful
 scan. It never moves an alias merely because a different address reports the same
@@ -100,6 +102,15 @@ denki toggle "desk lamp"
 denki group off "office"
 denki group off "office" --dry-run
 ```
+
+Kasa group targets must have been explicitly enrolled with `denki alias NAME IP`.
+Older registry entries lack enrollment provenance, even if you originally added
+them by hand. Review `denki aliases` or a group `--dry-run`, verify each address
+independently, and re-save wanted Kasa aliases. A group containing any unapproved
+Kasa entry fails with `alias_approval_required` before contacting any device;
+it never silently skips the entry or partially runs the group. Read-only dry runs
+remain available and their JSON includes `group_approved`. Existing single-target
+commands remain compatible; review and remove unwanted legacy aliases too.
 
 Use `denki group <on|off|toggle> <pattern>` when multiple aliases should be controlled together
 (for example `denki group off "office"` for `Office Color 1`, `Office Color 2`, `Office Color 3`).
@@ -270,16 +281,33 @@ denki off "P125 A"
 denki toggle "P125 A"
 ```
 
-`--tpap` is a synonym for `--tapo`. Both use upstream `tapo` 0.12.0 to
+`--tpap` is a synonym for `--tapo`. Both use the bundled, hardened `tapo` 0.12.2 code to
 negotiate TPAP or KLAP; neither forces TPAP. `--klap` keeps Denki's original
 KLAP client. The options are mutually exclusive. Saved `protocol: "tapo"`
 identifies the connection policy, not the negotiated wire protocol.
 
+KLAP's handshake permits offline password guessing by someone who records it and
+knows or guesses the account email. Encryption and MAC checks do not repair this
+protocol property. Use a strong, unique Tapo password and a trusted or isolated
+LAN. Denki warns once per invocation before KLAP authentication. To require TPAP:
+
+```sh
+DENKI_REQUIRE_TPAP=1 denki info "P125 A"
+```
+
+This rejects direct KLAP and automatic KLAP/AES fallback before credentials or
+password-derived proofs are sent on those paths, including session refreshes.
+Protocol discovery may still contact the device without credentials. Unsupported
+or KLAP-only devices fail closed; the setting does not upgrade their firmware.
+Use `1`/`true` to require TPAP and `0`/`false` or unset for compatibility. The
+strict policy has offline regression coverage, not new physical-device evidence.
+It governs Tapo authentication only; it does not authenticate or disable Kasa commands.
+
 On recent P125 firmware, Third-Party Compatibility **on selects KLAP; off selects
 TPAP**, as described in the [upstream TPAP article](https://mihai.dinculescu.dev/posts/tapo-speaks-tpap/).
 Denki does not change that app setting. The article explains why TPAP's SPAKE2+
-login protects against offline password guessing; automatic mode does not provide
-that benefit when the device selects KLAP. Other integrations may still need the
+login protects against offline password guessing; default compatibility mode does
+not provide that benefit when the device selects KLAP. Strict mode rejects that fallback. Other integrations may still need the
 compatibility setting on.
 
 **Supported today:** P125 information, doctor, on/off/toggle, and grouped power
@@ -359,14 +387,21 @@ Or save them once:
 denki login "you@example.com"
 ```
 
-You can also pass the password on the command line, but prompting is safer for day-to-day use.
+Passwords are no longer accepted as command-line arguments. The default hidden
+prompt avoids shell history and process-argument exposure. For automation, pipe a
+secret manager's output into `denki login EMAIL --password-stdin`, or redirect a
+private file. Do not write the literal password in an `echo` command or script.
+Stdin must be redirected and contain one non-empty UTF-8 line (maximum 4,096
+bytes including its optional line ending); input and parse errors never echo it.
+Environment overrides remain supported, but may be exposed to other same-account
+processes or diagnostic tools. Prefer the hidden prompt for interactive use.
 
 Tapo credentials are stored in `credentials.json` in the same configuration directory.
 Set both `TAPO_USER` and `TAPO_PASS` to override the saved file.
 
 ## How device lookup works
 
-- Device names can come from `scan` output, a saved alias, or a raw IP address.
+- Device names must be explicitly saved as aliases; scan reports untrusted names. Raw IP addresses are also accepted.
 - Exact normalized alias matches win first, then unambiguous normalized substring matches.
 - Raw IP addresses reuse the saved protocol when all aliases at that IP agree.
   Conflicting protocols are an error; unknown IPs retain the Kasa default.

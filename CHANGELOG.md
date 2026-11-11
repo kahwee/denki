@@ -7,6 +7,17 @@ are on `main` and are not part of the published tags below.
 
 ### Fixed
 
+- Separate release verification/builds from fresh-runner OIDC publication; no
+  repository scripts or build scripts run with registry authority.
+- Stop automatically enrolling new Kasa aliases. Legacy Kasa group targets require
+  explicit re-enrollment after independently verifying each address.
+- Remove positional login passwords; use the hidden prompt or bounded
+  `--password-stdin`. Rejected login arguments are not echoed.
+- Add `DENKI_REQUIRE_TPAP=1` to reject non-TPAP login before authentication, and
+  warn in compatibility mode about KLAP offline password guessing.
+- Replace the HS300 fixture's stable-looking identity and household labels with
+  explicitly synthetic data. This does not establish provenance or erase history.
+
 - Upgrade RSA to the patched 0.10.0 release and remove the timing-advisory exception.
 - Bound every automatic Tapo HTTP control response before buffering, authenticate
   automatic-mode KLAP replies, and keep authentication off redirects and proxies.

@@ -22,16 +22,18 @@ it, restart the shell after installing Rust or add that directory to `PATH`.
 
 ## 2. Connect a Kasa device
 
-Scan your network, then use a name from the results:
+Scan your network, verify the device address independently, then choose an alias:
 
 ```sh
 denki scan
+denki alias "desk plug" 192.0.2.42
 denki aliases
 denki info "desk plug"
 ```
 
-Replace `desk plug` with your own alias. Scan saves discovered devices and their
-identities, but Kasa replies cannot authenticate an address change. If DHCP moves
+Replace `desk plug` and the example IP with your verified device. Scan reports
+Kasa observations but never enrolls a new Kasa alias. Legacy Kasa aliases need
+explicit re-enrollment before group control. Kasa replies cannot authenticate an address change. If DHCP moves
 a Kasa device, verify its new IP independently (for example, in your router), then
 update the saved name with `denki alias "desk plug" NEW_IP`. Scan will not move it
 automatically, even if a reply claims the same device ID.

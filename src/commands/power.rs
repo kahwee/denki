@@ -220,7 +220,7 @@ pub async fn handle_group(
 
     if dry_run {
         crate::output::record(
-            serde_json::json!({"dry_run":true,"action":action.as_verb(),"targets":matches.iter().map(|(alias,entry)| serde_json::json!({"alias":alias,"ip":entry.ip,"protocol":entry.protocol})).collect::<Vec<_>>()}),
+            serde_json::json!({"dry_run":true,"action":action.as_verb(),"targets":matches.iter().map(|(alias,entry)| serde_json::json!({"alias":alias,"ip":entry.ip,"protocol":entry.protocol,"group_approved":entry.protocol != hosts::Protocol::Kasa || entry.group_approved})).collect::<Vec<_>>()}),
         );
         crate::output::println!(
             "Would turn {} {} alias(es) matching \"{}\":",
@@ -238,6 +238,8 @@ pub async fn handle_group(
         }
         return Ok(());
     }
+
+    hosts::require_group_approval(&matches)?;
 
     crate::output::println!(
         "Turning {} {} alias(es) matching \"{}\" (up to {} at once):",
@@ -335,6 +337,7 @@ mod tests {
                 ip: ip.to_string(),
                 protocol,
                 device_id: None,
+                group_approved: false,
             },
         )
     }

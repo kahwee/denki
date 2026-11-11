@@ -73,3 +73,107 @@ fn parse_errors_escape_hostile_values_without_changing_exit_status_or_json() {
     assert_eq!(envelope["error"]["code"], "invalid_arguments");
     safe(&result.stderr);
 }
+
+#[test]
+fn login_rejects_password_arguments_without_echoing_and_accepts_redirected_input() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let config = tempfile::tempdir().unwrap();
+    for extra in [vec![], vec!["--json"]] {
+        let mut args = vec![
+            "login",
+            "synthetic@example.invalid",
+            "private-password-sentinel",
+        ];
+        args.extend(extra);
+        let result = run(config.path(), &args);
+        assert!(!result.status.success());
+        assert!(!String::from_utf8_lossy(&result.stdout).contains("private-password-sentinel"));
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("private-password-sentinel"));
+        assert!(!config.path().join("denki/credentials.json").exists());
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_denki"))
+        .env("XDG_CONFIG_HOME", config.path())
+        .args([
+            "login",
+            "synthetic@example.invalid",
+            "--password-stdin",
+            "--json",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"private-password-sentinel\n")
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(result.status.success());
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("private-password-sentinel"));
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("private-password-sentinel"));
+    let saved: Value = serde_json::from_slice(
+        &std::fs::read(config.path().join("denki/credentials.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(saved.to_string().contains("private-password-sentinel"));
+}
+
+#[test]
+fn legacy_group_targets_need_explicit_reenrollment_without_network_access() {
+    let config = tempfile::tempdir().unwrap();
+    let dir = config.path().join("denki");
+    std::fs::create_dir(&dir).unwrap();
+    for registry in [
+        r#"{"office":"192.0.2.1"}"#,
+        r#"{"office":{"ip":"192.0.2.1","protocol":"kasa"}}"#,
+    ] {
+        std::fs::write(dir.join("hosts.json"), registry).unwrap();
+        let result = run(config.path(), &["group", "off", "office", "--json"]);
+        assert!(!result.status.success());
+        let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "alias_approval_required");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("hosts.json")).unwrap(),
+            registry
+        );
+        assert!(
+            run(config.path(), &["group", "off", "office", "--dry-run"])
+                .status
+                .success()
+        );
+        assert!(
+            run(config.path(), &["alias", "office", "192.0.2.1"])
+                .status
+                .success()
+        );
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(dir.join("hosts.json")).unwrap()).unwrap();
+        assert_eq!(saved["office"]["group_approved"], true);
+    }
+}
+
+#[test]
+fn tpap_policy_blocks_explicit_klap_before_any_connection() {
+    let config = tempfile::tempdir().unwrap();
+    assert!(
+        run(config.path(), &["alias", "fixture", "192.0.2.1", "--klap"])
+            .status
+            .success()
+    );
+    let result = Command::new(env!("CARGO_BIN_EXE_denki"))
+        .env("XDG_CONFIG_HOME", config.path())
+        .env("DENKI_REQUIRE_TPAP", "1")
+        .env("TAPO_USER", "synthetic@example.invalid")
+        .env("TAPO_PASS", "synthetic-password")
+        .args(["info", "fixture", "--json"])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["error"]["code"], "authentication_policy");
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("synthetic-password"));
+}

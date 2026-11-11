@@ -7,7 +7,7 @@ This guide describes the checked-in workflows. Follow each linked YAML file for 
 | Workflow | Events | Jobs |
 | --- | --- | --- |
 | [ci.yml](workflows/ci.yml) | `workflow_dispatch`, `schedule`, `push`, `pull_request` | `test`, `audit`, `build` |
-| [publish-crate.yml](workflows/publish-crate.yml) | `push` to `v*` tags from user accounts | `publish` |
+| [publish-crate.yml](workflows/publish-crate.yml) | `push` to `v*` tags from user accounts | `verify`, `publish` |
 | [pages.yml](workflows/pages.yml) | `push`, `pull_request`, `workflow_dispatch` | `build`, `deploy` |
 
 ## Parallel steps
@@ -21,7 +21,8 @@ Steps after a group wait for it to finish. Keep prerequisites before the group a
 
 ## Action versions
 
-Verified against upstream stable releases on 2026-10-28. Every external action is
+Verified against upstream stable releases on 2026-10-28; artifact action pins
+were verified on 2026-11-11. Every external action is
 pinned to the resolved commit SHA; comments name the release. The Rust toolchain
 action is pinned to a commit in upstream `master` history, as required by its
 [pinning guidance](https://github.com/dtolnay/rust-toolchain#choice-of-full-length-commit-sha). The explicit
@@ -34,6 +35,8 @@ guards, rendering/docs fixtures and browser checks were verified before migratio
 | --- | --- | --- |
 | [Swatinem/rust-cache](https://github.com/Swatinem/rust-cache) | [v2.9.3](https://github.com/Swatinem/rust-cache/releases/tag/v2.9.3) | `d1527c8f67ef9af357290475d4af4b0fab8f12e0` |
 | [actions/checkout](https://github.com/actions/checkout) | [v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
+| [actions/download-artifact](https://github.com/actions/download-artifact) | [v8.0.2](https://github.com/actions/download-artifact/releases/tag/v8.0.2) | `9000827ccba6bdab643e8b6fd33ac0654aef8333` |
+| [actions/upload-artifact](https://github.com/actions/upload-artifact) | [v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2) | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
 | [actions/deploy-pages](https://github.com/actions/deploy-pages) | [v5.0.1](https://github.com/actions/deploy-pages/releases/tag/v5.0.1) | `368f82528645a54fb793d4d04e342629a3f51346` |
 | [actions/setup-python](https://github.com/actions/setup-python) | [v7.1.0](https://github.com/actions/setup-python/releases/tag/v7.1.0) | `6d4fd22b20465ccc0f7354476588e8df7c9ca0e0` |
 | [actions/upload-pages-artifact](https://github.com/actions/upload-pages-artifact) | [v5.0.0](https://github.com/actions/upload-pages-artifact/releases/tag/v5.0.0) | `fc324d3547104276b827a68afc52ff2a11cc49c9` |
@@ -42,11 +45,30 @@ guards, rendering/docs fixtures and browser checks were verified before migratio
 
 ### Registry authentication and remaining proposal
 
-`publish-crate.yml` runs only on new `v*` tag pushes from user accounts. Its job
-has `contents: read`, `actions: read`, `id-token: write`, and no GitHub environment.
+`publish-crate.yml` runs only on new `v*` tag pushes from user accounts. Its
+`verify` job has `contents: read` and `actions: read`, with no OIDC permission.
 Metadata, exact-source complete main CI, package verification and a fresh audit
-must pass before OIDC authentication. Registry trust is configured separately
-for owner `kahwee`, repository `denki`, workflow `publish-crate.yml`, blank environment.
+must pass before it uploads the checked crate and its version/source/digest record.
+Checkout does not persist GitHub credentials.
+
+The separate `publish` job has only `id-token: write` and no GitHub environment.
+It starts on a fresh GitHub-hosted runner, with no checkout, repository scripts,
+local composite actions, builds or restored caches. It downloads the immutable
+artifact ID from `verify`, checks the metadata and digest, and validates bounded
+regular files before extracting them as data. The inline validator is exercised
+by `python3 scripts/test_publish_workflow.py -v` in ordinary CI and tag verification.
+
+Only pinned external actions and workflow-defined validation/publication code run
+in the OIDC job. Cargo uses explicit Rust 1.99.1, a fresh `CARGO_HOME`, a working
+directory outside the extracted source and `--no-verify --locked --registry crates-io`.
+This prevents packaged build scripts, Cargo configuration and toolchain overrides
+from running with the publishing credential. OIDC is available throughout that
+job, not merely after its authentication step, so do not add repository code there.
+
+Registry trust is configured separately for owner `kahwee`, repository `denki`,
+workflow `publish-crate.yml`, blank environment. See the
+[publishing guide](../docs/actions-publishing.md) for the artifact-integrity limit
+and independent registry verification.
 
 `release-proposals/release-source.yml` remains inactive outside `.github/workflows`.
 Its checkout and Python setup pins match the active table above.
@@ -71,4 +93,4 @@ Linux CI also checks the Cargo package inventory and runs a locked publish dry r
 This catches missing bundled files and packaged-source compilation failures before
 release tagging. It uses the existing read-only permissions, without registry
 credentials. Registry publishing runs separately in the tag-only workflow after
-its pre-authentication checks; ordinary CI never invokes it.
+the read-only verification job; ordinary CI never invokes it.

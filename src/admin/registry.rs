@@ -25,7 +25,15 @@ fn format_alias_rows(list: &[(String, hosts::HostEntry)]) -> String {
             "{:<30} {:<18} {}\n",
             terminal_text(name),
             terminal_text(&entry.ip),
-            entry.protocol
+            format_args!(
+                "{}{}",
+                entry.protocol,
+                if entry.protocol == hosts::Protocol::Kasa && !entry.group_approved {
+                    " (group approval required)"
+                } else {
+                    ""
+                }
+            )
         ));
     }
     out.push_str(&format!(
@@ -78,7 +86,7 @@ pub fn handle_unalias(name: &str) -> Result<()> {
 pub fn handle_aliases() -> Result<()> {
     let list = hosts::list()?;
     crate::output::record(
-        serde_json::json!({"aliases":list.iter().map(|(alias,e)| serde_json::json!({"alias":alias,"ip":e.ip,"protocol":e.protocol,"identity_known":e.device_id.is_some()})).collect::<Vec<_>>()}),
+        serde_json::json!({"aliases":list.iter().map(|(alias,e)| serde_json::json!({"alias":alias,"ip":e.ip,"protocol":e.protocol,"identity_known":e.device_id.is_some(),"group_approved":e.protocol != hosts::Protocol::Kasa || e.group_approved})).collect::<Vec<_>>()}),
     );
     crate::output::println!("{}", format_alias_rows(&list));
     Ok(())
@@ -93,6 +101,7 @@ mod tests {
             ip: ip.to_string(),
             protocol,
             device_id: None,
+            group_approved: false,
         }
     }
 

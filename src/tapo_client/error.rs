@@ -6,7 +6,7 @@ pub(super) fn upstream_error(stage: &str, error: Error) -> anyhow::Error {
     if let Error::Other(ref inner) = error
         && matches!(
             crate::error::code(inner),
-            "identity_mismatch" | "malformed_response"
+            "identity_mismatch" | "malformed_response" | "authentication_policy"
         )
     {
         return crate::error::error(crate::error::code(inner), format!("Tapo {stage}: {inner}"));

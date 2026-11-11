@@ -27,14 +27,57 @@ tag pushes from user accounts. Branch pushes, pull requests and manual dispatche
 do not invoke it. It checks stable tag/manifest/root-lock agreement, confirms the
 tagged SHA is on main with successful complete push CI, validates Cargo's actual
 package inventory, runs a locked publish dry run and audits locked dependencies.
-Only then does the [official authentication action](https://github.com/rust-lang/crates-io-auth-action)
-request a short-lived OIDC credential for one locked publish.
+These checks and all repository/build code run in the read-only `verify` job,
+which has `contents: read` and `actions: read` but no OIDC permission. It saves the
+verified `.crate` plus a record of its package version, source SHA and SHA-256 digest
+as a short-lived artifact. Checkout does not retain GitHub credentials.
 
-The job has `contents: read`, `actions: read`, `id-token: write`, and no GitHub
-environment or long-lived Cargo secret. The separate registry binding must match
-owner `kahwee`, repository `denki`, workflow `publish-crate.yml`, blank environment.
-The matching binding was configured and read back on 2026-10-28. No tag-triggered
-OIDC upload has been exercised; the initial 0.1.1 upload used existing Cargo authentication.
+A separate `publish` job starts on a fresh runner with only `id-token: write`.
+It never checks out the repository, executes repository scripts or local actions,
+restores repository caches, or compiles package code. It downloads the exact
+immutable artifact ID produced by `verify`. Inline workflow code checks its
+identity, digest, packaged manifest/lock/VCS metadata, member count and sizes.
+Unexpected files, non-normal or escaping paths, duplicates, file/directory conflicts,
+symlinks, hardlinks, devices and sparse files are rejected. Compressed artifacts
+are limited to 16 MiB, decompressed tar data to 64 MiB, individual files to 8 MiB,
+and member count to 4096. Extraction creates ordinary files without honoring
+archive ownership or executable bits.
+
+Only then does the [official authentication action](https://github.com/rust-lang/crates-io-auth-action)
+request a short-lived credential. The final command uses explicit Rust 1.99.1,
+`--no-verify --locked --registry crates-io`, an empty isolated `CARGO_HOME` and a
+clean working directory outside the extracted source. Packaged build scripts,
+`.cargo` configuration and toolchain overrides cannot execute in this job. OIDC
+permission is job-wide, so moving the authentication step later in a build job
+would not provide this separation.
+
+There is no GitHub environment or long-lived Cargo secret. The separate registry
+binding must match owner `kahwee`, repository `denki`, workflow `publish-crate.yml`,
+blank environment. The matching binding was configured and read back on 2026-10-28.
+This workflow change neither configures nor re-verifies it. No tag-triggered OIDC
+upload has been exercised; the initial 0.1.1 upload used existing Cargo authentication.
+
+## Integrity and offline checks
+
+Run `python3 scripts/test_publish_workflow.py -v` to test the exact inline archive
+validator with ordinary and malicious fixtures and check the publisher's structural
+boundary. Ordinary CI and tag verification run this stdlib-only suite. It performs
+no authentication, network publication or compilation. After its explicit-registry
+publish dry run, CI also runs `--real-preflight` to validate the actual clean
+Cargo artifact through the recorder and publisher validator. This catches output
+layout or metadata changes before a release tag is pushed.
+
+The stored SHA-256 verifies the artifact transferred between jobs. Cargo publishes
+from its extracted source and repackages it. The extractor omits Cargo's generated
+`Cargo.toml.orig`, a reserved input filename that Cargo recreates from the normalized
+manifest. Archive bytes and generated manifest metadata can change, and packaging
+outside Git omits `.cargo_vcs_info.json`. Do not claim that the
+registry archive must have the preflight digest. Verify the registry's own checksum
+and compare source contents and meaningful normalized manifest fields separately.
+The workflow and pinned actions remain trusted code; the digest and recorded source
+SHA are transfer/provenance checks, not an independent proof that arbitrary build
+code produced the reviewed source. Protect and review tag/workflow changes and
+require the exact-source main CI gate.
 
 ## Recovery and GitHub releases
 

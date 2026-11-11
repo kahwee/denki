@@ -426,3 +426,102 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn strict_policy_fixture() {
+        if std::env::var_os("DENKI_TPAP_POLICY_FIXTURE").is_none() {
+            return;
+        }
+        assert_eq!(std::env::var("DENKI_REQUIRE_TPAP").unwrap(), "1");
+        for auth in [AuthProtocol::Klap, AuthProtocol::AesSsl] {
+            let mut protocol = TapoProtocol::new(Client::builder().no_proxy().build().unwrap());
+            let error = protocol
+                .login(
+                    "192.0.2.1",
+                    None,
+                    "sentinel-user",
+                    "sentinel-pass",
+                    DeviceFamily::Smart,
+                    auth,
+                )
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::Other(ref e) if crate::error::code(e) == "authentication_policy")
+            );
+        }
+        // A peer can suppress TPAP discovery, but cannot make strict mode send a
+        // KLAP proof. Only the credential-free discover request reaches it.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            loop {
+                let n = socket.read(&mut buf).await.unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buf[..n]);
+                if request.windows(b"discover".len()).any(|w| w == b"discover") {
+                    break;
+                }
+                assert!(request.len() < 4096);
+            }
+            assert!(!String::from_utf8_lossy(&request).contains("sentinel"));
+            socket
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            drop(socket);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(150), listener.accept())
+                    .await
+                    .is_err()
+            );
+        });
+        let mut protocol = TapoProtocol::new(Client::builder().no_proxy().build().unwrap());
+        let error = protocol
+            .login(
+                "127.0.0.1",
+                Some(address.port()),
+                "sentinel-user",
+                "sentinel-pass",
+                DeviceFamily::Smart,
+                AuthProtocol::Unknown,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, Error::Other(ref e) if crate::error::code(e) == "authentication_policy")
+        );
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn strict_policy_refuses_explicit_and_negotiated_fallback_before_authentication() {
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tapo_vendor::api::protocol::tapo_protocol::policy_tests::strict_policy_fixture",
+                "--nocapture",
+            ])
+            .env("DENKI_TPAP_POLICY_FIXTURE", "1")
+            .env("DENKI_REQUIRE_TPAP", "1")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed"));
+    }
+}

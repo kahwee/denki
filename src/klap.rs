@@ -175,6 +175,7 @@ async fn handshake_at(
     username: &str,
     password: &str,
 ) -> Result<KlapSession> {
+    crate::auth_policy::non_tpap(true)?;
     let ah = auth_hash(username, password);
 
     let mut local_seed = [0u8; 16];
