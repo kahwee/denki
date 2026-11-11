@@ -12,7 +12,7 @@ plugs and lights, inspect energy usage and record measurements for scripts.
 With [Rust](https://rustup.rs/) 1.99 or newer:
 
 ```sh
-cargo install denki --locked --version 0.1.1
+cargo install denki --locked --version 0.1.2
 denki --version
 denki --help
 ```
