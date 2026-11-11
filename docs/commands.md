@@ -536,7 +536,7 @@ Fleet diagnostics check each saved address once, preserve every alias in JSON,
 and skip conflicting protocol/identity assignments. Checks are read-only, use at
 most two concurrent probes by default (maximum eight), and have a 20-second deadline
 per address. Failed checks are not retried by the fleet runner. The JSON `devices`
-list contains `aliases` and `diagnostics`; `summary` counts unique addresses, OK,
+list contains `aliases`, `diagnostics`, and `elapsed_ms`; `summary` counts unique addresses, OK,
 failed, and warning results. Any failed address produces a nonzero exit status
 while retaining all results. Add `--failed-only` to show only failed addresses in
 text or JSON. This filters the displayed devices, not the checks: the summary
@@ -544,5 +544,10 @@ and exit status still describe the whole fleet, and a healthy fleet shows no
 device rows. Failures include suggested next steps for unreachable devices,
 authentication problems, and conflicting aliases. An empty registry returns an
 empty successful summary.
+Progress is written to stderr as each address finishes, even with `--json` or
+`--failed-only`. Stdout retains the final report in address order. Each address's
+`elapsed_ms` measures its check, including a timeout, but excludes time waiting
+for a concurrency slot. Text reports show the same duration in milliseconds.
+
 Confirmation shown by diagnostics is a historical user declaration, not proof
 that an offline or replaced device still matches its label.

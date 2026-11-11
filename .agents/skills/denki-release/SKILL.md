@@ -46,7 +46,7 @@ or contact physical devices for routine release validation. Tests and compilatio
 must not change hardware-verification claims in devices.toml.
 
 Require a successful CI workflow run for the exact release commit. Inspect every
-required job, including dependency audit and Linux/macOS builds. If a check fails,
+required job, including dependency audit and Linux builds. If a check fails,
 fix it within the authorized scope, publish the correction, and verify the new
 commit before tagging. Do not treat a queued run or a different commit as green.
 

@@ -24,7 +24,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local workflow and
 
 For release preparation, follow [the release skill](.agents/skills/denki-release/SKILL.md).
 Keep manifest, root lockfile and tag versions aligned; require exact-source CI,
-including Linux/macOS builds, audit and package preflight. Keep action pins and
+including Linux builds, audit and package preflight. Keep action pins and
 comments aligned with [.github/ACTIONS.md](.github/ACTIONS.md). For docs, run
 `python3 scripts/update-device-docs.py --check`, build/check the site, and keep
 README, getting-started and site installation examples consistent.

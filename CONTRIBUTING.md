@@ -144,7 +144,7 @@ holder to verify automatic OS lock release. No live devices are used.
 ## CI
 
 [CI](.github/workflows/ci.yml) runs on GitHub-hosted runners: tests, Clippy,
-formatting, rustdoc, and dependency audit on Linux, plus Linux/macOS release
+formatting, rustdoc, and dependency audit on Linux, plus Linux release
 builds. Pushes to `main`, pull requests, and manual runs execute these checks.
 To trigger a manual run, use `gh workflow run ci.yml --ref main`.
 
@@ -240,7 +240,7 @@ Run these checks locally before release preparation. A dry run compiles the
 packaged source and does not authenticate or upload to crates.io.
 
 Before creating a tag, keep `v<version>`, `Cargo.toml` and the root `Cargo.lock`
-entry aligned, and require successful CI (including Linux/macOS builds and audit)
+entry aligned, and require successful CI (including Linux builds and audit)
 on the exact source commit. Registry authentication is separate from GitHub access.
 The active [crate publisher](.github/workflows/publish-crate.yml) runs only on
 new user-pushed `v*` tags, after metadata, exact-source CI, package and audit checks.

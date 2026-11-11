@@ -483,7 +483,7 @@ fn watch_interrupt_and_cli_contracts() {
     // Ctrl-C stops an unbounded watch cleanly after a completed sample.
     {
         let _peer = Peer::device();
-        let child = super::process::Process::spawn(&mut command(
+        let mut child = super::process::Process::spawn(&mut command(
             &config,
             &[
                 "energy",
@@ -553,10 +553,16 @@ fn fleet_deduplication_identification_and_deadline() {
         ));
         assert_eq!(identified["data"]["physically_confirmed"], true);
         assert!(peer.requests.lock().unwrap().is_empty());
-        let value = document(&run(
+        let output = run(
             &fleet_config,
             &["doctor", "--all", "--timeout", "1", "--json"],
-        ));
+        );
+        let progress = String::from_utf8_lossy(&output.stderr);
+        assert!(progress.contains("Checking 2 saved addresses..."));
+        assert!(progress.contains("Checked 1/2:"));
+        assert!(progress.contains("Checked 2/2:"));
+        assert!(progress.contains(" ms)"));
+        let value = document(&output);
         assert_eq!(value["error"]["code"], "fleet_diagnostics_failed");
         assert_eq!(value["data"]["summary"]["total"], 2);
         assert_eq!(value["data"]["summary"]["ok"], 1);
@@ -581,10 +587,16 @@ fn fleet_deduplication_identification_and_deadline() {
         ));
         assert_eq!(filtered["error"]["code"], "fleet_diagnostics_failed");
         assert_eq!(filtered["data"]["summary"], value["data"]["summary"]);
+        assert_eq!(filtered["data"]["devices"].as_array().unwrap().len(), 1);
         assert_eq!(
-            filtered["data"]["devices"],
-            json!([value["data"]["devices"][1]])
+            filtered["data"]["devices"][0]["diagnostics"],
+            value["data"]["devices"][1]["diagnostics"]
         );
+        assert_eq!(
+            filtered["data"]["devices"][0]["aliases"],
+            value["data"]["devices"][1]["aliases"]
+        );
+        assert!(filtered["data"]["devices"][0]["elapsed_ms"].is_u64());
         assert!(
             filtered["data"]["devices"][0]["diagnostics"]["next_steps"][0]
                 .as_str()
@@ -692,6 +704,7 @@ fn fleet_deduplication_identification_and_deadline() {
             &["doctor", "--all", "--timeout", "1", "--json"],
         ));
         release.send(()).unwrap();
+        assert!(value["data"]["devices"][0]["elapsed_ms"].as_u64().unwrap() >= 900);
         assert_eq!(
             value["data"]["devices"][0]["diagnostics"]["error_code"],
             "timeout"

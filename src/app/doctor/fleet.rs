@@ -5,7 +5,7 @@ use anyhow::Result;
 use futures_util::{StreamExt, stream};
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod render;
 
@@ -63,6 +63,7 @@ struct FleetAlias {
 struct FleetDevice {
     aliases: Vec<FleetAlias>,
     diagnostics: DoctorReport,
+    elapsed_ms: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -113,6 +114,17 @@ impl FleetReport {
     }
 }
 
+enum Progress<'a> {
+    Started {
+        total: usize,
+    },
+    Completed {
+        completed: usize,
+        total: usize,
+        device: &'a FleetDevice,
+    },
+}
+
 /// Execute checks without reading configuration or emitting output.
 /// The probe boundary lets offline tests exercise scheduling and conflict handling.
 async fn inspect<F, Fut>(
@@ -120,13 +132,18 @@ async fn inspect<F, Fut>(
     concurrency: u8,
     timeout: u16,
     probe: F,
+    mut progress: impl FnMut(Progress<'_>),
 ) -> FleetReport
 where
     F: Fn(Resolved, u16) -> Fut,
     Fut: std::future::Future<Output = DoctorReport>,
 {
     let probe = &probe;
-    let devices = stream::iter(group_addresses(entries).into_iter().map(|(ip, aliases)| async move {
+    let groups = group_addresses(entries);
+    let total = groups.len();
+    progress(Progress::Started { total });
+    let mut checks = stream::iter(groups.into_iter().map(|(ip, aliases)| async move {
+        let started = Instant::now();
         let (name, entry) = &aliases[0];
         let mut report = if aliases.iter().any(|(_, other)| other.protocol != entry.protocol || other.device_id != entry.device_id) {
             let mut report = DoctorReport::pending(Some(name.clone()), ip.clone(), &entry.protocol);
@@ -139,14 +156,31 @@ where
         report.physically_confirmed = aliases.iter().all(|(_, entry)| entry.physically_confirmed);
         FleetDevice {
             diagnostics: report,
+            elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             aliases: aliases.into_iter().map(|(alias, entry)| FleetAlias { alias, physically_confirmed: entry.physically_confirmed }).collect(),
         }
-    })).buffer_unordered(usize::from(concurrency.max(1))).collect::<Vec<_>>().await;
+    })).buffer_unordered(usize::from(concurrency.max(1)));
+    let mut devices = Vec::with_capacity(total);
+    while let Some(device) = checks.next().await {
+        progress(Progress::Completed {
+            completed: devices.len() + 1,
+            total,
+            device: &device,
+        });
+        devices.push(device);
+    }
     FleetReport::new(devices)
 }
 
 pub(super) async fn run(concurrency: u8, timeout: u16, failed_only: bool) -> Result<()> {
-    let report = inspect(hosts::list()?, concurrency, timeout, bounded_inspect).await;
+    let report = inspect(
+        hosts::list()?,
+        concurrency,
+        timeout,
+        bounded_inspect,
+        render::progress,
+    )
+    .await;
     render::emit(&report, failed_only);
     report.outcome()
 }
@@ -197,25 +231,43 @@ mod tests {
             let active = Cell::new(0);
             let peak = Cell::new(0);
             let calls = RefCell::new(Vec::new());
-            let report = inspect(entries(), concurrency, 7, |resolved, timeout| {
-                let active = &active;
-                let peak = &peak;
-                let calls = &calls;
-                async move {
-                    assert_eq!(timeout, 7);
-                    calls.borrow_mut().push(resolved.ip.clone());
-                    active.set(active.get() + 1);
-                    peak.set(peak.get().max(active.get()));
-                    tokio::task::yield_now().await;
-                    active.set(active.get() - 1);
-                    let mut report =
-                        DoctorReport::pending(resolved.saved_name, resolved.ip, &resolved.protocol);
-                    report.status = "ok";
-                    report.warnings.push("fixture warning".into());
-                    report
-                }
-            })
+            let events = RefCell::new(Vec::new());
+            let report = inspect(
+                entries(),
+                concurrency,
+                7,
+                |resolved, timeout| {
+                    let active = &active;
+                    let peak = &peak;
+                    let calls = &calls;
+                    async move {
+                        assert_eq!(timeout, 7);
+                        calls.borrow_mut().push(resolved.ip.clone());
+                        active.set(active.get() + 1);
+                        peak.set(peak.get().max(active.get()));
+                        tokio::task::yield_now().await;
+                        active.set(active.get() - 1);
+                        let mut report = DoctorReport::pending(
+                            resolved.saved_name,
+                            resolved.ip,
+                            &resolved.protocol,
+                        );
+                        report.status = "ok";
+                        report.warnings.push("fixture warning".into());
+                        report
+                    }
+                },
+                |event| {
+                    events.borrow_mut().push(match event {
+                        Progress::Started { total } => (0, total),
+                        Progress::Completed {
+                            completed, total, ..
+                        } => (completed, total),
+                    });
+                },
+            )
             .await;
+            assert_eq!(*events.borrow(), [(0, 3), (1, 3), (2, 3), (3, 3)]);
             assert_eq!(peak.get(), concurrency);
             assert_eq!(*calls.borrow(), ["192.0.2.1", "192.0.2.3"]);
             let value = serde_json::to_value(&report).unwrap();
@@ -248,9 +300,13 @@ mod tests {
                 "fleet_diagnostics_failed"
             );
         }
-        let empty = inspect(Vec::new(), 1, 7, |_, _| async {
-            panic!("empty fleet must not probe")
-        })
+        let empty = inspect(
+            Vec::new(),
+            1,
+            7,
+            |_, _| async { panic!("empty fleet must not probe") },
+            |_| {},
+        )
         .await;
         assert!(empty.outcome().is_ok());
         assert_eq!(
@@ -259,5 +315,48 @@ mod tests {
                 "devices": [], "summary": {"total":0,"ok":0,"failed":0,"with_warnings":0}
             })
         );
+    }
+    #[tokio::test]
+    async fn progress_is_emitted_before_the_slow_probe_finishes() {
+        let ready = tokio::sync::Notify::new();
+        let entries = ["192.0.2.1", "192.0.2.2"]
+            .into_iter()
+            .map(|ip| {
+                (
+                    ip.into(),
+                    serde_json::from_value(serde_json::json!({"ip":ip,"protocol":"kasa"})).unwrap(),
+                )
+            })
+            .collect();
+        let mut order = Vec::new();
+        let check = inspect(
+            entries,
+            2,
+            1,
+            |resolved, _| {
+                let ready = &ready;
+                async move {
+                    if resolved.ip == "192.0.2.1" {
+                        ready.notified().await;
+                    }
+                    let mut report =
+                        DoctorReport::pending(resolved.saved_name, resolved.ip, &resolved.protocol);
+                    report.status = "ok";
+                    report
+                }
+            },
+            |event| {
+                if let Progress::Completed { device, .. } = event {
+                    order.push(device.diagnostics.ip.clone());
+                    ready.notify_one();
+                }
+            },
+        );
+        let report = tokio::time::timeout(Duration::from_secs(1), check)
+            .await
+            .expect("progress must not wait for all probes");
+        assert_eq!(order, ["192.0.2.2", "192.0.2.1"]);
+        assert_eq!(report.devices[0].diagnostics.ip, "192.0.2.1");
+        assert!(report.outcome().is_ok());
     }
 }

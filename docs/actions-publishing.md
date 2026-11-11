@@ -12,7 +12,7 @@ That initial upload used immutable `v0.1.1` at commit
 1. Follow the [release skill](../.agents/skills/denki-release/SKILL.md). Update the
    manifest/root-lock versions and relevant documentation together.
 2. Run the local checks and package preflight, then push main. Require successful
-   CI on that exact source, including tests, Linux/macOS builds and audit.
+   CI on that exact source, including tests, Linux builds and audit.
 3. Confirm the external crates.io trusted-publisher binding, then push one new
    stable `v<version>` tag matching the manifest and root lockfile. Never reuse
    or move an existing tag.
