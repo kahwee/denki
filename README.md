@@ -24,16 +24,19 @@ tagged-source install and [contributing](CONTRIBUTING.md) for development setup.
 
 ## Connect a device
 
-For Kasa, discover devices and use an alias from the results:
+For Kasa, scan, independently verify the device address, then enroll your own alias:
 
 ```sh
 denki scan
+denki alias "desk plug" 192.0.2.42
 denki info "desk plug"
 denki doctor "desk plug"
 denki on "desk plug"
 denki off "desk plug"
 ```
 
+Scan does not create new Kasa aliases. Legacy Kasa aliases must be explicitly
+re-saved with `denki alias NAME IP` before group commands can control them.
 Scan never moves a saved Kasa alias based on an unauthenticated device ID. After a
 DHCP change, verify the new address independently (for example, in your router),
 then run `denki alias "desk plug" NEW_IP`. Kasa scan results are unauthenticated
@@ -51,6 +54,9 @@ denki info "tapo plug"
 Replace names and example addresses with your devices. `login` prompts for the
 password. `--tapo` (`--tpap`) negotiates TPAP/KLAP; existing `--klap` aliases keep
 the original client. Scan probes saved Tapo addresses. Unknown IPs default to Kasa.
+Set `DENKI_REQUIRE_TPAP=1` to refuse non-TPAP authentication, including KLAP
+fallback. KLAP handshake captures permit offline password guessing; the default
+compatibility mode warns when KLAP is selected.
 See [Tapo setup and limits](docs/commands.md#aliases-and-tapo-setup).
 
 ## Energy and groups

@@ -132,7 +132,7 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
     let config = config();
     aliases(
         &config,
-        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","device_id":"synthetic-device-a"}}),
+        json!({"desk":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true,"device_id":"synthetic-device-a"}}),
     );
     {
         let peer = Peer::start(|request, _| reply(request));
@@ -263,6 +263,7 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
                 ip: "127.0.0.2".into(),
                 protocol: denki::hosts::Protocol::Kasa,
                 device_id: Some("synthetic-device-a".into()),
+                group_approved: false,
             },
         );
         let original = map.clone();
@@ -299,7 +300,7 @@ fn cli_real_tcp_success_failure_identity_groups_and_streams() {
         let peer = Peer::start(|r, _| reply(r));
         aliases(
             &config,
-            json!({"office one":{"ip":"127.0.0.1","protocol":"kasa"},"office two":{"ip":"127.0.0.2","protocol":"kasa"}}),
+            json!({"office one":{"ip":"127.0.0.1","protocol":"kasa","group_approved":true},"office two":{"ip":"127.0.0.2","protocol":"kasa","group_approved":true}}),
         );
         let dry = document(&run(
             &config,

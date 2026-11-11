@@ -39,6 +39,9 @@ pub(super) async fn handle_scan(timeout: u64, tapo_targets: Vec<IpAddr>) -> Resu
     // Resolve conflicts before any discovery traffic or registry changes.
     let targets = probe_targets(&map, tapo_targets)?;
     crate::output::println!("Scanning network for {timeout}s...");
+    crate::output::println!(
+        "Kasa observations are untrusted and are not enrolled. Verify addresses independently, then use denki alias NAME IP."
+    );
     let mut found = Vec::new();
     transport::broadcast_each(timeout, |ip, response| found.push((ip, response))).await?;
     // Process known identities first. Kasa replies may confirm their saved
@@ -151,6 +154,7 @@ mod protocol_tests {
             ip: ip.into(),
             protocol,
             device_id: None,
+            group_approved: false,
         }
     }
 

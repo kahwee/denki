@@ -34,7 +34,9 @@ jobs:
         with:
           python-version: "3.15.2"
       - name: Test release metadata guard
-        run: python3 scripts/test_check_release.py -v
+        run: |
+          python3 scripts/test_check_release.py -v
+          python3 scripts/test_publish_workflow.py -v
 
       - uses: ./.github/actions/setup-rust
       # Only tests compile here; formatting and registry checks share no build outputs.
@@ -52,7 +54,8 @@ jobs:
         run: |
           python3 scripts/test_check_package.py -v
           python3 scripts/check-package.py
-          cargo publish --locked --dry-run
+          cargo publish --locked --dry-run --registry crates-io
+          python3 scripts/test_publish_workflow.py --real-preflight
 
   audit:
     name: Dependency Audit

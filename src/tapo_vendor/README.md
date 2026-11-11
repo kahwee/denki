@@ -54,3 +54,7 @@ these limits and tests, and remove the copy only when an upstream release offers
 an equivalent enforced streaming cap on every control response. Do not replace
 this with a versioned path dependency, which would silently discard the fix in
 registry packages. No live device validation was performed for this patch.
+
+Denki also checks its `DENKI_REQUIRE_TPAP` policy before KLAP/AES authentication,
+including refreshes. This is a local policy hook, not an upstream change or a fix
+to KLAP's offline-password-guessing property. Keep it when refreshing the bundle.

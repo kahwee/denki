@@ -7,7 +7,7 @@ use clap_complete::Shell;
     name = "denki",
     about = "Control TP-Link Kasa and Tapo devices from the terminal",
     version,
-    after_help = "Start here:\n  denki scan\n  denki aliases\n  denki info \"desk plug\"\n  denki doctor \"desk plug\"\n\nTapo P125: add an alias with --tapo, then run denki login EMAIL.\nUse --json for one result; energy watch streams JSONL with --json.\nUse energy watch --format csv for spreadsheets; do not combine it with --json.\nOnly commands supported by the selected device are available.\nHuman output escapes terminal controls; unsafe aliases have no command hints.\nGuide: https://kahwee.github.io/denki/"
+    after_help = "Start here:\n  denki scan\n  denki aliases\n  denki info \"desk plug\"\n  denki doctor \"desk plug\"\n\nTapo P125: add an alias with --tapo, then run denki login EMAIL.\nUse --json for one result; energy watch streams JSONL with --json.\nUse energy watch --format csv for spreadsheets; do not combine it with --json.\nOnly commands supported by the selected device are available.\nKasa scan names need explicit enrollment with denki alias NAME IP.\nSet DENKI_REQUIRE_TPAP=1 to reject KLAP fallback before authentication.\nHuman output escapes terminal controls; unsafe aliases have no command hints.\nGuide: https://kahwee.github.io/denki/"
 )]
 pub struct Cli {
     /// Emit versioned JSON (energy watch streams JSONL); progress goes to stderr
@@ -19,9 +19,9 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Scan Kasa devices and saved Tapo aliases; save new names without replacing existing aliases
+    /// Observe Kasa devices without enrolling names; probe saved Tapo aliases
     ///
-    /// Kasa discovery cannot authenticate address changes. Verify a moved device's IP
+    /// Kasa discovery cannot authenticate names or addresses. Verify each device's IP
     /// independently, then update its saved name with `denki alias NAME IP`.
     Scan {
         #[arg(short, long, default_value = "5")]
@@ -33,7 +33,7 @@ pub enum Command {
 
     /// Show detailed info about a device
     Info {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
@@ -47,7 +47,7 @@ pub enum Command {
 
     /// Turn a device on
     On {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based (strips only)
@@ -57,7 +57,7 @@ pub enum Command {
 
     /// Turn a device off
     Off {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based (strips only)
@@ -67,7 +67,7 @@ pub enum Command {
 
     /// Toggle a device on/off
     Toggle {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based (strips only)
@@ -75,7 +75,7 @@ pub enum Command {
         outlet: Option<u8>,
     },
 
-    /// Apply on/off/toggle to all matching aliases
+    /// Apply on/off/toggle to matching aliases (Kasa requires explicit alias enrollment)
     Group {
         #[arg(value_enum)]
         action: GroupAction,
@@ -92,7 +92,7 @@ pub enum Command {
 
     /// Set brightness 0-100 (bulbs and HS220 dimmers)
     Dim {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
@@ -101,7 +101,7 @@ pub enum Command {
 
     /// Set color temperature in Kelvin 2500-9000 (bulbs only)
     ColorTemp {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_parser = clap::value_parser!(u16).range(2500..=9000))]
@@ -110,7 +110,7 @@ pub enum Command {
 
     /// Set HSV color (bulbs only)
     Color {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Hue 0-360°
@@ -126,7 +126,7 @@ pub enum Command {
 
     /// Cycle a color light through the rainbow until interrupted with Ctrl-C
     Rainbow {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Delay between hue steps, in milliseconds
@@ -152,7 +152,7 @@ pub enum Command {
 
     /// Show daily energy usage for a month (YYYY-MM) on bulbs, light strips, and ENE-capable plugs/strips
     EnergyDaily {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Month in YYYY-MM format (defaults to current month)
@@ -165,7 +165,7 @@ pub enum Command {
 
     /// Show monthly energy usage for a year on bulbs, light strips, and ENE-capable plugs/strips
     EnergyMonthly {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_name = "YYYY")]
@@ -177,28 +177,28 @@ pub enum Command {
 
     /// Show bulb hardware specs — lumens, wattage, CRI (bulbs only)
     Specs {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Show saved light presets (bulbs only)
     Presets {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// List built-in light strip effects and the current active effect (light strips only)
     Effects {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Activate a built-in light strip effect by name (light strips only)
     Effect {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Effect name, e.g. Aurora, Rainbow, Off
@@ -207,14 +207,14 @@ pub enum Command {
 
     /// Show scheduled rules (plugs, dimmers, and power strips)
     Schedules {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Control the LED indicator (plugs, dimmers, and power strips)
     Led {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         #[arg(value_enum)]
@@ -223,14 +223,14 @@ pub enum Command {
 
     /// Show device clock (plugs, dimmers, and power strips)
     Clock {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Rename a Kasa device
     Rename {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         name: String,
@@ -238,21 +238,21 @@ pub enum Command {
 
     /// Reboot a Kasa device
     Restart {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// List all outlets on a power strip, showing 1-based outlet numbers, names, and state (strips only)
     Outlets {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
     },
 
     /// Rename one outlet on a power strip (1-based outlet number)
     OutletRename {
-        /// Device name from scan output, a saved alias, or an IP address
+        /// Explicitly saved device alias or an IP address
         #[arg(value_name = "DEVICE")]
         host: String,
         /// Outlet number, 1-based
@@ -296,8 +296,9 @@ pub enum Command {
     Login {
         /// Tapo account email address
         email: String,
-        /// Tapo account password (omit to be prompted; never pass on command line in scripts)
-        password: Option<String>,
+        /// Read one password line from redirected stdin instead of the hidden prompt
+        #[arg(long)]
+        password_stdin: bool,
     },
 }
 

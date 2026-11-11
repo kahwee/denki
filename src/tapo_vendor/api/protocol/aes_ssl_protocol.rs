@@ -140,6 +140,7 @@ impl AesSslProtocol {
         username: &str,
         password: &str,
     ) -> Result<AesSslLogin, Error> {
+        crate::auth_policy::non_tpap(false)?;
         let local_nonce = generate_nonce();
 
         let handshake1_result = match self

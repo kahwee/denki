@@ -105,7 +105,8 @@ it atomically replaces the file. Network discovery never holds the file lock.
 | `load()` | Read hosts.json from disk; returns `BTreeMap<String, HostEntry>` |
 | `save(map)` | Explicit full replacement under a lock; atomic write |
 | `save_if_unchanged(previous, map)` | Locked comparison and atomic commit; rejects stale scan snapshots |
-| `save_if_new_in(name, ip, map)` | Insert if IP not already present; returns `bool` (dirty flag) |
+| `save_if_new_in(name, ip, map)` | Legacy no-op; unauthenticated discovery cannot enroll targets |
+| `require_group_approval(matches)` | Reject the whole group if a Kasa target lacks explicit enrollment |
 | `lookup_by_ip_in(ip, map)` | Reverse lookup alias name from an in-memory map |
 | `lookup(name)` | Exact-then-substring match; errors on ambiguity |
 | `normalize(s)` | Lowercase + collapse non-alphanumeric to spaces for fuzzy matching |
@@ -202,3 +203,18 @@ matching address authenticates Kasa; a trusted LAN is still required.
 
 Malformed weekday arrays are reported as invalid instead of indexing outside the
 seven-day label table or pretending the schedule is valid.
+
+
+## Local trust and authentication policy
+
+New Kasa observations never add aliases. Only explicit `set` / `denki alias`
+sets `group_approved`; v1 and older v2 entries default to false. Identity learning
+at a saved address never upgrades this flag. Group commands validate every Kasa
+target before any device work; Tapo's authenticated targets are unchanged.
+This protects local target selection, not the inherently unauthenticated Kasa wire.
+
+`DENKI_REQUIRE_TPAP=1` rejects non-TPAP handshakes at the original and bundled
+transport boundaries, including refresh. Default compatibility mode warns before
+KLAP, whose captured fast-hash handshake can be checked against password guesses
+offline. The protocol cannot be repaired unilaterally by this client. CLI login
+uses hidden prompting or bounded redirected stdin, never a positional password.

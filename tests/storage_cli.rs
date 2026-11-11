@@ -126,7 +126,7 @@ fn credential_creation_is_private_under_permissive_umask_and_atomic_on_replaceme
         if path.exists() {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
         }
-        let output = Command::new("sh")
+        let mut child = Command::new("sh")
             .args([
                 "-c",
                 "umask 000; exec \"$@\"",
@@ -134,12 +134,17 @@ fn credential_creation_is_private_under_permissive_umask_and_atomic_on_replaceme
                 env!("CARGO_BIN_EXE_denki"),
                 "login",
                 "test@example.invalid",
-                pass,
+                "--password-stdin",
                 "--json",
             ])
             .env("XDG_CONFIG_HOME", config.path())
-            .output()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap();
+        std::io::Write::write_all(&mut child.stdin.take().unwrap(), pass.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
         assert!(
             output.status.success(),
             "{}",

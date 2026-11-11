@@ -96,7 +96,10 @@ async fn dispatch_command(command: Command) -> Result<()> {
         } => admin::handle_alias(&name, &ip, klap, tapo),
         Command::Unalias { name } => admin::handle_unalias(&name),
         Command::Aliases => admin::handle_aliases(),
-        Command::Login { email, password } => admin::handle_login(&email, password),
+        Command::Login {
+            email,
+            password_stdin,
+        } => admin::handle_login(&email, password_stdin),
         Command::Completions { shell } => {
             admin::handle_completions(shell);
             Ok(())
@@ -113,6 +116,14 @@ pub async fn run() -> Result<()> {
     let cli = match Cli::try_parse_from(&args) {
         Ok(cli) => cli,
         Err(error) => {
+            let error = if error.use_stderr() && args.iter().any(|arg| arg == "login") {
+                clap::Error::raw(
+                    clap::error::ErrorKind::InvalidValue,
+                    "Invalid login arguments. Use denki login EMAIL [--password-stdin]. Passwords must not be passed as arguments.\n",
+                )
+            } else {
+                error
+            };
             if wants_json && error.use_stderr() {
                 let result = Err(crate::error::error("invalid_arguments", error.to_string()));
                 std::println!(

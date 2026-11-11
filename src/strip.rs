@@ -73,11 +73,29 @@ mod tests {
     use crate::test_support;
 
     #[test]
+    fn fixture_identity_and_inventory_are_explicitly_synthetic() {
+        let value = test_support::hs300_hw2_sysinfo();
+        let info = &value["system"]["get_sysinfo"];
+        assert_eq!(info["deviceId"], "0000000000000000000000000000000000000001");
+        assert_eq!(info["sw_ver"], "0.0.0 Build 000000 Rel.000000");
+        assert_eq!(info["alias"], "Synthetic Strip");
+        for child in info["children"].as_array().unwrap() {
+            assert!(
+                child["alias"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("Synthetic Outlet ")
+            );
+            assert!(matches!(child["on_time"].as_u64(), Some(0 | 60)));
+        }
+    }
+
+    #[test]
     fn parse_hs300_hw2_succeeds_without_relay_state() {
         // relay_state is absent on HW 2.0 — parse must not fail
         let s =
             parse(&test_support::hs300_hw2_sysinfo()).expect("should parse HS300 HW 2.0 sysinfo");
-        assert_eq!(s.alias, "Garage Strip");
+        assert_eq!(s.alias, "Synthetic Strip");
         assert_eq!(s.model, "HS300(US)");
         assert_eq!(s.children.len(), 6);
     }
@@ -85,7 +103,7 @@ mod tests {
     #[test]
     fn parse_hs300_hw2_expands_short_child_ids() {
         // Short IDs ("00"…"05") must be prefixed with deviceId for per-outlet commands
-        let device_id = "8006EF1981B177DF7C826D7A58FE7461245891E7";
+        let device_id = "0000000000000000000000000000000000000001";
         let s = parse(&test_support::hs300_hw2_sysinfo()).unwrap();
         assert_eq!(s.children[0].id, format!("{device_id}00"));
         assert_eq!(s.children[4].id, format!("{device_id}04"));
@@ -95,10 +113,10 @@ mod tests {
     #[test]
     fn parse_hs300_hw2_outlet_states() {
         let s = parse(&test_support::hs300_hw2_sysinfo()).unwrap();
-        assert!(s.children[0].is_on(), "Eero should be on");
-        assert!(!s.children[1].is_on(), "Plug 2 should be off");
-        assert!(s.children[4].is_on(), "Printer should be on");
-        assert!(s.children[5].is_on(), "Ugreen NAS should be on");
+        assert!(s.children[0].is_on(), "Synthetic outlet 1 should be on");
+        assert!(!s.children[1].is_on(), "Synthetic outlet 2 should be off");
+        assert!(s.children[4].is_on(), "Synthetic outlet 5 should be on");
+        assert!(s.children[5].is_on(), "Synthetic outlet 6 should be on");
     }
 
     #[test]
@@ -119,13 +137,13 @@ mod tests {
     #[test]
     fn parse_preserves_full_child_ids_when_already_long() {
         // Older firmware returns full 42-char child IDs — must not double-prefix them
-        let full_id = "8006EF1981B177DF7C826D7A58FE7461245891E700";
+        let full_id = "000000000000000000000000000000000000000100";
         let json = serde_json::json!({
             "system": {
                 "get_sysinfo": {
                     "alias": "old strip", "model": "HS300", "hw_ver": "1.0",
                     "sw_ver": "1.0.0", "rssi": -40, "feature": "TIM",
-                    "deviceId": "8006EF1981B177DF7C826D7A58FE7461245891E7",
+                    "deviceId": "0000000000000000000000000000000000000001",
                     "children": [
                         { "id": full_id, "state": 1, "alias": "Outlet 1", "on_time": 100 }
                     ]

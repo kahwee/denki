@@ -1,6 +1,7 @@
 #![doc = include_str!("../docs/library.md")]
 
 pub mod app;
+mod auth_policy;
 pub mod bulb;
 pub mod cipher;
 pub mod cli;
