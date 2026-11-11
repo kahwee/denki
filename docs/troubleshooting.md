@@ -94,3 +94,19 @@ Open an [issue on GitHub](https://github.com/kahwee/denki/issues) with the devic
 model, region, hardware/firmware version, Denki version (`denki --version`), exact
 command, error, and sanitized doctor output. Say whether the behavior happened on
 a real device or only in a simulator.
+
+## Unsafe local configuration
+
+On Unix, Denki refuses configuration that another local user could replace or
+modify. Check ownership and permissions of the Denki configuration directory and
+its ancestors. Keep the Denki directory private (0700), credentials private
+(0600), and remove group/other write access from `hosts.json` and its ancestors.
+Do not recursively chmod your home directory or follow unexpected symbolic links.
+New Denki directories are created privately; unsafe existing ancestors are
+reported rather than silently modified. Root-managed system links are supported;
+user-owned linked configuration directories must be replaced with a real private
+directory at the configured location.
+
+Set both non-empty `TAPO_USER` and `TAPO_PASS`, or unset both. A partial override
+now fails instead of silently using saved credentials. Credential parsing errors
+never include the malformed file contents.

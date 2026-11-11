@@ -219,3 +219,23 @@ transport boundaries, including refresh. Default compatibility mode warns before
 KLAP, whose captured fast-hash handshake can be checked against password guesses
 offline. The protocol cannot be repaired unilaterally by this client. CLI login
 uses hidden prompting or bounded redirected stdin, never a positional password.
+
+## Configuration trust boundary
+
+`src/storage/security.rs` centralizes bounded reads, Unix ownership/permission
+checks, and safe file opening. Registry reads require integrity (no group/other
+writes); credential reads additionally require confidentiality (no group/other
+permissions). Both use the checked file descriptor, reject hard links and
+non-regular files, and open with `O_NOFOLLOW | O_NONBLOCK` on Unix. Lock sidecars
+use the same file validation before locking. New directories use mode 0700.
+
+Ancestor directories must belong to the current effective user or root and must
+not be group/other writable. Root-owned sticky temporary directories are allowed
+as ancestors, but never as the immediate configuration directory. Root-managed
+system symlinks (for example macOS `/var`) are checked through their targets;
+user-owned symlink directories are rejected. Root and same-UID processes remain
+trusted. These Unix checks do not constitute a Windows ACL audit.
+
+The existing atomic replacement path can safely replace a permissive credential
+file during login without reading it. It never follows a destination symlink.
+Reads are limited to 16 KiB for credentials and 4 MiB for the alias registry.

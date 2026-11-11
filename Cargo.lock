@@ -744,6 +744,7 @@ dependencies = [
  "rpassword",
  "rsa",
  "rstest",
+ "rustix",
  "serde",
  "serde_json",
  "serde_with",

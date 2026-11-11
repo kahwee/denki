@@ -5,6 +5,15 @@ are on `main` and are not part of the published tags below.
 
 ## [Unreleased]
 
+### Security
+
+- Validate Unix configuration files, lock sidecars, and ancestor directories before
+  use; reject unsafe permissions, ownership, symlinks, hard links, and special files.
+  Create new directories privately and bound configuration reads.
+- Reject partial/empty credential environment overrides and sanitize malformed
+  credential errors without retaining secret-bearing parser details.
+
+
 ## [0.2.0] - 2026-11-11
 
 ### Added

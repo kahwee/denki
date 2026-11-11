@@ -4,6 +4,9 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
+mod security;
+pub(crate) use security::read;
+
 /// Keep this handle alive for the entire read-modify-write transaction.
 /// The stable sidecar is never removed: replacing/unlinking it would split locks.
 pub(crate) struct FileLock {
@@ -11,20 +14,16 @@ pub(crate) struct FileLock {
 }
 impl FileLock {
     pub(crate) fn acquire(path: &Path) -> Result<Self> {
-        let parent = path.parent().context("Configuration path has no parent")?;
-        std::fs::create_dir_all(parent)?;
+        security::parent(path, true)?;
         let mut name = path.as_os_str().to_os_string();
         name.push(".lock");
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
+        security::options(&mut options);
         let file = options
             .open(Path::new(&name))
             .context("Could not open configuration lock")?;
+        security::validate_file(&file, false)?;
         file.lock().context("Could not lock configuration")?;
         Ok(Self { _file: file })
     }
@@ -39,12 +38,15 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn atomic_write_with(path: &Path, write: impl FnOnce(&mut File) -> Result<()>) -> Result<()> {
     let parent = path.parent().context("Configuration path has no parent")?;
-    std::fs::create_dir_all(parent)?;
+    security::parent(path, true)?;
     // tempfile creates with mode 0600 on Unix, before any secret is written.
     // Same-directory placement guarantees rename stays on the same filesystem.
     let mut temporary = tempfile::Builder::new()
         .prefix(".denki-")
         .tempfile_in(parent)?;
+    // Some NAS filesystems override requested modes. Never write secrets until
+    // the actual created file has been checked.
+    security::validate_file(temporary.as_file(), true)?;
     write(temporary.as_file_mut())?;
     temporary.as_file().sync_all()?;
     temporary

@@ -50,10 +50,9 @@ fn hosts_path() -> PathBuf {
 }
 
 fn load_map(path: &Path) -> Result<BTreeMap<String, HostEntry>> {
-    if !path.exists() {
+    let Some(data) = crate::storage::read(path, false, 4 * 1024 * 1024)? else {
         return Ok(BTreeMap::new());
-    }
-    let data = std::fs::read_to_string(path)?;
+    };
 
     let map = match serde_json::from_str::<BTreeMap<String, HostEntry>>(&data) {
         Ok(map) => map,

@@ -211,3 +211,64 @@ fn killed_writer_releases_lock_without_deleting_sidecar() {
         .expect("OS must release a killed process's lock");
     assert!(path.exists());
 }
+
+#[test]
+fn unsafe_registry_is_rejected_before_control_and_credentials_never_leak() {
+    use std::os::unix::fs::PermissionsExt;
+    let config = tempfile::tempdir().unwrap();
+    let dir = config.path().join("denki");
+    std::fs::create_dir(&dir).unwrap();
+    let hosts = dir.join("hosts.json");
+    std::fs::write(&hosts, br#"{"test":{"ip":"127.0.0.1","protocol":"tapo"}}"#).unwrap();
+    std::fs::set_permissions(&hosts, std::fs::Permissions::from_mode(0o666)).unwrap();
+    let output = command(config.path(), &["on", "test", "--json"])
+        .output()
+        .unwrap();
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(!output.status.success());
+    assert_eq!(json["error"]["code"], "unsafe_configuration");
+    std::fs::set_permissions(&hosts, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let credentials = dir.join("credentials.json");
+    std::fs::write(
+        &credentials,
+        br#"{"tapo_user":"test@example.invalid","tapo_pass":"synthetic-secret"}"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&credentials, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let output = command(config.path(), &["doctor", "test", "--json"])
+        .env_remove("TAPO_USER")
+        .env_remove("TAPO_PASS")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-secret"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-secret"));
+    std::fs::write(&credentials, br#""synthetic-secret""#).unwrap();
+    std::fs::set_permissions(&credentials, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = command(config.path(), &["doctor", "test", "--json"])
+        .env_remove("TAPO_USER")
+        .env_remove("TAPO_PASS")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-secret"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("synthetic-secret"));
+    for (user, pass) in [
+        (Some("test@example.invalid"), None),
+        (None, Some("synthetic-secret")),
+        (Some(""), Some("synthetic-secret")),
+    ] {
+        let mut cmd = command(config.path(), &["doctor", "test", "--json"]);
+        cmd.env_remove("TAPO_USER").env_remove("TAPO_PASS");
+        if let Some(user) = user {
+            cmd.env("TAPO_USER", user);
+        }
+        if let Some(pass) = pass {
+            cmd.env("TAPO_PASS", pass);
+        }
+        let output = cmd.output().unwrap();
+        assert!(!output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-secret"));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Set both non-empty"));
+    }
+}

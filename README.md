@@ -101,3 +101,7 @@ weak signal is a warning, not a failed connectivity check. Doctor never switches
 Use `denki identify "desk plug" --confirm` to record physical identification,
 and `denki doctor --all` for read-only fleet health checks. See the
 [command guide](docs/commands.md#physical-identification-and-fleet-health).
+
+Denki checks Unix configuration ownership and permissions before use. Unsafe
+registries, credentials, or parent directories are rejected; see
+[configuration troubleshooting](docs/troubleshooting.md#unsafe-local-configuration).
