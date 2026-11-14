@@ -1,2 +1,2 @@
-Markdown==3.11.2
+Markdown==3.11.3
 playwright==1.64.1
