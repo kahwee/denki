@@ -4,7 +4,7 @@ use crate::output::terminal_text;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::io::{IsTerminal, Write};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 pub async fn handle_energy_watch(
     host: &str,
@@ -47,7 +47,7 @@ pub async fn handle_energy_watch(
             result = sample => result,
             signal = &mut signal => { signal?; break; }
         };
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+        let timestamp = u64::try_from(jiff::Timestamp::now().as_millisecond())?;
         let row = match result {
             Ok(measurement) => {
                 json!({"schema_version":1,"timestamp_unix_ms":timestamp,"device":host,"outlet":outlet,"status":"ok","source":"device","measurement":measurement,"error":null})

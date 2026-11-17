@@ -26,7 +26,7 @@ were verified on 2026-11-11. Every external action is
 pinned to the resolved commit SHA; comments name the release. The Rust toolchain
 action is pinned to a commit in upstream `master` history, as required by its
 [pinning guidance](https://github.com/dtolnay/rust-toolchain#choice-of-full-length-commit-sha). The explicit
-`toolchain` input selects Rust 1.99.1. Python setup selects 3.15.2; the script
+`toolchain` input selects Rust 1.100.0. Python setup selects 3.15.2; the script
 guards, rendering/docs fixtures and browser checks were verified before migration.
 
 ### Active workflows and composite actions
@@ -59,7 +59,7 @@ regular files before extracting them as data. The inline validator is exercised
 by `python3 scripts/test_publish_workflow.py -v` in ordinary CI and tag verification.
 
 Only pinned external actions and workflow-defined validation/publication code run
-in the OIDC job. Cargo uses explicit Rust 1.99.1, a fresh `CARGO_HOME`, a working
+in the OIDC job. Cargo uses explicit Rust 1.100.0, a fresh `CARGO_HOME`, a working
 directory outside the extracted source and `--no-verify --locked --registry crates-io`.
 This prevents packaged build scripts, Cargo configuration and toolchain overrides
 from running with the publishing credential. OIDC is available throughout that

@@ -301,11 +301,11 @@ class PublishingBoundaryTests(unittest.TestCase):
             'rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6',
         ])
         runs = re.findall(r'^        run: (.+)$', publish, re.MULTILINE)
-        self.assertEqual(runs, ['|', 'cargo +1.99.1 publish --no-verify --locked --registry crates-io '
+        self.assertEqual(runs, ['|', 'cargo +1.100.0 publish --no-verify --locked --registry crates-io '
                                '--manifest-path "$(cat manifest-path)"'])
         self.assertIn('        working-directory: ${{ runner.temp }}/crate-publish\n', publish)
         self.assertIn('          CARGO_HOME: ${{ runner.temp }}/publish-cargo-home\n', publish)
-        self.assertIn('          toolchain: 1.99.1\n', publish)
+        self.assertIn('          toolchain: 1.100.0\n', publish)
         self.assertLess(publish.index('Unpack the verified crate as data'),
                         publish.index('Authenticate with crates.io'))
         self.assertNotIn('${{', inline_validator())  # No direct event interpolation into Python.

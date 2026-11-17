@@ -72,7 +72,7 @@ jobs:
               raise ValueError('Expected a stable package version')
           if os.environ['RELEASE_TAG'] != 'v' + version:
               raise ValueError('Package version does not match the tag')
-          # Cargo 1.99.1 publish --dry-run retains its checked upload here.
+          # Cargo 1.100.0 publish --dry-run retains its checked upload here.
           archive = pathlib.Path('target/package/tmp-registry') / ('denki-' + version + '.crate')
           destination = pathlib.Path(os.environ['RUNNER_TEMP']) / 'verified-crate'
           destination.mkdir(mode=0o700)
@@ -100,7 +100,7 @@ jobs:
       # runs repository scripts or local actions, or restores a repository cache.
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: 1.99.1
+          toolchain: 1.100.0
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.verify.outputs.artifact_id }}
@@ -230,7 +230,7 @@ jobs:
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
       - name: Publish without executing package code
         working-directory: ${{ runner.temp }}/crate-publish
-        run: cargo +1.99.1 publish --no-verify --locked --registry crates-io --manifest-path "$(cat manifest-path)"
+        run: cargo +1.100.0 publish --no-verify --locked --registry crates-io --manifest-path "$(cat manifest-path)"
         env:
           CARGO_HOME: ${{ runner.temp }}/publish-cargo-home
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

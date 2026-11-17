@@ -55,6 +55,7 @@ tempfile = "3.27.0"
 async-trait = { version = "0.1" }
 base16ct = { version = "1.0", features = ["alloc"] }
 ccm = { version = "0.6" }
+jiff = "1.0.0"
 chrono = { version = "0.4.34", features = ["clock", "serde"], default-features = false }
 chrono-tz = { version = "0.10", features = ["serde"] }
 crc32fast = { version = "1.5" }
